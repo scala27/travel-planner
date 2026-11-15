@@ -42,32 +42,50 @@
       background-color: #F6F7F9;
       color: #1E293B;
     }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 999px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+    /* 加粗橫向與縱向捲軸，方便滑鼠拖曳檢視多日行程 */
+    ::-webkit-scrollbar { width: 7px; height: 9px; }
+    ::-webkit-scrollbar-track { background: #E2E8F0; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748B; }
     
     .sortable-ghost { opacity: 0.4; background: #E2E8F0 !important; border: 2px dashed #567EBB !important; }
     .sortable-drag { transform: rotate(2deg); box-shadow: 0 12px 24px rgba(0,0,0,0.15); }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .resizer-active { background-color: #2B4C7E !important; }
   </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden">
+<body class="h-screen flex flex-col overflow-hidden select-none sm:select-auto">
 
   <!-- 頂部導覽列 -->
-  <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between shrink-0 z-20 shadow-xs">
-    <div class="flex items-center gap-2.5">
-      <div class="w-9 h-9 rounded-xl bg-ai-indigo text-white flex items-center justify-center shadow-xs">
+  <header class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 z-20 shadow-xs gap-2">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <div class="w-9 h-9 rounded-xl bg-ai-indigo text-white flex items-center justify-center shadow-xs shrink-0">
         <i data-lucide="compass" class="w-5 h-5"></i>
       </div>
-      <div>
-        <h1 id="header-trip-title" class="font-bold text-base sm:text-lg text-ink-dark leading-tight">2027 沖繩首發自由行</h1>
-        <p id="header-trip-dates" class="text-xs text-ink-muted">2027-02-16 ~ 2027-02-21 (6天5夜)</p>
+      <div class="min-w-0">
+        <h1 id="header-trip-title" class="font-bold text-sm sm:text-base text-ink-dark leading-tight truncate">2027沖繩首發自由行</h1>
+        <p id="header-trip-dates" class="text-[11px] text-ink-muted truncate">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
-      <span id="sync-status-badge" class="hidden sm:inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+    <!-- 版面檢視控制列（桌機版可一鍵收合左側口袋或右側地圖） -->
+    <div class="hidden lg:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+      <button onclick="toggleLeftPanel()" id="btn-toggle-left"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition"
+        title="顯示或隱藏左側口袋名單">
+        <i data-lucide="panel-left-close" class="w-3.5 h-3.5"></i>
+        <span>隱藏口袋</span>
+      </button>
+      <button onclick="toggleRightPanel()" id="btn-toggle-right"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition"
+        title="顯示或隱藏右側地圖">
+        <i data-lucide="panel-right-close" class="w-3.5 h-3.5"></i>
+        <span>隱藏地圖</span>
+      </button>
+    </div>
+
+    <div class="flex items-center gap-2 shrink-0">
+      <span id="sync-status-badge" class="hidden xl:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
         <span class="w-2 h-2 rounded-full bg-amber-500" id="sync-dot"></span>
         <span id="sync-text">本機模式</span>
       </span>
@@ -75,7 +93,9 @@
         <i data-lucide="settings" class="w-5 h-5"></i>
       </button>
       <button onclick="syncFromCloud()" id="btn-sync-cloud" class="flex items-center gap-1.5 bg-ai-indigo hover:bg-slate-800 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition shadow-xs">
-        <i data-lucide="refresh-cw" class="w-4 h-4" id="refresh-icon"></i>
+        <span id="sync-icon-wrap" class="inline-flex items-center">
+          <i data-lucide="cloud" class="w-4 h-4"></i>
+        </span>
         <span class="hidden sm:inline" id="sync-btn-label">同步資料</span>
       </button>
     </div>
@@ -94,119 +114,144 @@
     </button>
   </div>
 
-  <!-- 主工作區：三欄式佈局 (左：口袋名單 / 中：每日行程看板 / 右：地圖) -->
-  <main class="flex-1 flex overflow-hidden relative">
+  <!-- 主工作區：三欄式可調整佈局 (左：口袋名單 / 中：每日行程看板 / 可拖曳分隔線 / 右：地圖) -->
+  <main class="flex-1 flex overflow-hidden relative" id="main-workspace">
 
     <!-- ==================== 左欄：口袋名單與混合式智慧收件匣 ==================== -->
-    <section id="panel-pocket" class="w-full lg:w-[370px] xl:w-[400px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full">
+    <section id="panel-pocket" class="w-full lg:w-[340px] xl:w-[360px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
       <!-- 混合式智慧收件匣 -->
-      <div class="p-3 bg-slate-50 border-b border-slate-200 space-y-2">
+      <div class="p-3 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-ai-indigo flex items-center gap-1">
-            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 混合式智慧收件匣
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 智慧收件匣
           </span>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
             <span id="ai-mode-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-ai-indigo font-medium">
-              🔍 搜尋查證模式
+              🔍 搜尋查證
             </span>
-            <button onclick="openNewCardModal()" class="text-xs text-slate-500 hover:text-ai-indigo font-medium flex items-center gap-0.5">
+            <button onclick="openNewCardModal()" class="text-xs text-slate-600 hover:text-ai-indigo font-medium flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-slate-200/70">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> 手動
+            </button>
+            <button onclick="toggleInboxDrawer()" id="btn-toggle-inbox" class="text-slate-400 hover:text-slate-700 p-0.5 rounded" title="收合/展開輸入框">
+              <i data-lucide="chevron-up" class="w-4 h-4"></i>
             </button>
           </div>
         </div>
 
-        <!-- 多行輸入區 -->
-        <div class="relative">
-          <textarea id="ai-url-input" rows="2" oninput="detectInputMode()"
-            placeholder="貼上影片截圖(Ctrl+V)、YouTube連結、飯店名稱或Google Maps連結..." 
-            class="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
-        </div>
-
-        <!-- 截圖預覽區 -->
-        <div id="inbox-image-preview-wrap" class="hidden items-center justify-between bg-white border border-indigo-200 rounded-lg p-1.5">
-          <div class="flex items-center gap-2 overflow-hidden">
-            <img id="inbox-image-preview" src="" alt="截圖預覽" class="w-10 h-10 object-cover rounded border border-slate-200 shrink-0" />
-            <div class="text-[11px] truncate">
-              <p class="font-bold text-ai-indigo truncate" id="inbox-image-name">已載入影片截圖</p>
-              <p class="text-slate-400">將自動辨識畫面並存入雲端硬碟</p>
-            </div>
+        <div id="inbox-collapsible-body" class="space-y-2">
+          <!-- 多行輸入區 -->
+          <div class="relative">
+            <textarea id="ai-url-input" rows="2" oninput="detectInputMode()"
+              placeholder="貼上截圖(Ctrl+V)、YouTube連結、飯店名稱或Google Maps連結..." 
+              class="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
           </div>
-          <button type="button" onclick="clearInboxImage()" class="p-1 text-slate-400 hover:text-red-500 rounded" title="移除圖片">
-            <i data-lucide="x" class="w-4 h-4"></i>
-          </button>
-        </div>
 
-        <!-- 工具列與執行按鈕 -->
-        <div class="flex items-center justify-between gap-2">
-          <label class="cursor-pointer inline-flex items-center gap-1.5 text-xs bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1.5 rounded-lg transition font-medium">
-            <i data-lucide="image-plus" class="w-3.5 h-3.5 text-ai-indigo"></i>
-            <span>上傳截圖</span>
-            <input type="file" id="inbox-file-input" accept="image/*" class="hidden" onchange="handleInboxFileSelect(event)" />
-          </label>
+          <!-- 截圖預覽區 -->
+          <div id="inbox-image-preview-wrap" class="hidden items-center justify-between bg-white border border-indigo-200 rounded-lg p-1.5">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <img id="inbox-image-preview" src="" alt="截圖預覽" class="w-9 h-9 object-cover rounded border border-slate-200 shrink-0" />
+              <div class="text-[11px] truncate">
+                <p class="font-bold text-ai-indigo truncate" id="inbox-image-name">已載入影片截圖</p>
+                <p class="text-slate-400">自動辨識並存入雲端硬碟</p>
+              </div>
+            </div>
+            <button type="button" onclick="clearInboxImage()" class="p-1 text-slate-400 hover:text-red-500 rounded" title="移除圖片">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
 
-          <button onclick="handleAiExtract()" id="btn-ai-extract"
-            class="flex-1 bg-ai-indigo hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition shadow-2xs">
-            <i data-lucide="wand-2" class="w-3.5 h-3.5"></i>
-            <span>AI 智慧建立卡片</span>
-          </button>
+          <!-- 工具列與執行按鈕 -->
+          <div class="flex items-center justify-between gap-2">
+            <label class="cursor-pointer inline-flex items-center gap-1 text-xs bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1.5 rounded-lg transition font-medium shrink-0">
+              <i data-lucide="image-plus" class="w-3.5 h-3.5 text-ai-indigo"></i>
+              <span>上傳截圖</span>
+              <input type="file" id="inbox-file-input" accept="image/*" class="hidden" onchange="handleInboxFileSelect(event)" />
+            </label>
+
+            <button onclick="handleAiExtract()" id="btn-ai-extract"
+              class="flex-1 bg-ai-indigo hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition shadow-2xs">
+              <i data-lucide="wand-2" class="w-3.5 h-3.5"></i>
+              <span>AI 智慧建立卡片</span>
+            </button>
+          </div>
         </div>
       </div>
 
       <!-- 篩選列 -->
-      <div class="px-3.5 py-2.5 border-b border-slate-100 space-y-2 shrink-0">
+      <div class="px-3 py-2 border-b border-slate-100 space-y-1.5 shrink-0">
         <div class="relative">
-          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、飯店、必買商品、區域..." 
-            class="w-full text-xs bg-slate-100 rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、飯店、必買商品..." 
+            class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
         </div>
-        <div class="flex gap-1.5 overflow-x-auto pb-0.5" id="category-filters">
-          <button onclick="setFilterCategory('全部')" class="cat-btn active px-2.5 py-1 rounded-full text-xs font-medium bg-ai-indigo text-white">全部</button>
-          <button onclick="setFilterCategory('景點')" class="cat-btn px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏞️ 景點</button>
-          <button onclick="setFilterCategory('美食')" class="cat-btn px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🍜 美食</button>
-          <button onclick="setFilterCategory('購物')" class="cat-btn px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🛍️ 購物</button>
-          <button onclick="setFilterCategory('住宿')" class="cat-btn px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏨 住宿</button>
+        <div class="flex gap-1 overflow-x-auto pb-0.5" id="category-filters">
+          <button onclick="setFilterCategory('全部')" class="cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white shrink-0">全部</button>
+          <button onclick="setFilterCategory('景點')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏞️ 景點</button>
+          <button onclick="setFilterCategory('美食')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🍜 美食</button>
+          <button onclick="setFilterCategory('購物')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🛍️ 購物</button>
+          <button onclick="setFilterCategory('住宿')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏨 住宿</button>
         </div>
         <div class="flex gap-1 overflow-x-auto text-[11px]" id="area-filters">
-          <button onclick="setFilterArea('全部')" class="area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium">全沖繩</button>
-          <button onclick="setFilterArea('那霸市區')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">那霸市區</button>
-          <button onclick="setFilterArea('中部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">中部(浦添/北谷)</button>
-          <button onclick="setFilterArea('北部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">北部(本部/名護)</button>
-          <button onclick="setFilterArea('南部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">南部(糸滿/南城)</button>
+          <button onclick="setFilterArea('全部')" class="area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium shrink-0">全沖繩</button>
+          <button onclick="setFilterArea('那霸市區')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">那霸市區</button>
+          <button onclick="setFilterArea('中部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">中部</button>
+          <button onclick="setFilterArea('北部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">北部</button>
+          <button onclick="setFilterArea('南部')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">南部</button>
         </div>
       </div>
 
       <!-- 口袋名單卡片拖曳區 -->
-      <div class="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket">
+      <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket">
         <!-- 卡片動態渲染於此 -->
       </div>
     </section>
 
     <!-- ==================== 中欄：每日行程看板 (Kanban) ==================== -->
-    <section id="panel-itinerary" class="hidden lg:flex flex-1 flex-col bg-washi-bg overflow-hidden h-full">
-      <div class="px-4 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-2 text-xs text-ink-muted">
-          <i data-lucide="grip-vertical" class="w-4 h-4 text-ai-slate"></i>
-          <span>拖曳卡片排入各日行程；<strong>住宿飯店卡片</strong>可一鍵「延續隔晚」或多日勾選連住</span>
+    <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[320px] flex-col bg-washi-bg overflow-hidden h-full">
+      <!-- 看板頂部導覽與多日快速切換工具列 -->
+      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar">
+          <!-- 動態產生 Day 1 ~ Day N 快速跳轉按鈕 -->
         </div>
-        <button onclick="saveBoardOrderToCloud()" class="text-xs bg-moss-green hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition shadow-xs">
-          <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> 儲存排程順序
-        </button>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+            <button onclick="scrollKanbanBy(-300)" class="p-1.5 text-slate-600 hover:bg-slate-200 transition" title="向左捲動檢視前幾天">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <button onclick="scrollKanbanBy(300)" class="p-1.5 text-slate-600 hover:bg-slate-200 border-l border-slate-200 transition" title="向右捲動檢視後面幾天">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <button onclick="saveBoardOrderToCloud()" class="text-xs bg-moss-green hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition shadow-xs">
+            <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">儲存排程</span>
+          </button>
+        </div>
       </div>
 
       <!-- 橫向捲動的多日看板容器 -->
-      <div id="days-kanban-container" class="flex-1 flex gap-3.5 p-4 overflow-x-auto overflow-y-hidden items-start">
+      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3.5 overflow-x-auto overflow-y-hidden items-start scroll-smooth">
         <!-- 每日欄位動態生成 -->
       </div>
     </section>
 
+    <!-- ==================== 可拖曳寬度調整分隔線 (中欄 <-> 右欄) ==================== -->
+    <div id="mid-right-resizer"
+      class="hidden lg:flex w-2 bg-slate-200/80 hover:bg-ai-slate cursor-col-resize items-center justify-center shrink-0 transition-colors z-20 group"
+      title="左右拖曳調整行程看板與地圖寬度比例">
+      <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
+    </div>
+
     <!-- ==================== 右欄：地理空間互動地圖 ==================== -->
-    <section id="panel-map" class="hidden lg:flex w-full lg:w-[340px] xl:w-[400px] bg-white border-l border-slate-200 flex-col shrink-0 h-full">
-      <div class="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
-        <span class="text-xs font-bold text-ink-dark flex items-center gap-1.5">
-          <i data-lucide="map-pin" class="w-4 h-4 text-ai-indigo"></i> 行程空間動線檢視
+    <section id="panel-map" style="width: 360px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
+      <div class="p-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0 gap-2">
+        <span class="text-xs font-bold text-ink-dark flex items-center gap-1.5 truncate">
+          <i data-lucide="map-pin" class="w-4 h-4 text-ai-indigo shrink-0"></i>
+          <span class="truncate">行程空間動線</span>
         </span>
-        <select id="map-day-selector" onchange="updateMapMarkers()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 focus:outline-none">
-          <option value="all">顯示全部景點</option>
+        <select id="map-day-selector" onchange="updateMapMarkers()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 focus:outline-none max-w-[175px]">
+          <option value="all">顯示全部景點與飯店</option>
           <option value="pocket">僅顯示口袋名單</option>
         </select>
       </div>
@@ -266,7 +311,7 @@
           </div>
         </div>
 
-        <!-- 住宿連住多日勾選區塊（當分類為住宿或已排入多日時顯示） -->
+        <!-- 住宿連住多日勾選區塊 -->
         <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
           <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
@@ -274,9 +319,7 @@
             </label>
             <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
           </div>
-          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5">
-            <!-- 動態產生每日勾選膠囊 -->
-          </div>
+          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5"></div>
           <p class="text-[11px] text-purple-700/80 mt-1.5">未勾選任何日期時，卡片將保留在左側「口袋名單」中。</p>
         </div>
 
@@ -355,7 +398,7 @@
           <label class="block text-xs font-bold text-slate-700 mb-1">Google Apps Script 網頁應用程式網址 (Web App URL)</label>
           <input type="url" id="setting-gas-url" placeholder="https://script.google.com/macros/s/.../exec" 
             class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:border-ai-indigo focus:outline-none" />
-          <p class="text-[11px] text-slate-500 mt-1">請確認 GAS 部署時「誰可以存取」已設為<strong>所有人 (Anyone)</strong>，否則同步會被 Google 登入牆阻擋。</p>
+          <p class="text-[11px] text-slate-500 mt-1">請確認 GAS 部署時「誰可以存取」已設為<strong>所有人 (Anyone)</strong>。</p>
         </div>
 
         <div class="pt-2 border-t border-slate-100">
@@ -366,11 +409,11 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">出發日期</label>
-            <input type="date" id="setting-start-date" value="2027-02-16" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <input type="date" id="setting-start-date" value="2027-02-17" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">回程日期</label>
-            <input type="date" id="setting-end-date" value="2027-02-21" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <input type="date" id="setting-end-date" value="2027-02-22" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
           </div>
         </div>
       </div>
@@ -395,8 +438,15 @@
     let appConfig = {
       gasUrl: '',
       tripTitle: '2027沖繩首發自由行',
-      startDate: '2027-02-16',
-      endDate: '2027-02-21'
+      startDate: '2027-02-17',
+      endDate: '2027-02-22'
+    };
+
+    let uiState = {
+      leftVisible: true,
+      rightVisible: true,
+      inboxExpanded: true,
+      mapWidthPx: 360
     };
 
     let inboxPendingImage = {
@@ -454,6 +504,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       loadLocalState();
       initMap();
+      initResizer();
       renderAll();
       lucide.createIcons();
       registerInlinePWA();
@@ -461,6 +512,8 @@
 
       if (appConfig.gasUrl) {
         syncFromCloud();
+      } else {
+        setSyncButtonState('idle');
       }
     });
 
@@ -506,6 +559,141 @@
       } else {
         dot.className = 'w-2 h-2 rounded-full bg-amber-500';
         text.textContent = '本機離線模式';
+      }
+    }
+
+    // 明確控制同步按鈕的靜態/動態圖示，避免同步完成後仍顯示轉動圖示
+    function setSyncButtonState(state) {
+      const iconWrap = document.getElementById('sync-icon-wrap');
+      const label = document.getElementById('sync-btn-label');
+      if (!iconWrap) return;
+
+      if (state === 'syncing') {
+        iconWrap.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>`;
+        if (label) label.textContent = '同步中...';
+      } else if (state === 'synced') {
+        iconWrap.innerHTML = `<i data-lucide="cloud-check" class="w-4 h-4 text-emerald-300"></i>`;
+        if (label) label.textContent = '已同步';
+      } else if (state === 'error') {
+        iconWrap.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-amber-300"></i>`;
+        if (label) label.textContent = '重試同步';
+      } else {
+        iconWrap.innerHTML = `<i data-lucide="cloud" class="w-4 h-4"></i>`;
+        if (label) label.textContent = '同步資料';
+      }
+      lucide.createIcons();
+    }
+
+    // ==================== 版面空間調整：收合側欄與拖曳寬度 ====================
+    function toggleLeftPanel() {
+      uiState.leftVisible = !uiState.leftVisible;
+      const panel = document.getElementById('panel-pocket');
+      const btn = document.getElementById('btn-toggle-left');
+      if (uiState.leftVisible) {
+        panel.classList.remove('lg:hidden');
+        panel.classList.add('lg:flex');
+        btn.innerHTML = `<i data-lucide="panel-left-close" class="w-3.5 h-3.5"></i><span>隱藏口袋</span>`;
+        btn.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition';
+      } else {
+        panel.classList.remove('lg:flex');
+        panel.classList.add('lg:hidden');
+        btn.innerHTML = `<i data-lucide="panel-left-open" class="w-3.5 h-3.5"></i><span>展開口袋</span>`;
+        btn.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-ai-indigo text-white shadow-2xs transition';
+      }
+      lucide.createIcons();
+      if (mapInstance) setTimeout(() => mapInstance.invalidateSize(), 220);
+    }
+
+    function toggleRightPanel() {
+      uiState.rightVisible = !uiState.rightVisible;
+      const panel = document.getElementById('panel-map');
+      const resizer = document.getElementById('mid-right-resizer');
+      const btn = document.getElementById('btn-toggle-right');
+      if (uiState.rightVisible) {
+        panel.classList.remove('lg:hidden');
+        panel.classList.add('lg:flex');
+        resizer.classList.remove('lg:hidden');
+        resizer.classList.add('lg:flex');
+        btn.innerHTML = `<i data-lucide="panel-right-close" class="w-3.5 h-3.5"></i><span>隱藏地圖</span>`;
+        btn.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition';
+        if (mapInstance) setTimeout(() => mapInstance.invalidateSize(), 200);
+      } else {
+        panel.classList.remove('lg:flex');
+        panel.classList.add('lg:hidden');
+        resizer.classList.remove('lg:flex');
+        resizer.classList.add('lg:hidden');
+        btn.innerHTML = `<i data-lucide="panel-right-open" class="w-3.5 h-3.5"></i><span>顯示地圖</span>`;
+        btn.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-ai-indigo text-white shadow-2xs transition';
+      }
+      lucide.createIcons();
+    }
+
+    function toggleInboxDrawer() {
+      uiState.inboxExpanded = !uiState.inboxExpanded;
+      const body = document.getElementById('inbox-collapsible-body');
+      const btn = document.getElementById('btn-toggle-inbox');
+      if (uiState.inboxExpanded) {
+        body.classList.remove('hidden');
+        btn.innerHTML = `<i data-lucide="chevron-up" class="w-4 h-4"></i>`;
+      } else {
+        body.classList.add('hidden');
+        btn.innerHTML = `<i data-lucide="chevron-down" class="w-4 h-4"></i>`;
+      }
+      lucide.createIcons();
+    }
+
+    // 中間看板與右側地圖拖曳調整寬度
+    function initResizer() {
+      const resizer = document.getElementById('mid-right-resizer');
+      const mapPanel = document.getElementById('panel-map');
+      const workspace = document.getElementById('main-workspace');
+      if (!resizer || !mapPanel) return;
+
+      let isResizing = false;
+
+      resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        resizer.classList.add('resizer-active');
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const rect = workspace.getBoundingClientRect();
+        const newMapWidth = rect.right - e.clientX;
+        const minMapWidth = 220;
+        const maxMapWidth = rect.width * 0.65;
+
+        if (newMapWidth >= minMapWidth && newMapWidth <= maxMapWidth) {
+          uiState.mapWidthPx = newMapWidth;
+          mapPanel.style.width = `${newMapWidth}px`;
+          if (mapInstance) mapInstance.invalidateSize();
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isResizing) {
+          isResizing = false;
+          resizer.classList.remove('resizer-active');
+          document.body.style.cursor = '';
+          if (mapInstance) mapInstance.invalidateSize();
+        }
+      });
+    }
+
+    // 多日看板水平捲動與快速跳轉
+    function scrollKanbanBy(offsetX) {
+      const container = document.getElementById('days-kanban-container');
+      if (container) container.scrollBy({ left: offsetX, behavior: 'smooth' });
+    }
+
+    function scrollToDayColumn(dateStr) {
+      const col = document.getElementById(`day-col-${dateStr}`);
+      if (col) {
+        col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        col.classList.add('ring-2', 'ring-ai-indigo');
+        setTimeout(() => col.classList.remove('ring-2', 'ring-ai-indigo'), 1200);
       }
     }
 
@@ -585,13 +773,13 @@
       const text = document.getElementById('ai-url-input').value.trim();
 
       if (inboxPendingImage.base64) {
-        badge.textContent = '🖼️ 截圖視覺辨識';
+        badge.textContent = '🖼️ 截圖辨識';
         badge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium';
       } else if (/(youtube\.com|youtu\.be)/i.test(text)) {
-        badge.textContent = '🎬 YouTube 原生影音';
+        badge.textContent = '🎬 YT影音';
         badge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium';
       } else {
-        badge.textContent = '🔍 搜尋查證建卡';
+        badge.textContent = '🔍 搜尋查證';
         badge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-ai-indigo font-medium';
       }
     }
@@ -670,7 +858,6 @@
       return list;
     }
 
-    // 取得某張卡片所有已排程的日期陣列（支援逗號分隔多日住宿）
     function getSpotAssignedDays(spot) {
       const raw = String(spot.assigned_day || 'pocket').trim();
       if (!raw || raw === 'pocket') return [];
@@ -681,11 +868,28 @@
     function renderAll() {
       const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
       renderPocketList();
+      renderKanbanDayNavBar(daysList);
       renderKanbanDays(daysList);
       populateDaySelectors(daysList);
       initSortableDragAndDrop();
       updateMapMarkers();
       lucide.createIcons();
+    }
+
+    function renderKanbanDayNavBar(daysList) {
+      const navBar = document.getElementById('kanban-day-nav-bar');
+      if (!navBar) return;
+      navBar.innerHTML = daysList.map(d => {
+        const count = spots.filter(s => getSpotAssignedDays(s).includes(d.dateStr)).length;
+        return `
+          <button onclick="scrollToDayColumn('${d.dateStr}')"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 transition shrink-0 flex items-center gap-1">
+            <span>${d.label}</span>
+            <span class="text-[10px] opacity-75">${d.shortDate.split(' ')[0]}</span>
+            ${count > 0 ? `<span class="w-4 h-4 rounded-full bg-ai-indigo/15 text-ai-indigo text-[10px] font-bold flex items-center justify-center">${count}</span>` : ''}
+          </button>
+        `;
+      }).join('');
     }
 
     function renderPocketList() {
@@ -722,12 +926,8 @@
       container.innerHTML = daysList.map((day, dayIdx) => {
         const daySpots = spots
           .filter(s => getSpotAssignedDays(s).includes(day.dateStr))
-          .sort((a, b) => {
-            // 住宿卡片可自然依 sort_order 排列，若無指定則放最後
-            return (a.sort_order || 99) - (b.sort_order || 99);
-          });
+          .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
 
-        // 計算非住宿景點的預計停留時間總和
         const totalMins = daySpots
           .filter(s => s.category !== '住宿')
           .reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
@@ -735,8 +935,8 @@
         const nextDayObj = daysList[dayIdx + 1] || null;
 
         return `
-          <div class="w-[290px] sm:w-[310px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0">
-            <div class="px-3.5 py-2.5 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between">
+          <div id="day-col-${day.dateStr}" class="w-[270px] sm:w-[285px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0 transition-shadow">
+            <div class="px-3 py-2.5 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between">
               <div>
                 <div class="flex items-center gap-1.5">
                   <span class="font-bold text-sm text-ai-indigo">${day.label}</span>
@@ -752,7 +952,7 @@
             <div class="p-2.5 flex-1 overflow-y-auto space-y-2.5 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
               ${daySpots.length > 0 
                 ? daySpots.map((s, idx) => buildCardHTML(s, true, idx + 1, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
-                : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">拖曳口袋卡片或飯店至此排程</div>`
+                : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">拖曳卡片或飯店至此排程</div>`
               }
             </div>
           </div>
@@ -773,7 +973,6 @@
         ? 'border-purple-300 bg-purple-50/30'
         : 'border-slate-200/90 bg-white';
 
-      // 住宿卡片在看板中若還有下一天，顯示「+ 延續隔晚」快捷按鈕
       const canExtendNextNight = isHotel && isScheduled && dayContext && dayContext.nextDay &&
         !getSpotAssignedDays(spot).includes(dayContext.nextDay.dateStr);
 
@@ -781,34 +980,34 @@
         <div class="spot-card ${cardBorder} rounded-xl border shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
              data-id="${spot.id}" onclick="openEditCardModal('${spot.id}')">
           ${spot.photo_url ? `
-            <div class="h-24 w-full bg-slate-200 overflow-hidden relative">
+            <div class="h-22 w-full bg-slate-200 overflow-hidden relative" style="height: 84px;">
               <img src="${spot.photo_url}" alt="${spot.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'"/>
-              <span class="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs">${spot.area}</span>
-              ${isHotel ? `<span class="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-700 text-white shadow-2xs">🏨 住宿飯店</span>` : ''}
+              <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs">${spot.area}</span>
+              ${isHotel ? `<span class="absolute top-1.5 right-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-700 text-white shadow-2xs">🏨 住宿</span>` : ''}
             </div>
           ` : ''}
-          <div class="p-3">
-            <div class="flex items-start justify-between gap-2 mb-1">
+          <div class="p-2.5">
+            <div class="flex items-start justify-between gap-1.5 mb-1">
               <div class="flex items-center gap-1.5">
                 ${isScheduled ? `<span class="w-5 h-5 rounded-full ${isHotel ? 'bg-purple-700' : 'bg-ai-indigo'} text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : orderNum}</span>` : ''}
-                <h4 class="font-bold text-sm text-ink-dark leading-snug">${spot.name}</h4>
+                <h4 class="font-bold text-xs sm:text-sm text-ink-dark leading-snug">${spot.name}</h4>
               </div>
-              <span class="text-[10px] px-2 py-0.5 rounded-md border font-medium shrink-0 ${badgeClass}">${spot.category}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-md border font-medium shrink-0 ${badgeClass}">${spot.category}</span>
             </div>
 
-            ${spot.description ? `<p class="text-xs text-slate-500 line-clamp-2 mb-2">${spot.description}</p>` : ''}
+            ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1.5">${spot.description}</p>` : ''}
 
             ${spot.must_buy ? `
-              <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : 'bg-amber-50/70 border-amber-100 text-amber-900'} border rounded-lg px-2 py-1 mb-2 text-[11px]">
-                <span class="font-bold">${isHotel ? '🛏️ 訂房重點：' : '🛍️ 必買/必吃：'}</span>${spot.must_buy}
+              <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : 'bg-amber-50/70 border-amber-100 text-amber-900'} border rounded-lg px-2 py-1 mb-1.5 text-[11px]">
+                <span class="font-bold">${isHotel ? '🛏️ 備註：' : '🛍️ 必買/吃：'}</span>${spot.must_buy}
               </div>
             ` : ''}
 
             ${canExtendNextNight ? `
-              <div class="mb-2">
+              <div class="mb-1.5">
                 <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
                   class="w-full py-1 px-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-medium flex items-center justify-center gap-1 transition">
-                  <i data-lucide="calendar-plus" class="w-3 h-3"></i> 連住延續至 ${dayContext.nextDay.label} (${dayContext.nextDay.shortDate})
+                  <i data-lucide="calendar-plus" class="w-3 h-3"></i> 連住延續至 ${dayContext.nextDay.label}
                 </button>
               </div>
             ` : ''}
@@ -821,8 +1020,8 @@
                 }
                 ${!spot.photo_url ? `· ${spot.area}` : ''}
               </span>
-              <div class="flex items-center gap-2">
-                ${spot.business_hours ? `<span title="${spot.business_hours}" class="text-slate-500 truncate max-w-[115px]">⏰ ${spot.business_hours}</span>` : ''}
+              <div class="flex items-center gap-1.5">
+                ${spot.business_hours ? `<span title="${spot.business_hours}" class="text-slate-500 truncate max-w-[105px]">⏰ ${spot.business_hours}</span>` : ''}
                 <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo" title="在地圖定位">
                   <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
                 </button>
@@ -833,7 +1032,6 @@
       `;
     }
 
-    // 住宿卡片一鍵延續至隔晚
     function extendHotelToDay(spotId, nextDateStr, nextDayLabel) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
@@ -845,6 +1043,7 @@
         spot.status = 'scheduled';
         saveLocalState();
         renderAll();
+        scrollToDayColumn(nextDateStr);
         showToast(`🏨 已將「${spot.name}」連住排入 ${nextDayLabel}！`);
 
         if (appConfig.gasUrl) {
@@ -884,7 +1083,6 @@
     }
 
     function handleDragEnd() {
-      // 彙整每張卡片在各看板中出現的所有日期（支援同一張住宿卡片出現在多天）
       const cardDaysMap = {};
       const cardOrderMap = {};
       spots.forEach(s => { cardDaysMap[s.id] = []; });
@@ -957,7 +1155,6 @@
         ${daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate})</option>`).join('')}
       `;
 
-      // 產生住宿多日勾選膠囊
       const multiBox = document.getElementById('multi-day-checkboxes');
       multiBox.innerHTML = daysList.map(d => `
         <label class="cursor-pointer inline-flex items-center gap-1.5 bg-white border border-purple-200 hover:border-purple-400 px-2.5 py-1 rounded-lg text-xs text-slate-700 select-none">
@@ -1025,14 +1222,20 @@
     function focusMapOnSpot(id) {
       const spot = spots.find(s => s.id === id);
       if (!spot || !spot.lat || !spot.lng) return;
+      if (window.innerWidth >= 1024 && !uiState.rightVisible) {
+        toggleRightPanel();
+      }
       switchMobileTab('map');
       setTimeout(() => {
         mapInstance.invalidateSize();
         mapInstance.setView([spot.lat, spot.lng], 15);
-      }, 150);
+      }, 180);
     }
 
     function focusMapOnDay(dateStr) {
+      if (window.innerWidth >= 1024 && !uiState.rightVisible) {
+        toggleRightPanel();
+      }
       document.getElementById('map-day-selector').value = dateStr;
       updateMapMarkers();
       switchMobileTab('map');
@@ -1185,7 +1388,7 @@
       }
     }
 
-    // ==================== 雲端雙向同步 (含逾時防卡死與權限診斷) ====================
+    // ==================== 雲端雙向同步 ====================
     async function syncFromCloud() {
       if (!appConfig.gasUrl) {
         openModal('modal-settings');
@@ -1194,15 +1397,11 @@
       }
 
       const btn = document.getElementById('btn-sync-cloud');
-      const icon = document.getElementById('refresh-icon');
-      const label = document.getElementById('sync-btn-label');
-
       btn.disabled = true;
-      icon.classList.add('animate-spin');
-      if (label) label.textContent = '同步中...';
+      setSyncButtonState('syncing');
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒逾時保護
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
         const res = await fetch(appConfig.gasUrl, {
@@ -1231,6 +1430,7 @@
           updateHeaderUI();
           updateSyncBadge('Google 試算表已連線', 'bg-emerald-500');
           renderAll();
+          setSyncButtonState('synced');
           showToast(`✅ 同步完成！共載入 ${spots.length} 張卡片`);
         } else {
           throw new Error(data.message || '後端回傳錯誤');
@@ -1238,6 +1438,7 @@
       } catch (err) {
         clearTimeout(timeoutId);
         updateSyncBadge('連線異常 (點擊重試)', 'bg-red-500');
+        setSyncButtonState('error');
         const errMsg = err.name === 'AbortError'
           ? '連線逾時（超過15秒），請檢查網路或 GAS 部署狀態。'
           : err.message;
@@ -1245,8 +1446,6 @@
         console.error('Sync Error:', err);
       } finally {
         btn.disabled = false;
-        icon.classList.remove('animate-spin');
-        if (label) label.textContent = '同步資料';
       }
     }
 
@@ -1255,6 +1454,7 @@
       if (!appConfig.gasUrl) {
         showToast('已儲存於本機瀏覽器');
       } else {
+        setSyncButtonState('synced');
         showToast('已將最新排程順序同步至雲端試算表！');
       }
     }
@@ -1264,8 +1464,8 @@
       currentCategoryFilter = cat;
       document.querySelectorAll('.cat-btn').forEach(btn => {
         btn.className = btn.textContent.includes(cat)
-          ? 'cat-btn active px-2.5 py-1 rounded-full text-xs font-medium bg-ai-indigo text-white'
-          : 'cat-btn px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200';
+          ? 'cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white shrink-0'
+          : 'cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0';
       });
       renderPocketList();
     }
@@ -1275,8 +1475,8 @@
       document.querySelectorAll('.area-btn').forEach(btn => {
         const match = (area === '全部' && btn.textContent === '全沖繩') || btn.textContent.includes(area);
         btn.className = match
-          ? 'area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium'
-          : 'area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100';
+          ? 'area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium shrink-0'
+          : 'area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0';
       });
       renderPocketList();
     }
