@@ -10,7 +10,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- SortableJS (流暢支援手機觸控與電腦拖曳) -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <!-- Leaflet CSS & JS (互動地圖與路徑繪製) -->
+  <!-- Leaflet CSS & JS (互動地圖與實際路網繪製) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Lucide Icons -->
@@ -142,6 +142,7 @@
               <option value="美食">🍜 類別：美食</option>
               <option value="購物">🛍️ 類別：購物</option>
               <option value="住宿">🏨 類別：住宿</option>
+              <option value="交通">🚉 類別：交通</option>
             </select>
             <select id="quick-area" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700">
               <option value="那霸市區">📍 區域：那霸市區</option>
@@ -153,7 +154,7 @@
 
           <!-- 支援 Google Maps 連結或「一行一店」批次輸入 -->
           <textarea id="quick-batch-input" rows="2"
-            placeholder="貼上 Google Maps 連結，或一次輸入多行店名（一行一筆，自動抓座標建卡）..." 
+            placeholder="貼上 Google Maps 連結，或一次輸入多行地點（一行一筆，自動抓座標建卡）..." 
             class="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
 
           <button onclick="handleQuickBatchAdd()" id="btn-quick-add"
@@ -168,7 +169,7 @@
       <div class="px-3 py-2 border-b border-slate-100 space-y-1.5 shrink-0">
         <div class="relative">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、飯店、必買商品..." 
+          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、飯店、交通、必買..." 
             class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
         </div>
         <div class="flex gap-1 overflow-x-auto pb-0.5" id="category-filters">
@@ -177,6 +178,7 @@
           <button onclick="setFilterCategory('美食')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🍜 美食</button>
           <button onclick="setFilterCategory('購物')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🛍️ 購物</button>
           <button onclick="setFilterCategory('住宿')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏨 住宿</button>
+          <button onclick="setFilterCategory('交通')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🚉 交通</button>
         </div>
         <div class="flex gap-1 overflow-x-auto text-[11px]" id="area-filters">
           <button onclick="setFilterArea('全部')" class="area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium shrink-0">全沖繩</button>
@@ -202,7 +204,7 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
-          <!-- 看板卡片密度切換（預設精簡模式，不占版面） -->
+          <!-- 看板卡片密度切換 -->
           <button onclick="toggleBoardCompactMode()" id="btn-board-density"
             class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition"
             title="切換行程卡片為精簡列表或完整圖文模式">
@@ -238,25 +240,42 @@
       <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
     </div>
 
-    <!-- ==================== 右欄：地理空間互動地圖 ==================== -->
-    <section id="panel-map" style="width: 360px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
-      <div class="p-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0 gap-2">
-        <span class="text-xs font-bold text-ink-dark flex items-center gap-1.5 truncate">
-          <i data-lucide="map-pin" class="w-4 h-4 text-ai-indigo shrink-0"></i>
-          <span class="truncate">行程空間動線</span>
-        </span>
-        <select id="map-day-selector" onchange="updateMapMarkers()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 focus:outline-none max-w-[175px]">
-          <option value="all">顯示全部景點與飯店</option>
-          <option value="pocket">僅顯示口袋名單</option>
-        </select>
+    <!-- ==================== 右欄：地理空間互動地圖（含真實路網規劃） ==================== -->
+    <section id="panel-map" style="width: 380px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
+      <!-- 日期選擇與交通方式切換列 -->
+      <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
+        <div class="flex items-center justify-between gap-1.5">
+          <select id="map-day-selector" onchange="updateMapMarkers()" class="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
+            <option value="all">顯示全部地點總覽</option>
+            <option value="pocket">僅顯示口袋名單</option>
+          </select>
+
+          <select id="map-travel-mode" onchange="updateMapMarkers()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none" title="選擇路徑規劃交通方式">
+            <option value="driving">🚗 自駕路線</option>
+            <option value="transit">🚝 大眾運輸</option>
+            <option value="walking">🚶 步行路線</option>
+          </select>
+        </div>
+
+        <!-- 實際路徑距離、預估時間與 Google Maps 導航按鈕 -->
+        <div id="map-route-summary" class="hidden items-center justify-between bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px]">
+          <span id="map-route-metrics" class="text-slate-700 font-medium truncate">計算實際路網中...</span>
+          <a id="map-gmaps-dir-link" href="#" target="_blank" class="text-ai-indigo hover:underline font-bold flex items-center gap-0.5 shrink-0 ml-2">
+            <span>Google 導航</span>
+            <i data-lucide="external-link" class="w-3 h-3"></i>
+          </a>
+        </div>
       </div>
+
       <!-- 地圖圖例列 -->
       <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10B981;"></span>景點</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#F59E0B;"></span>美食</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#6366F1;"></span>購物</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#7E22CE;"></span>住宿</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#0284C7;"></span>交通</span>
       </div>
+
       <div id="okinawa-map" class="flex-1 w-full z-10"></div>
     </section>
 
@@ -266,7 +285,7 @@
   <div id="modal-card-detail" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
       <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-        <h3 class="font-bold text-base text-ink-dark" id="modal-card-title">景點卡片詳情</h3>
+        <h3 class="font-bold text-base text-ink-dark" id="modal-card-title">卡片詳情設定</h3>
         <button onclick="closeModal('modal-card-detail')" class="text-slate-400 hover:text-slate-700">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
@@ -277,7 +296,7 @@
         
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block text-xs font-medium text-slate-600 mb-1">景點 / 店家 / 飯店名稱 *</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">地點 / 店家 / 飯店 / 車站名稱 *</label>
             <input type="text" id="field-name" required class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none" />
           </div>
           <div>
@@ -287,6 +306,7 @@
               <option value="美食">🍜 美食</option>
               <option value="購物">🛍️ 購物</option>
               <option value="住宿">🏨 住宿</option>
+              <option value="交通">🚉 交通</option>
             </select>
           </div>
         </div>
@@ -326,29 +346,29 @@
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">必訪說明 / 飯店訂房與特色亮點</label>
+          <label class="block text-xs font-medium text-slate-600 mb-1">說明 / 航班班次 / 飯店特色備註</label>
           <textarea id="field-description" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none"></textarea>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌 / 房型備註</label>
-          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：雙床房含早餐, 檸檬塔" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+          <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌 / 交通票券重點</label>
+          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：Yui Rail 一日券, 檸檬塔" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 入住退房時間</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 航班或入住時間</label>
             <input type="text" id="field-hours" placeholder="例如：15:00入住 / 11:00退房" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🚗 停車與 MapCode 資訊</label>
-            <input type="text" id="field-parking" placeholder="飯店停車場 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <label class="block text-xs font-medium text-slate-600 mb-1">🚗 停車 / 單軌站 / MapCode</label>
+            <input type="text" id="field-parking" placeholder="近縣廳前站 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 訂房網 / 原始參考連結</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 訂房網 / 時刻表 / 參考連結</label>
             <input type="url" id="field-source-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
@@ -437,7 +457,7 @@
     const STORAGE_KEY_SPOTS = 'okinawa_planner_spots_v1';
     const STORAGE_KEY_CONFIG = 'okinawa_planner_config_v1';
 
-    // 統一全站與地圖的分類配色（景點=綠、美食=橘、購物=靛紫、住宿=深紫）
+    // 統一全站與地圖的分類配色（景點=綠、美食=橘、購物=靛紫、住宿=深紫、交通=天藍）
     const CATEGORY_THEME = {
       '景點': {
         hex: '#10B981', // Emerald 500
@@ -458,6 +478,11 @@
         hex: '#7E22CE', // Purple 700 (深紫色)
         badge: 'bg-purple-100 text-purple-800 border-purple-300',
         borderLeft: 'border-l-purple-700'
+      },
+      '交通': {
+        hex: '#0284C7', // Sky 600 (天藍色)
+        badge: 'bg-sky-50 text-sky-700 border-sky-200',
+        borderLeft: 'border-l-sky-600'
       }
     };
 
@@ -472,8 +497,8 @@
       leftVisible: true,
       rightVisible: true,
       inboxExpanded: true,
-      boardCompact: true, // 中間看板預設開啟「精簡檢視」以節省版面高度
-      mapWidthPx: 360
+      boardCompact: true,
+      mapWidthPx: 380
     };
 
     const DEFAULT_SPOTS = [
@@ -520,6 +545,7 @@
     let currentAreaFilter = '全部';
     let mapInstance = null;
     let mapLayerGroup = null;
+    let routeRequestToken = 0;
 
     // ==================== 初始化啟動 ====================
     window.addEventListener('DOMContentLoaded', () => {
@@ -691,7 +717,7 @@
         if (!isResizing) return;
         const rect = workspace.getBoundingClientRect();
         const newMapWidth = rect.right - e.clientX;
-        const minMapWidth = 220;
+        const minMapWidth = 240;
         const maxMapWidth = rect.width * 0.65;
 
         if (newMapWidth >= minMapWidth && newMapWidth <= maxMapWidth) {
@@ -733,31 +759,32 @@
       const area = document.getElementById('quick-area').value;
 
       if (!rawText) {
-        showToast('請輸入店名（可一次輸入多行）或貼上 Google Maps 連結！');
+        showToast('請輸入地點名稱（可一次輸入多行）或貼上 Google Maps 連結！');
         return;
       }
 
-      // 若未連線 GAS，直接於本機建立多張卡片
       if (!appConfig.gasUrl) {
         const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         lines.reverse().forEach((line, idx) => {
+          const isTransport = /空港|機場|車站|單軌|港口|碼頭|租車/i.test(line);
+          const resolvedCat = isTransport ? '交通' : category;
           spots.unshift({
             id: 'spot_' + Date.now() + '_' + idx,
             name: line,
-            category: category,
+            category: resolvedCat,
             area: area,
             description: '',
             must_buy: '',
-            business_hours: category === '住宿' ? '15:00入住 / 11:00退房' : '',
-            estimated_duration: category === '購物' ? 120 : (category === '住宿' ? 0 : 60),
+            business_hours: resolvedCat === '住宿' ? '15:00入住 / 11:00退房' : '',
+            estimated_duration: resolvedCat === '購物' ? 120 : (resolvedCat === '住宿' ? 0 : (resolvedCat === '交通' ? 30 : 60)),
             parking_info: '',
             source_url: line.startsWith('http') ? line : '',
             photo_url: '',
             status: 'pocket',
             assigned_day: 'pocket',
             sort_order: 1,
-            lat: 26.2124,
-            lng: 127.6809
+            lat: /^那霸(空港|機場)/.test(line) ? 26.2064 : 26.2124,
+            lng: /^那霸(空港|機場)/.test(line) ? 127.6522 : 127.6809
           });
         });
         saveLocalState();
@@ -879,7 +906,7 @@
         container.innerHTML = `
           <div class="text-center py-8 px-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs">
             <p class="mb-1 font-medium">目前沒有符合條件的口袋卡片</p>
-            <p>上方輸入店名或 Google Maps 連結即可自動建卡！</p>
+            <p>上方輸入地點或 Google Maps 連結即可自動建卡！</p>
           </div>`;
         return;
       }
@@ -894,8 +921,9 @@
           .filter(s => getSpotAssignedDays(s).includes(day.dateStr))
           .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
 
+        // 僅加總遊玩/用餐/購物活動時間（排除住宿與純交通過境時間）
         const totalMins = daySpots
-          .filter(s => s.category !== '住宿')
+          .filter(s => s.category !== '住宿' && s.category !== '交通')
           .reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
         const hoursText = (totalMins / 60).toFixed(1).replace('.0', '');
         const nextDayObj = daysList[dayIdx + 1] || null;
@@ -910,7 +938,7 @@
                 </div>
                 <p class="text-[11px] text-slate-400 mt-0.5">共 ${daySpots.length} 項 · 活動約 ${hoursText} 小時</p>
               </div>
-              <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日路線">
+              <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日實際路線">
                 <i data-lucide="map" class="w-4 h-4"></i>
               </button>
             </div>
@@ -928,12 +956,13 @@
 
     function buildCardHTML(spot, isScheduled, orderNum, dayContext) {
       const isHotel = spot.category === '住宿';
+      const isTransport = spot.category === '交通';
       const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700', borderLeft: 'border-l-slate-400' };
 
       const canExtendNextNight = isHotel && isScheduled && dayContext && dayContext.nextDay &&
         !getSpotAssignedDays(spot).includes(dayContext.nextDay.dateStr);
 
-      // ==================== 中間看板「精簡模式」卡片（高密度、免一直往下滑） ====================
+      // ==================== 中間看板「精簡模式」卡片 ====================
       if (isScheduled && uiState.boardCompact) {
         return `
           <div class="spot-card bg-white rounded-xl border border-slate-200/95 border-l-4 ${theme.borderLeft} shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing px-2.5 py-2 group"
@@ -942,7 +971,7 @@
               <div class="flex items-center gap-1.5 min-w-0">
                 <span style="background-color: ${theme.hex};"
                   class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 shadow-2xs">
-                  ${isHotel ? '宿' : orderNum}
+                  ${isHotel ? '宿' : (isTransport ? '行' : orderNum)}
                 </span>
                 <h4 class="font-bold text-xs text-ink-dark truncate" title="${spot.name}">${spot.name}</h4>
               </div>
@@ -953,7 +982,9 @@
               <span class="truncate">
                 ${isHotel 
                   ? `<span class="text-purple-700 font-medium">連住 ${getSpotAssignedDays(spot).length} 晚</span> · ${spot.area}`
-                  : `${spot.area} · ${spot.estimated_duration || 60}分`
+                  : (isTransport 
+                      ? `<span class="text-sky-700 font-medium">交通節點</span> · ${spot.area}`
+                      : `${spot.area} · ${spot.estimated_duration || 60}分`)
                 }
                 ${spot.must_buy ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
               </span>
@@ -992,7 +1023,7 @@
           <div class="p-2.5">
             <div class="flex items-start justify-between gap-1.5 mb-1">
               <div class="flex items-center gap-1.5">
-                ${isScheduled ? `<span style="background-color: ${theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : orderNum}</span>` : ''}
+                ${isScheduled ? `<span style="background-color: ${theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : (isTransport ? '行' : orderNum)}</span>` : ''}
                 <h4 class="font-bold text-xs sm:text-sm text-ink-dark leading-snug">${spot.name}</h4>
               </div>
               <span class="text-[10px] px-1.5 py-0.5 rounded-md border font-medium shrink-0 ${theme.badge}">${spot.category}</span>
@@ -1001,8 +1032,8 @@
             ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1.5">${spot.description}</p>` : ''}
 
             ${spot.must_buy ? `
-              <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : 'bg-amber-50/70 border-amber-100 text-amber-900'} border rounded-lg px-2 py-1 mb-1.5 text-[11px]">
-                <span class="font-bold">${isHotel ? '🛏️ 備註：' : '🛍️ 必買/吃：'}</span>${spot.must_buy}
+              <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : (isTransport ? 'bg-sky-50 border-sky-200 text-sky-900' : 'bg-amber-50/70 border-amber-100 text-amber-900')} border rounded-lg px-2 py-1 mb-1.5 text-[11px]">
+                <span class="font-bold">${isHotel ? '🛏️ 備註：' : (isTransport ? '🚉 交通重點：' : '🛍️ 必買/吃：')}</span>${spot.must_buy}
               </div>
             ` : ''}
 
@@ -1019,7 +1050,9 @@
               <span class="flex items-center gap-1">
                 ${isHotel 
                   ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">已排 ${getSpotAssignedDays(spot).length} 晚</span>` 
-                  : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`
+                  : (isTransport
+                      ? `<i data-lucide="train" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">交通節點</span>`
+                      : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
                 }
                 ${!spot.photo_url ? `· ${spot.area}` : ''}
               </span>
@@ -1130,7 +1163,7 @@
       }
     }
 
-    // ==================== 地圖模組 (分類顏色與行程編號完全對應) ====================
+    // ==================== 地圖模組（OSRM 真實路網規劃 + Google Maps 多點轉乘連動） ====================
     function initMap() {
       mapInstance = L.map('okinawa-map').setView([26.35, 127.78], 10);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1144,7 +1177,7 @@
       const mapSel = document.getElementById('map-day-selector');
       const currentVal = mapSel.value;
       mapSel.innerHTML = `
-        <option value="all">顯示全部景點與飯店</option>
+        <option value="all">顯示全部地點總覽</option>
         <option value="pocket">僅顯示口袋名單</option>
         ${daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate}) 路線</option>`).join('')}
       `;
@@ -1167,11 +1200,16 @@
       `).join('');
     }
 
-    function updateMapMarkers() {
+    async function updateMapMarkers() {
       if (!mapInstance || !mapLayerGroup) return;
       mapLayerGroup.clearLayers();
 
       const filterDay = document.getElementById('map-day-selector').value;
+      const travelMode = document.getElementById('map-travel-mode').value;
+      const summaryBox = document.getElementById('map-route-summary');
+      const metricsEl = document.getElementById('map-route-metrics');
+      const gmapsLinkEl = document.getElementById('map-gmaps-dir-link');
+
       let filtered = spots.filter(s => s.lat && s.lng);
 
       if (filterDay === 'pocket') {
@@ -1191,17 +1229,17 @@
         latLngs.push([lat, lng]);
         const isDayRoute = filterDay !== 'all' && filterDay !== 'pocket';
         const isHotel = spot.category === '住宿';
+        const isTransport = spot.category === '交通';
         const theme = CATEGORY_THEME[spot.category] || { hex: '#2B4C7E' };
 
         let markerHtml = '';
         if (isHotel) {
-          // 住宿：深紫色 + 「宿」字
           markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">宿</div>`;
+        } else if (isTransport) {
+          markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">行</div>`;
         } else if (isDayRoute) {
-          // 單日路線：採用該景點「類別顏色」（美食=橘色、購物=靛紫色、景點=綠色）並顯示順序編號
           markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${index + 1}</div>`;
         } else {
-          // 全部景點總覽：同樣依類別著色（美食=橘、購物=靛紫、景點=綠）
           markerHtml = `<div style="background:${theme.hex};width:18px;height:18px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>`;
         }
 
@@ -1211,13 +1249,77 @@
           <div class="text-xs">
             <strong class="text-sm text-slate-800">${spot.name}</strong><br/>
             <span style="color:${theme.hex};font-weight:bold;">● ${spot.category}</span> · <span class="text-slate-500">${spot.area}</span><br/>
-            ${spot.must_buy ? `<span class="text-slate-700">${isHotel ? '備註' : '必買'}：${spot.must_buy}</span>` : ''}
+            ${spot.must_buy ? `<span class="text-slate-700">${isHotel ? '備註' : '重點'}：${spot.must_buy}</span>` : ''}
           </div>
         `);
       });
 
+      // 若選取單日行程且有 2 個以上地點，呼叫 OSRM 計算實際道路/步行路線並產生 Google Maps 導航網址
       if (filterDay !== 'all' && filterDay !== 'pocket' && latLngs.length > 1) {
-        L.polyline(latLngs, { color: '#2B4C7E', weight: 3, dashArray: '6, 8', opacity: 0.75 }).addTo(mapLayerGroup);
+        summaryBox.classList.remove('hidden');
+        summaryBox.classList.add('flex');
+        metricsEl.textContent = '正在計算實際道路路線...';
+
+        // 組合 Google Maps 外部多點路線網址（支援 driving / transit / walking）
+        const originCoord = `${latLngs[0][0]},${latLngs[0][1]}`;
+        const destCoord = `${latLngs[latLngs.length - 1][0]},${latLngs[latLngs.length - 1][1]}`;
+        const waypointCoords = latLngs.slice(1, -1).map(p => `${p[0]},${p[1]}`).join('|');
+        const gmapsParams = new URLSearchParams({
+          api: '1',
+          origin: originCoord,
+          destination: destCoord,
+          travelmode: travelMode
+        });
+        if (waypointCoords) gmapsParams.set('waypoints', waypointCoords);
+        gmapsLinkEl.href = `https://www.google.com/maps/dir/?${gmapsParams.toString()}`;
+
+        const currentToken = ++routeRequestToken;
+        const osrmProfile = travelMode === 'walking' ? 'foot' : 'driving';
+        const coordString = latLngs.map(p => `${p[1]},${p[0]}`).join(';');
+        const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordString}?overview=full&geometries=geojson`;
+
+        try {
+          const resp = await fetch(osrmUrl);
+          if (currentToken !== routeRequestToken) return;
+          const routeData = await resp.json();
+
+          if (routeData.code === 'Ok' && routeData.routes && routeData.routes.length > 0) {
+            const bestRoute = routeData.routes[0];
+            const routeCoords = bestRoute.geometry.coordinates.map(c => [c[1], c[0]]);
+            const distKm = (bestRoute.distance / 1000).toFixed(1);
+            const durMins = Math.max(1, Math.round(bestRoute.duration / 60));
+
+            const lineColor = travelMode === 'walking' ? '#059669' : (travelMode === 'transit' ? '#0284C7' : '#2B4C7E');
+            const dashPattern = travelMode === 'walking' ? '4, 6' : (travelMode === 'transit' ? '8, 6' : null);
+
+            const routePolyline = L.polyline(routeCoords, {
+              color: lineColor,
+              weight: 4.5,
+              opacity: 0.85,
+              dashArray: dashPattern
+            }).addTo(mapLayerGroup);
+
+            if (travelMode === 'transit') {
+              metricsEl.textContent = `🚝 沿線距離 ${distKm} km（點擊右側查單軌/公車轉乘）`;
+            } else if (travelMode === 'walking') {
+              metricsEl.textContent = `🚶 步行路網：約 ${distKm} km · 約 ${durMins} 分`;
+            } else {
+              metricsEl.textContent = `🚗 實際車程：約 ${distKm} km · 預估 ${durMins} 分`;
+            }
+
+            mapInstance.fitBounds(routePolyline.getBounds(), { padding: [40, 40], maxZoom: 15 });
+            return;
+          }
+        } catch (err) {
+          console.warn('OSRM 路網計算失敗，改以示意連線顯示:', err);
+        }
+
+        // 備援示意線
+        L.polyline(latLngs, { color: '#64748B', weight: 3, dashArray: '6, 8', opacity: 0.75 }).addTo(mapLayerGroup);
+        metricsEl.textContent = '已顯示景點位置（點擊右側開啟 Google 路線）';
+      } else {
+        summaryBox.classList.add('hidden');
+        summaryBox.classList.remove('flex');
       }
 
       if (latLngs.length > 0) {
@@ -1266,7 +1368,7 @@
     }
 
     function openNewCardModal(prefillText = '') {
-      document.getElementById('modal-card-title').textContent = '新增沖繩景點 / 飯店卡片';
+      document.getElementById('modal-card-title').textContent = '新增沖繩地點 / 飯店 / 交通卡片';
       document.getElementById('card-form').reset();
       document.getElementById('field-id').value = '';
       document.getElementById('field-name').value = prefillText.startsWith('http') ? '' : prefillText;
@@ -1287,7 +1389,7 @@
       document.getElementById('field-name').value = spot.name || '';
       document.getElementById('field-category').value = spot.category || '景點';
       document.getElementById('field-area').value = spot.area || '那霸市區';
-      document.getElementById('field-duration').value = spot.estimated_duration || 60;
+      document.getElementById('field-duration').value = spot.estimated_duration !== undefined ? spot.estimated_duration : 60;
 
       const assignedDays = getSpotAssignedDays(spot);
       document.getElementById('field-day').value = assignedDays.length > 0 ? assignedDays[0] : 'pocket';
@@ -1331,7 +1433,7 @@
         name: document.getElementById('field-name').value.trim(),
         category: category,
         area: document.getElementById('field-area').value,
-        estimated_duration: Number(document.getElementById('field-duration').value) || 60,
+        estimated_duration: Number(document.getElementById('field-duration').value) || 0,
         assigned_day: assignedDay,
         status: assignedDay === 'pocket' ? 'pocket' : 'scheduled',
         description: document.getElementById('field-description').value.trim(),
