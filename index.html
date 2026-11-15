@@ -10,7 +10,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- SortableJS (流暢支援手機觸控與電腦拖曳) -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <!-- Leaflet CSS & JS (互動地圖與單軌/公車/自駕路網繪製) -->
+  <!-- Leaflet CSS & JS (互動地圖與多層次路網繪製) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Lucide Icons -->
@@ -100,7 +100,7 @@
     </div>
   </header>
 
-  <!-- 手機版分頁切換器 (小螢幕顯示) -->
+  <!-- 手機版分頁切換器 -->
   <div class="flex lg:hidden bg-white border-b border-slate-200 text-sm font-medium shrink-0">
     <button onclick="switchMobileTab('pocket')" id="tab-pocket" class="flex-1 py-2.5 text-center border-b-2 border-ai-indigo text-ai-indigo">
       景點資料庫 (<span id="mobile-pocket-count">0</span>)
@@ -118,7 +118,6 @@
 
     <!-- ==================== 左欄：永久口袋資料庫與免金鑰快速建卡區 ==================== -->
     <section id="panel-pocket" class="w-full lg:w-[345px] xl:w-[370px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
-      <!-- 免金鑰快速建卡收件匣 -->
       <div class="p-3 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-ai-indigo flex items-center gap-1">
@@ -171,7 +170,6 @@
             class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
         </div>
 
-        <!-- 分類篩選 -->
         <div class="flex gap-1 overflow-x-auto pb-0.5" id="category-filters">
           <button onclick="setFilterCategory('全部')" class="cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white shrink-0">全部</button>
           <button onclick="setFilterCategory('景點')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏞️ 景點</button>
@@ -181,7 +179,6 @@
           <button onclick="setFilterCategory('交通')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🚉 交通</button>
         </div>
 
-        <!-- 納入狀態 / 值得二訪篩選 -->
         <div class="flex items-center justify-between gap-1 text-[11px]" id="status-filters">
           <div class="flex gap-1 overflow-x-auto">
             <button onclick="setFilterDbStatus('all')" class="db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium shrink-0">全部資料庫</button>
@@ -191,7 +188,6 @@
           </div>
         </div>
 
-        <!-- 區域篩選 -->
         <div class="flex gap-1 overflow-x-auto text-[11px]" id="area-filters">
           <button onclick="setFilterArea('全部')" class="area-btn px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-medium shrink-0">全沖繩</button>
           <button onclick="setFilterArea('那霸市區')" class="area-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">那霸市區</button>
@@ -201,19 +197,14 @@
         </div>
       </div>
 
-      <!-- 永久資料庫卡片列表區（拖入右側後仍永久保留於此） -->
-      <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket">
-        <!-- 卡片動態渲染於此 -->
-      </div>
+      <!-- 永久資料庫卡片列表區 -->
+      <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket"></div>
     </section>
 
     <!-- ==================== 中欄：每日行程看板 (Kanban) ==================== -->
     <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[320px] flex-col bg-washi-bg overflow-hidden h-full">
-      <!-- 看板頂部導覽與多日快速切換工具列 -->
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar">
-          <!-- 動態產生 Day 1 ~ Day N 快速跳轉按鈕 -->
-        </div>
+        <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar"></div>
 
         <div class="flex items-center gap-1.5 shrink-0">
           <button onclick="toggleBoardCompactMode()" id="btn-board-density"
@@ -238,10 +229,7 @@
         </div>
       </div>
 
-      <!-- 橫向捲動的多日看板容器 -->
-      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3.5 overflow-x-auto overflow-y-hidden items-start scroll-smooth">
-        <!-- 每日欄位動態生成 -->
-      </div>
+      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3.5 overflow-x-auto overflow-y-hidden items-start scroll-smooth"></div>
     </section>
 
     <!-- ==================== 可拖曳寬度調整分隔線 (中欄 <-> 右欄) ==================== -->
@@ -251,9 +239,9 @@
       <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
     </div>
 
-    <!-- ==================== 右欄：地理空間互動地圖（單軌/公車/自駕/步行路網與時間分析） ==================== -->
-    <section id="panel-map" style="width: 390px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
-      <!-- 日期選擇與交通方式切換列 -->
+    <!-- ==================== 右欄：多層次交通路網互動地圖 ==================== -->
+    <section id="panel-map" style="width: 410px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
+      <!-- 日期選擇與全域預設交通策略切換列 -->
       <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
         <div class="flex items-center justify-between gap-1.5">
           <select id="map-day-selector" onchange="updateMapMarkers()" class="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
@@ -261,25 +249,24 @@
             <option value="scheduled_all">僅顯示已納入行程地點</option>
           </select>
 
-          <select id="map-travel-mode" onchange="updateMapMarkers()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none" title="選擇路徑規劃交通方式">
-            <option value="transit">🚝 大眾運輸 (單軌/公車)</option>
-            <option value="driving">🚗 自駕路線</option>
-            <option value="walking">🚶 步行路線</option>
+          <select id="map-travel-mode" onchange="handleGlobalModeChange()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none" title="切換當日預設交通策略（下方各路段仍可單獨微調）">
+            <option value="hybrid">🔀 多層次混搭 (推薦)</option>
+            <option value="transit">🚝 大眾運輸優先</option>
+            <option value="driving">🚗 全程自駕</option>
+            <option value="walking">🚶 全程步行</option>
           </select>
         </div>
 
-        <!-- 實際路徑總時間與分段交通明細卡片 -->
+        <!-- 實際路徑總時間與可逐段調整的交通工具明細卡片 -->
         <div id="map-route-summary" class="hidden flex-col bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-[11px] space-y-1.5 shadow-2xs">
           <div class="flex items-center justify-between gap-2">
-            <span id="map-route-metrics" class="text-slate-800 font-bold truncate">計算實際路網中...</span>
-            <a id="map-gmaps-dir-link" href="#" target="_blank" class="text-ai-indigo hover:underline font-bold flex items-center gap-0.5 shrink-0">
-              <span>Google 轉乘</span>
-              <i data-lucide="external-link" class="w-3 h-3"></i>
-            </a>
+            <span id="map-route-metrics" class="text-slate-800 font-bold truncate">計算多層次路網中...</span>
+            <button type="button" onclick="resetDaySegmentOverrides()" id="btn-reset-leg-modes" class="hidden text-[10px] text-slate-500 hover:text-ai-indigo underline shrink-0">
+              重設分段
+            </button>
           </div>
-          <!-- 分段交通工具與耗時明細（協助確認行程時間合理性） -->
-          <div id="map-segment-breakdown" class="max-h-24 overflow-y-auto space-y-1 pt-1 border-t border-slate-100 text-[10px] text-slate-600">
-          </div>
+          <!-- 分段交通工具自訂與耗時明細（支援單軌+步行、公車+步行、計程車短程接駁混搭） -->
+          <div id="map-segment-breakdown" class="max-h-36 overflow-y-auto space-y-1.5 pt-1 border-t border-slate-100 text-[10px] text-slate-700"></div>
         </div>
       </div>
 
@@ -327,7 +314,6 @@
           </div>
         </div>
 
-        <!-- 值得二訪 / 經典推薦標記開關 -->
         <label class="flex items-center justify-between bg-amber-50/80 border border-amber-200 rounded-xl px-3.5 py-2.5 cursor-pointer select-none">
           <div class="flex items-center gap-2">
             <span class="text-base">⭐</span>
@@ -361,7 +347,6 @@
           </div>
         </div>
 
-        <!-- 住宿連住多日勾選區塊 -->
         <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
           <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
@@ -484,67 +469,63 @@
     // ==================== 全域狀態與分類色彩定義 ====================
     const STORAGE_KEY_SPOTS = 'okinawa_planner_spots_v1';
     const STORAGE_KEY_CONFIG = 'okinawa_planner_config_v1';
+    const STORAGE_KEY_LEG_MODES = 'okinawa_planner_leg_modes_v1';
 
     const CATEGORY_THEME = {
-      '景點': {
-        hex: '#10B981',
-        badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        borderLeft: 'border-l-emerald-500'
-      },
-      '美食': {
-        hex: '#F59E0B',
-        badge: 'bg-amber-50 text-amber-700 border-amber-200',
-        borderLeft: 'border-l-amber-500'
-      },
-      '購物': {
-        hex: '#6366F1',
-        badge: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-        borderLeft: 'border-l-indigo-500'
-      },
-      '住宿': {
-        hex: '#7E22CE',
-        badge: 'bg-purple-100 text-purple-800 border-purple-300',
-        borderLeft: 'border-l-purple-700'
-      },
-      '交通': {
-        hex: '#0284C7',
-        badge: 'bg-sky-50 text-sky-700 border-sky-200',
-        borderLeft: 'border-l-sky-600'
-      }
+      '景點': { hex: '#10B981', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', borderLeft: 'border-l-emerald-500' },
+      '美食': { hex: '#F59E0B', badge: 'bg-amber-50 text-amber-700 border-amber-200', borderLeft: 'border-l-amber-500' },
+      '購物': { hex: '#6366F1', badge: 'bg-indigo-50 text-indigo-700 border-indigo-200', borderLeft: 'border-l-indigo-500' },
+      '住宿': { hex: '#7E22CE', badge: 'bg-purple-100 text-purple-800 border-purple-300', borderLeft: 'border-l-purple-700' },
+      '交通': { hex: '#0284C7', badge: 'bg-sky-50 text-sky-700 border-sky-200', borderLeft: 'border-l-sky-600' }
     };
 
-    // 沖繩都市單軌電車 (Yui Rail) 全線 19 站精準座標（用於計算真實單軌路線與搭車時間）
-    const YUI_RAIL_STATIONS = [
-      { name: '那霸空港站', lat: 26.2064, lng: 127.6522 },
-      { name: '赤嶺站', lat: 26.1932, lng: 127.6606 },
-      { name: '小祿站', lat: 26.1965, lng: 127.6669 },
-      { name: '奧武山公園站', lat: 26.2007, lng: 127.6754 },
-      { name: '壺川站', lat: 26.2059, lng: 127.6784 },
-      { name: '旭橋站', lat: 26.2121, lng: 127.6754 },
-      { name: '縣廳前站', lat: 26.2145, lng: 127.6793 },
-      { name: '美榮橋站', lat: 26.2192, lng: 127.6844 },
-      { name: '牧志站', lat: 26.2173, lng: 127.6926 },
-      { name: '安里站', lat: 26.2167, lng: 127.6957 },
-      { name: 'おもろまち站 (新都心)', lat: 26.2227, lng: 127.6986 },
-      { name: '古島站', lat: 26.2308, lng: 127.7031 },
-      { name: '市立病院前站', lat: 26.2273, lng: 127.7101 },
-      { name: '儀保站', lat: 26.2245, lng: 127.7192 },
-      { name: '首里站', lat: 26.2192, lng: 127.7255 },
-      { name: '石嶺站', lat: 26.2266, lng: 127.7302 },
-      { name: '經塚站', lat: 26.2367, lng: 127.7289 },
-      { name: '浦添前田站', lat: 26.2449, lng: 127.7317 },
-      { name: 'てだこ浦西站', lat: 26.2419, lng: 127.7422 }
+    // 沖繩都市單軌電車 (Yui Rail) 高精度軌道點序列（包含車站與實際高架橋彎道點，讓地圖路線貼合真實鐵道）
+    const YUI_RAIL_TRACK = [
+      { stationIdx: 0, name: '那霸空港站', lat: 26.2064, lng: 127.6522 },
+      { stationIdx: null, lat: 26.2035, lng: 127.6524 },
+      { stationIdx: null, lat: 26.1992, lng: 127.6540 },
+      { stationIdx: null, lat: 26.1950, lng: 127.6568 },
+      { stationIdx: 1, name: '赤嶺站', lat: 26.1932, lng: 127.6606 },
+      { stationIdx: null, lat: 26.1945, lng: 127.6642 },
+      { stationIdx: 2, name: '小祿站', lat: 26.1965, lng: 127.6669 },
+      { stationIdx: null, lat: 26.1987, lng: 127.6712 },
+      { stationIdx: 3, name: '奧武山公園站', lat: 26.2007, lng: 127.6754 },
+      { stationIdx: null, lat: 26.2028, lng: 127.6788 },
+      { stationIdx: 4, name: '壺川站', lat: 26.2059, lng: 127.6784 },
+      { stationIdx: null, lat: 26.2095, lng: 127.6752 },
+      { stationIdx: 5, name: '旭橋站', lat: 26.2121, lng: 127.6754 },
+      { stationIdx: 6, name: '縣廳前站', lat: 26.2145, lng: 127.6793 },
+      { stationIdx: 7, name: '美榮橋站', lat: 26.2192, lng: 127.6844 },
+      { stationIdx: null, lat: 26.2198, lng: 127.6886 },
+      { stationIdx: 8, name: '牧志站', lat: 26.2173, lng: 127.6926 },
+      { stationIdx: 9, name: '安里站', lat: 26.2167, lng: 127.6957 },
+      { stationIdx: null, lat: 26.2195, lng: 127.6975 },
+      { stationIdx: 10, name: 'おもろまち站 (新都心)', lat: 26.2227, lng: 127.6986 },
+      { stationIdx: null, lat: 26.2270, lng: 127.7008 },
+      { stationIdx: 11, name: '古島站', lat: 26.2308, lng: 127.7031 },
+      { stationIdx: 12, name: '市立病院前站', lat: 26.2273, lng: 127.7101 },
+      { stationIdx: 13, name: '儀保站', lat: 26.2245, lng: 127.7192 },
+      { stationIdx: 14, name: '首里站', lat: 26.2192, lng: 127.7255 },
+      { stationIdx: 15, name: '石嶺站', lat: 26.2266, lng: 127.7302 },
+      { stationIdx: 16, name: '經塚站', lat: 26.2367, lng: 127.7289 },
+      { stationIdx: 17, name: '浦添前田站', lat: 26.2449, lng: 127.7317 },
+      { stationIdx: 18, name: 'てだこ浦西站', lat: 26.2419, lng: 127.7422 }
     ];
+
+    const YUI_RAIL_STATIONS = YUI_RAIL_TRACK
+      .map((pt, trackIdx) => ({ ...pt, trackIdx }))
+      .filter(pt => pt.stationIdx !== null);
 
     // 預設可一鍵匯入的沖繩單軌與主要轉運站資料庫
     const PRESET_OKINAWA_STATIONS = [
       { name: '單軌 那霸空港站', category: '交通', area: '那霸市區', description: '沖繩單軌電車起點站，連結國內線與國際線航廈2樓連通道。', must_buy: 'OKICA交通卡 / 單軌一日券', business_hours: '06:00-23:30', estimated_duration: 15, lat: 26.2064, lng: 127.6522 },
       { name: '單軌 縣廳前站', category: '交通', area: '那霸市區', description: '國際通西側入口、久茂地飯店區與琉貿百貨轉乘樞紐。', must_buy: '往美國村/恩納村公車站牌', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2145, lng: 127.6793 },
       { name: '單軌 旭橋站 (那霸巴士總站)', category: '交通', area: '那霸市區', description: '沖繩最大長途公車轉運總站，往中部美國村、北部名護/美麗海直達車起點。', must_buy: '高速巴士/利木津巴士乘車處', business_hours: '06:00-23:30', estimated_duration: 15, lat: 26.2121, lng: 127.6754 },
+      { name: '單軌 美榮橋站', category: '交通', area: '那霸市區', description: '步行至久茂地/泊港最便捷車站，搭單軌往那霸空港約15分鐘。', must_buy: '', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2192, lng: 127.6844 },
       { name: '單軌 牧志站', category: '交通', area: '那霸市區', description: '國際通東側中心站，步行可達第一牧志公設市場與壺屋通。', must_buy: '', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2173, lng: 127.6926 },
       { name: '單軌 おもろまち站 (新都心)', category: '交通', area: '那霸市區', description: 'DFS免稅店、Main Place購物中心與大型租車營業所集中站。', must_buy: 'OTS/ORIX租車取車點', business_hours: '06:00-23:30', estimated_duration: 15, lat: 26.2227, lng: 127.6986 },
       { name: '單軌 首里站', category: '交通', area: '那霸市區', description: '前往首里城公園與金城町石疊道最近單軌站。', must_buy: '', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2192, lng: 127.7255 },
-      { name: '單軌 てだこ浦西站', category: '交通', area: '中部', description: '單軌電車終點站，設有大型轉乘停車場，可轉搭公車前往浦添PARCO CITY。', must_buy: '', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2419, lng: 127.7422 },
+      { name: '單軌 てだこ浦西站', category: '交通', area: '中部', description: '單軌電車終點站，設有大型轉乘停車場，可轉搭公車或計程車前往浦添PARCO CITY。', must_buy: '', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2419, lng: 127.7422 },
       { name: '美國村 桑江/北谷巴士站', category: '交通', area: '中部', description: '搭20/28/29/120號公車前往北谷美國村之主要下車站點。', must_buy: '', business_hours: '06:30-22:30', estimated_duration: 10, lat: 26.3168, lng: 127.7578 },
       { name: '名護巴士總站', category: '交通', area: '北部', description: '沖繩北部公車轉運中心，前往古宇利島、美麗海水族館必經節點。', must_buy: '', business_hours: '06:30-22:00', estimated_duration: 15, lat: 26.5915, lng: 127.9773 }
     ];
@@ -561,7 +542,7 @@
       rightVisible: true,
       inboxExpanded: true,
       boardCompact: true,
-      mapWidthPx: 390
+      mapWidthPx: 410
     };
 
     const DEFAULT_SPOTS = [
@@ -604,9 +585,10 @@
     ];
 
     let spots = [];
+    let legModeOverrides = {}; // 儲存各日期各路段的自訂交通工具，例如 { "2027-02-18|spotA|spotB": "taxi" }
     let currentCategoryFilter = '全部';
     let currentAreaFilter = '全部';
-    let currentDbStatusFilter = 'all'; // all / unscheduled / scheduled / revisit
+    let currentDbStatusFilter = 'all';
     let mapInstance = null;
     let mapLayerGroup = null;
     let routeRequestToken = 0;
@@ -634,6 +616,9 @@
       const savedSpots = localStorage.getItem(STORAGE_KEY_SPOTS);
       spots = savedSpots ? JSON.parse(savedSpots) : [...DEFAULT_SPOTS];
 
+      const savedLegs = localStorage.getItem(STORAGE_KEY_LEG_MODES);
+      if (savedLegs) legModeOverrides = JSON.parse(savedLegs);
+
       updateHeaderUI();
       updateSyncBadge();
     }
@@ -641,6 +626,7 @@
     function saveLocalState() {
       localStorage.setItem(STORAGE_KEY_SPOTS, JSON.stringify(spots));
       localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(appConfig));
+      localStorage.setItem(STORAGE_KEY_LEG_MODES, JSON.stringify(legModeOverrides));
     }
 
     function updateHeaderUI() {
@@ -781,7 +767,7 @@
         if (!isResizing) return;
         const rect = workspace.getBoundingClientRect();
         const newMapWidth = rect.right - e.clientX;
-        const minMapWidth = 260;
+        const minMapWidth = 270;
         const maxMapWidth = rect.width * 0.65;
 
         if (newMapWidth >= minMapWidth && newMapWidth <= maxMapWidth) {
@@ -879,7 +865,6 @@
       }
     }
 
-    // ==================== 切換「值得二訪」標記 ====================
     function toggleSpotRevisit(spotId) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
@@ -901,7 +886,6 @@
       }
     }
 
-    // ==================== 從單日行程移出（不刪除資料庫卡片） ====================
     function removeSpotFromDay(spotId, targetDateStr) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
@@ -1037,7 +1021,6 @@
       const dayLabelMap = {};
       (daysList || []).forEach(d => { dayLabelMap[d.dateStr] = d.label; });
 
-      // 永久資料庫模式：顯示所有符合篩選的卡片（不會因為已排入行程而消失）
       const dbSpots = spots
         .filter(s => currentCategoryFilter === '全部' || s.category === currentCategoryFilter)
         .filter(s => currentAreaFilter === '全部' || s.area === currentAreaFilter)
@@ -1057,12 +1040,11 @@
 
       document.getElementById('mobile-pocket-count').textContent = dbSpots.length;
 
-      // 若目前篩選「交通」，於頂部顯示一鍵匯入沖繩單軌/主要車站工具列
       const presetBanner = currentCategoryFilter === '交通' ? `
         <div class="bg-sky-50 border border-sky-200 rounded-xl p-2.5 flex items-center justify-between gap-2">
           <div class="text-[11px] text-sky-900 leading-snug">
             <span class="font-bold">🚉 預建沖繩單軌與公車樞紐</span><br/>
-            <span class="text-sky-700/90">一鍵匯入那霸空港、縣廳前、旭橋等9大站點</span>
+            <span class="text-sky-700/90">一鍵匯入那霸空港、縣廳前、旭橋等10大站點</span>
           </div>
           <button onclick="importOkinawaPresetStations()" class="bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-medium px-2.5 py-1.5 rounded-lg shrink-0 transition shadow-2xs">
             匯入車站
@@ -1082,7 +1064,6 @@
       container.innerHTML = presetBanner + dbSpots.map(spot => buildPocketDatabaseCardHTML(spot, dayLabelMap)).join('');
     }
 
-    // ==================== 左側「永久資料庫卡片」HTML ====================
     function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
       const isHotel = spot.category === '住宿';
       const isTransport = spot.category === '交通';
@@ -1104,7 +1085,6 @@
             </div>
           ` : ''}
           <div class="p-2.5">
-            <!-- 狀態標籤列（無照片時顯示納入狀態與值得二訪標記） -->
             ${(!spot.photo_url && (isIncluded || isRevisit)) ? `
               <div class="flex flex-wrap items-center gap-1 mb-1.5">
                 ${isIncluded ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✅ 已納入行程 (${dayNamesText})</span>` : ''}
@@ -1157,27 +1137,85 @@
       `;
     }
 
-    // ==================== 每日行程合理性快速時間估算（供看板標題列即時顯示） ====================
-    function estimateDayTransitMinutes(daySpots) {
-      if (!daySpots || daySpots.length < 2) return 0;
-      let totalMins = 0;
-      for (let i = 0; i < daySpots.length - 1; i++) {
-        const a = daySpots[i];
-        const b = daySpots[i + 1];
-        if (!a.lat || !a.lng || !b.lat || !b.lng) continue;
-        const km = haversineKm(parseFloat(a.lat), parseFloat(a.lng), parseFloat(b.lat), parseFloat(b.lng));
-        const stA = findNearestYuiRailStation(a.lat, a.lng);
-        const stB = findNearestYuiRailStation(b.lat, b.lng);
-        if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
-          const hops = Math.abs(stA.index - stB.index);
-          const walkMins = Math.round(((stA.distKm + stB.distKm) * 1.25 / 4.2) * 60);
-          totalMins += Math.round(hops * 2.3 + 4 + walkMins);
-        } else {
-          // 沖繩一般道路/公車平均時速約 28 km/h + 轉乘緩衝
-          totalMins += Math.max(5, Math.round((km * 1.3 / 28) * 60 + 5));
-        }
+    // ==================== 多層次交通策略與單日分段耗時計算 ====================
+    function getLegKey(dateStr, spotA, spotB) {
+      return `${dateStr}|${spotA.id}|${spotB.id}`;
+    }
+
+    /**
+     * 智慧決定兩點間最適交通方式：
+     * - monorail: 單軌+步行（兩端皆在單軌站 1.2km 內且跨站）
+     * - walking: 純步行（直線距離 < 1.1km 且無需跨大幹道或步程 <= 18分）
+     * - bus: 公車+步行（沿國道58號/幹線長距離移動）
+     * - taxi: 計程車短程接駁（無直達單軌/公車的跨區短程，例如港川外人住宅 -> 浦添 PARCO CITY）
+     */
+    function resolveLegMode(dateStr, spotA, spotB, globalMode) {
+      const key = getLegKey(dateStr, spotA, spotB);
+      if (legModeOverrides[key]) return legModeOverrides[key];
+
+      if (globalMode === 'driving') return 'driving';
+      if (globalMode === 'walking') return 'walking';
+
+      const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
+      const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
+      const km = haversineKm(latA, lngA, latB, lngB);
+      const stA = findNearestYuiRailStation(latA, lngA);
+      const stB = findNearestYuiRailStation(latB, lngB);
+
+      // 1. 單軌沿線站點（1.2 km 內）
+      if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
+        return 'monorail';
       }
-      return totalMins;
+
+      // 2. 極短距離（<= 0.75 km）適合直接步行
+      if (km <= 0.75) {
+        return 'walking';
+      }
+
+      // 3. 中部/浦添/海濱等無直達公車的短程跨區（0.75 ~ 3.2 km 且不在單軌沿線）
+      if (globalMode === 'hybrid' && km > 0.75 && km <= 3.2 && (stA.distKm > 1.2 || stB.distKm > 1.2)) {
+        return 'taxi';
+      }
+
+      // 4. 其余中長程優先使用公車+步行
+      return 'bus';
+    }
+
+    function estimateSingleLegQuick(dateStr, spotA, spotB, globalMode) {
+      if (!spotA.lat || !spotA.lng || !spotB.lat || !spotB.lng) return { mins: 0, km: 0, mode: 'bus' };
+      const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
+      const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
+      const km = haversineKm(latA, lngA, latB, lngB);
+      const mode = resolveLegMode(dateStr, spotA, spotB, globalMode);
+
+      if (mode === 'monorail') {
+        const stA = findNearestYuiRailStation(latA, lngA);
+        const stB = findNearestYuiRailStation(latB, lngB);
+        const hops = Math.abs(stA.index - stB.index);
+        const walkMins = Math.round(((stA.distKm + stB.distKm) * 1.25 / 4.2) * 60);
+        return { mins: Math.round(hops * 2.2 + 4 + walkMins), km: km * 1.2, mode };
+      }
+      if (mode === 'walking') {
+        return { mins: Math.max(3, Math.round((km * 1.25 / 4.2) * 60)), km: km * 1.25, mode };
+      }
+      if (mode === 'taxi') {
+        return { mins: Math.max(4, Math.round((km * 1.35 / 30) * 60 + 2)), km: km * 1.35, mode };
+      }
+      if (mode === 'driving') {
+        return { mins: Math.max(3, Math.round((km * 1.3 / 34) * 60)), km: km * 1.3, mode };
+      }
+      // bus
+      return { mins: Math.max(8, Math.round((km * 1.3 / 24) * 60 + 8)), km: km * 1.3, mode: 'bus' };
+    }
+
+    function estimateDayTransitMinutes(dateStr, daySpots) {
+      if (!daySpots || daySpots.length < 2) return 0;
+      const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
+      let total = 0;
+      for (let i = 0; i < daySpots.length - 1; i++) {
+        total += estimateSingleLegQuick(dateStr, daySpots[i], daySpots[i + 1], globalMode).mins;
+      }
+      return total;
     }
 
     function renderKanbanDays(daysList) {
@@ -1191,7 +1229,7 @@
           .filter(s => s.category !== '住宿' && s.category !== '交通')
           .reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
         const activityHours = (activityMins / 60).toFixed(1).replace('.0', '');
-        const transitMins = estimateDayTransitMinutes(daySpots);
+        const transitMins = estimateDayTransitMinutes(day.dateStr, daySpots);
         const nextDayObj = daysList[dayIdx + 1] || null;
 
         return `
@@ -1206,7 +1244,7 @@
                   共 ${daySpots.length} 項 · 活動 ${activityHours}h${transitMins > 0 ? ` · <span class="text-sky-700 font-medium">移動約${transitMins}分</span>` : ''}
                 </p>
               </div>
-              <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日交通路線與時間">
+              <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日多層次交通路線">
                 <i data-lucide="map" class="w-4 h-4"></i>
               </button>
             </div>
@@ -1222,7 +1260,6 @@
       }).join('');
     }
 
-    // ==================== 中間看板「已排程卡片」HTML ====================
     function buildScheduledCardHTML(spot, orderNum, dayContext) {
       const isHotel = spot.category === '住宿';
       const isTransport = spot.category === '交通';
@@ -1280,7 +1317,6 @@
         `;
       }
 
-      // 看板「完整圖文模式」
       const cardBorder = isHotel ? 'border-purple-300 bg-purple-50/30' : 'border-slate-200/90 bg-white';
       return `
         <div class="spot-card ${cardBorder} rounded-xl border shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
@@ -1363,16 +1399,12 @@
       }
     }
 
-    // ==================== 拖曳排序互動（左側資料庫採用 Clone 複製拖曳，卡片永不消失） ====================
+    // ==================== 拖曳排序互動 ====================
     function initSortableDragAndDrop() {
       const pocketEl = document.getElementById('pocket-dropzone');
       if (pocketEl) {
         new Sortable(pocketEl, {
-          group: {
-            name: 'okinawa-cards',
-            pull: 'clone', // 從資料庫拖出時建立複本，原卡片保留在資料庫
-            put: false     // 不允許從行程看板拖回覆蓋資料庫
-          },
+          group: { name: 'okinawa-cards', pull: 'clone', put: false },
           sort: false,
           animation: 180,
           ghostClass: 'sortable-ghost',
@@ -1387,7 +1419,6 @@
           ghostClass: 'sortable-ghost',
           dragClass: 'sortable-drag',
           onAdd: function (evt) {
-            // 若同一天已經有同一張卡片，移除重複的 DOM 複本並提示
             const addedId = evt.item.dataset.id;
             const sameIdCards = zone.querySelectorAll(`.spot-card[data-id="${addedId}"]`);
             if (sameIdCards.length > 1) {
@@ -1446,7 +1477,7 @@
       }
     }
 
-    // ==================== 空間距離與沖繩單軌/公車/自駕路網計算 ====================
+    // ==================== 空間距離與單軌軌道切片工具 ====================
     function haversineKm(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1470,6 +1501,79 @@
       return { station: YUI_RAIL_STATIONS[bestIdx], index: bestIdx, distKm: minDist };
     }
 
+    function getYuiRailTrackSlice(stA, stB) {
+      const startTrack = stA.station.trackIdx;
+      const endTrack = stB.station.trackIdx;
+      const step = startTrack <= endTrack ? 1 : -1;
+      const coords = [];
+      for (let i = startTrack; i !== endTrack + step; i += step) {
+        coords.push([YUI_RAIL_TRACK[i].lat, YUI_RAIL_TRACK[i].lng]);
+      }
+      return coords;
+    }
+
+    async function fetchOsrmSegment(profile, latA, lngA, latB, lngB) {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/${profile}/${lngA},${latA};${lngB},${latB}?overview=full&geometries=geojson`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          return {
+            coords: data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]),
+            distKm: data.routes[0].distance / 1000,
+            durMins: Math.max(1, Math.round(data.routes[0].duration / 60))
+          };
+        }
+      } catch (e) {}
+      const fallbackKm = haversineKm(latA, lngA, latB, lngB) * 1.25;
+      const speed = profile === 'foot' ? 4.2 : 30;
+      return {
+        coords: [[latA, lngA], [latB, lngB]],
+        distKm: fallbackKm,
+        durMins: Math.max(1, Math.round((fallbackKm / speed) * 60))
+      };
+    }
+
+    // 產生單一段點對點 Google Maps 連結（避免 transit 模式下 waypoints 導致 Google 無法規劃）
+    function buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode) {
+      const gMode = legMode === 'walking' ? 'walking' : ((legMode === 'driving' || legMode === 'taxi') ? 'driving' : 'transit');
+      const params = new URLSearchParams({
+        api: '1',
+        origin: `${latA},${lngA}`,
+        destination: `${latB},${lngB}`,
+        travelmode: gMode
+      });
+      return `https://www.google.com/maps/dir/?${params.toString()}`;
+    }
+
+    function setLegModeOverride(dateStr, idA, idB, newMode) {
+      const key = `${dateStr}|${idA}|${idB}`;
+      legModeOverrides[key] = newMode;
+      saveLocalState();
+      renderAll();
+    }
+
+    function resetDaySegmentOverrides() {
+      const filterDay = document.getElementById('map-day-selector').value;
+      Object.keys(legModeOverrides).forEach(k => {
+        if (k.startsWith(filterDay + '|')) delete legModeOverrides[k];
+      });
+      saveLocalState();
+      renderAll();
+      showToast('已重設當日各分段交通方式為自動最佳組合');
+    }
+
+    function handleGlobalModeChange() {
+      const filterDay = document.getElementById('map-day-selector').value;
+      // 切換全域策略時，清除當日手動覆蓋讓新策略立即生效
+      Object.keys(legModeOverrides).forEach(k => {
+        if (k.startsWith(filterDay + '|')) delete legModeOverrides[k];
+      });
+      saveLocalState();
+      renderAll();
+    }
+
+    // ==================== 地圖初始化與多層次分段繪製 ====================
     function initMap() {
       mapInstance = L.map('okinawa-map').setView([26.35, 127.78], 10);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1511,11 +1615,11 @@
       mapLayerGroup.clearLayers();
 
       const filterDay = document.getElementById('map-day-selector').value;
-      const travelMode = document.getElementById('map-travel-mode').value;
+      const globalMode = document.getElementById('map-travel-mode').value;
       const summaryBox = document.getElementById('map-route-summary');
       const metricsEl = document.getElementById('map-route-metrics');
       const breakdownEl = document.getElementById('map-segment-breakdown');
-      const gmapsLinkEl = document.getElementById('map-gmaps-dir-link');
+      const resetBtn = document.getElementById('btn-reset-leg-modes');
 
       let filtered = spots.filter(s => s.lat && s.lng);
 
@@ -1561,168 +1665,145 @@
         `);
       });
 
-      // 單日多點路線與分段交通工具時間計算
+      // ==================== 單日多層次逐段路線計算與地圖繪製 ====================
       if (filterDay !== 'all' && filterDay !== 'scheduled_all' && filtered.length > 1) {
         summaryBox.classList.remove('hidden');
         summaryBox.classList.add('flex');
-        metricsEl.textContent = '正在計算路線與交通耗時...';
+        metricsEl.textContent = '正在計算多層次路網與轉乘時間...';
         breakdownEl.innerHTML = '';
 
-        // 組合 Google Maps 外部多點路線網址
-        const originCoord = `${latLngs[0][0]},${latLngs[0][1]}`;
-        const destCoord = `${latLngs[latLngs.length - 1][0]},${latLngs[latLngs.length - 1][1]}`;
-        const waypointCoords = latLngs.slice(1, -1).map(p => `${p[0]},${p[1]}`).join('|');
-        const gmapsParams = new URLSearchParams({
-          api: '1',
-          origin: originCoord,
-          destination: destCoord,
-          travelmode: travelMode
-        });
-        if (waypointCoords) gmapsParams.set('waypoints', waypointCoords);
-        gmapsLinkEl.href = `https://www.google.com/maps/dir/?${gmapsParams.toString()}`;
+        const hasOverrides = Object.keys(legModeOverrides).some(k => k.startsWith(filterDay + '|'));
+        if (hasOverrides) resetBtn.classList.remove('hidden');
+        else resetBtn.classList.add('hidden');
 
         const currentToken = ++routeRequestToken;
+        let totalMins = 0;
+        let totalDistKm = 0;
+        const allBoundsPts = [];
+        const segmentCards = [];
 
-        // ==================== 模式 1：大眾運輸（沖繩單軌 Yui Rail 軌道模型 + 公車路網混合計算） ====================
-        if (travelMode === 'transit') {
-          let totalTransitMins = 0;
-          let totalDistKm = 0;
-          const allBoundsPts = [];
-          const segmentHtmlList = [];
+        for (let i = 0; i < filtered.length - 1; i++) {
+          const pA = filtered[i];
+          const pB = filtered[i + 1];
+          const latA = parseFloat(pA.lat), lngA = parseFloat(pA.lng);
+          const latB = parseFloat(pB.lat), lngB = parseFloat(pB.lng);
 
-          for (let i = 0; i < filtered.length - 1; i++) {
-            const pA = filtered[i];
-            const pB = filtered[i + 1];
-            const stA = findNearestYuiRailStation(pA.lat, pA.lng);
-            const stB = findNearestYuiRailStation(pB.lat, pB.lng);
+          const legMode = resolveLegMode(filterDay, pA, pB, globalMode);
+          const gmapsLegUrl = buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode);
 
-            // 若起訖點皆在單軌站 1.2 km 內且跨站搭乘，採用真實單軌軌道線＋步行接駁
-            if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
-              const step = stA.index < stB.index ? 1 : -1;
-              const railCoords = [];
-              for (let idx = stA.index; idx !== stB.index + step; idx += step) {
-                railCoords.push([YUI_RAIL_STATIONS[idx].lat, YUI_RAIL_STATIONS[idx].lng]);
-              }
+          let legMins = 0;
+          let legDistKm = 0;
+          let detailNote = '';
 
-              // 繪製單軌電車軌道線（天藍色實線）與兩端步行接駁線（虛線）
-              L.polyline(railCoords, { color: '#0284C7', weight: 5, opacity: 0.9 }).addTo(mapLayerGroup);
-              if (stA.distKm > 0.08) {
-                L.polyline([[pA.lat, pA.lng], [stA.station.lat, stA.station.lng]], { color: '#64748B', weight: 3, dashArray: '4, 5' }).addTo(mapLayerGroup);
-              }
-              if (stB.distKm > 0.08) {
-                L.polyline([[stB.station.lat, stB.station.lng], [pB.lat, pB.lng]], { color: '#64748B', weight: 3, dashArray: '4, 5' }).addTo(mapLayerGroup);
-              }
+          if (legMode === 'monorail') {
+            const stA = findNearestYuiRailStation(latA, lngA);
+            const stB = findNearestYuiRailStation(latB, lngB);
+            const railCoords = getYuiRailTrackSlice(stA, stB);
 
-              allBoundsPts.push([pA.lat, pA.lng], ...railCoords, [pB.lat, pB.lng]);
+            // 繪製真實曲率單軌高架軌道線（天藍色實線）
+            L.polyline(railCoords, { color: '#0284C7', weight: 5, opacity: 0.92 }).addTo(mapLayerGroup);
+            allBoundsPts.push(...railCoords);
 
-              const hops = Math.abs(stA.index - stB.index);
-              const railMins = Math.round(hops * 2.3 + 4); // 每站約 2.3 分 + 4 分候車
-              const walkMins = Math.round(((stA.distKm + stB.distKm) * 1.25 / 4.2) * 60);
-              const segMins = railMins + walkMins;
-              const segKm = haversineKm(pA.lat, pA.lng, pB.lat, pB.lng) * 1.2;
-              totalTransitMins += segMins;
-              totalDistKm += segKm;
-
-              segmentHtmlList.push(`
-                <div class="flex items-start justify-between gap-1 bg-sky-50/70 px-2 py-1 rounded">
-                  <span class="truncate"><strong>${i + 1}→${i + 2}</strong> 🚝 單軌(${stA.station.name.replace('站','')}→${stB.station.name.replace('站','')})${walkMins > 1 ? ` + 步${walkMins}分` : ''}</span>
-                  <span class="font-bold text-sky-700 shrink-0">約 ${segMins} 分</span>
-                </div>
-              `);
-            } else {
-              // 超出單軌沿線：透過 OSRM 抓實際公車行駛道路，並以沖繩公車平均時速＋停站緩衝計算
-              let segCoords = [[pA.lat, pA.lng], [pB.lat, pB.lng]];
-              let roadDistKm = haversineKm(pA.lat, pA.lng, pB.lat, pB.lng) * 1.3;
-              let carMins = Math.round((roadDistKm / 32) * 60);
-
-              try {
-                const segUrl = `https://router.project-osrm.org/route/v1/driving/${pA.lng},${pA.lat};${pB.lng},${pB.lat}?overview=full&geometries=geojson`;
-                const r = await fetch(segUrl);
-                if (currentToken !== routeRequestToken) return;
-                const d = await r.json();
-                if (d.code === 'Ok' && d.routes && d.routes[0]) {
-                  segCoords = d.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                  roadDistKm = d.routes[0].distance / 1000;
-                  carMins = d.routes[0].duration / 60;
-                }
-              } catch (e) {}
-
-              L.polyline(segCoords, { color: '#0284C7', weight: 4, dashArray: '8, 6', opacity: 0.85 }).addTo(mapLayerGroup);
-              allBoundsPts.push(...segCoords);
-
-              const busMins = Math.max(8, Math.round(carMins * 1.55 + 8)); // 公車停靠站＋候車時間
-              totalTransitMins += busMins;
-              totalDistKm += roadDistKm;
-
-              segmentHtmlList.push(`
-                <div class="flex items-start justify-between gap-1 bg-slate-50 px-2 py-1 rounded">
-                  <span class="truncate"><strong>${i + 1}→${i + 2}</strong> 🚌 公車/客運 (${roadDistKm.toFixed(1)} km)</span>
-                  <span class="font-bold text-slate-700 shrink-0">約 ${busMins} 分</span>
-                </div>
-              `);
+            // 兩端真實街道步行接駁線（綠色虛線）
+            let walkMinsA = 0, walkMinsB = 0;
+            if (stA.distKm > 0.08) {
+              const walkA = await fetchOsrmSegment('foot', latA, lngA, stA.station.lat, stA.station.lng);
+              if (currentToken !== routeRequestToken) return;
+              L.polyline(walkA.coords, { color: '#059669', weight: 3.5, dashArray: '4, 6', opacity: 0.9 }).addTo(mapLayerGroup);
+              allBoundsPts.push(...walkA.coords);
+              walkMinsA = walkA.durMins;
             }
+            if (stB.distKm > 0.08) {
+              const walkB = await fetchOsrmSegment('foot', stB.station.lat, stB.station.lng, latB, lngB);
+              if (currentToken !== routeRequestToken) return;
+              L.polyline(walkB.coords, { color: '#059669', weight: 3.5, dashArray: '4, 6', opacity: 0.9 }).addTo(mapLayerGroup);
+              allBoundsPts.push(...walkB.coords);
+              walkMinsB = walkB.durMins;
+            }
+
+            const hops = Math.abs(stA.index - stB.index);
+            const railRideMins = Math.max(2, Math.round(hops * 2.2 + 4));
+            legMins = railRideMins + walkMinsA + walkMinsB;
+            legDistKm = haversineKm(latA, lngA, latB, lngB) * 1.25;
+            detailNote = `單軌(${stA.station.name.replace('站','')}→${stB.station.name.replace('站','')}) ${(walkMinsA + walkMinsB) > 0 ? `+ 步行${walkMinsA + walkMinsB}分` : ''}`;
+
+          } else if (legMode === 'bus') {
+            const road = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
+            if (currentToken !== routeRequestToken) return;
+            L.polyline(road.coords, { color: '#0284C7', weight: 4.5, dashArray: '8, 6', opacity: 0.88 }).addTo(mapLayerGroup);
+            allBoundsPts.push(...road.coords);
+            legDistKm = road.distKm;
+            legMins = Math.max(8, Math.round(road.durMins * 1.55 + 8));
+            detailNote = `沿線公車/客運 + 站牌步行 (${legDistKm.toFixed(1)} km)`;
+
+          } else if (legMode === 'taxi') {
+            const road = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
+            if (currentToken !== routeRequestToken) return;
+            L.polyline(road.coords, { color: '#D97706', weight: 4.5, opacity: 0.9 }).addTo(mapLayerGroup);
+            allBoundsPts.push(...road.coords);
+            legDistKm = road.distKm;
+            legMins = Math.max(4, road.durMins + 2);
+            const estYen = Math.round((600 + Math.max(0, legDistKm - 1.75) * 280) / 10) * 10;
+            detailNote = `點對點計程車 (${legDistKm.toFixed(1)} km · 預估 ¥${estYen})`;
+
+          } else if (legMode === 'walking') {
+            const walk = await fetchOsrmSegment('foot', latA, lngA, latB, lngB);
+            if (currentToken !== routeRequestToken) return;
+            L.polyline(walk.coords, { color: '#059669', weight: 4, dashArray: '4, 6', opacity: 0.9 }).addTo(mapLayerGroup);
+            allBoundsPts.push(...walk.coords);
+            legDistKm = walk.distKm;
+            legMins = walk.durMins;
+            detailNote = `街道步行 (${legDistKm.toFixed(1)} km)`;
+
+          } else {
+            // driving
+            const drive = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
+            if (currentToken !== routeRequestToken) return;
+            L.polyline(drive.coords, { color: '#2B4C7E', weight: 4.5, opacity: 0.9 }).addTo(mapLayerGroup);
+            allBoundsPts.push(...drive.coords);
+            legDistKm = drive.distKm;
+            legMins = drive.durMins;
+            detailNote = `自駕行駛 (${legDistKm.toFixed(1)} km)`;
           }
 
-          metricsEl.textContent = `🚝 大眾運輸總計：約 ${totalTransitMins} 分 (${totalDistKm.toFixed(1)} km)`;
-          breakdownEl.innerHTML = segmentHtmlList.join('');
-          if (allBoundsPts.length > 0) {
-            mapInstance.fitBounds(L.latLngBounds(allBoundsPts), { padding: [40, 40], maxZoom: 15 });
-          }
-          return;
+          totalMins += legMins;
+          totalDistKm += legDistKm;
+
+          segmentCards.push(`
+            <div class="bg-slate-50 border border-slate-200/80 rounded-lg p-1.5 space-y-1">
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-bold text-slate-800 truncate">
+                  ${i + 1}→${i + 2} ${pA.name} → ${pB.name}
+                </span>
+                <span class="font-bold text-ai-indigo shrink-0">約 ${legMins} 分</span>
+              </div>
+              <div class="flex items-center justify-between gap-1.5">
+                <select onchange="setLegModeOverride('${filterDay}', '${pA.id}', '${pB.id}', this.value)"
+                  class="text-[10px] bg-white border border-slate-300 rounded px-1.5 py-0.5 font-medium text-slate-700 focus:outline-none">
+                  <option value="monorail" ${legMode === 'monorail' ? 'selected' : ''}>🚝 單軌+步行</option>
+                  <option value="bus" ${legMode === 'bus' ? 'selected' : ''}>🚌 公車+步行</option>
+                  <option value="taxi" ${legMode === 'taxi' ? 'selected' : ''}>🚕 計程車接駁</option>
+                  <option value="walking" ${legMode === 'walking' ? 'selected' : ''}>🚶 純步行</option>
+                  <option value="driving" ${legMode === 'driving' ? 'selected' : ''}>🚗 自駕</option>
+                </select>
+                <span class="text-slate-500 truncate flex-1">${detailNote}</span>
+                <a href="${gmapsLegUrl}" target="_blank" class="text-ai-indigo hover:underline font-bold flex items-center gap-0.5 shrink-0" title="開啟 Google Maps 檢視此段實際時刻與路線">
+                  <span>Google</span>
+                  <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+                </a>
+              </div>
+            </div>
+          `);
         }
 
-        // ==================== 模式 2 & 3：自駕路線 / 步行路線（OSRM 實際路網分段計算） ====================
-        const osrmProfile = travelMode === 'walking' ? 'foot' : 'driving';
-        const coordString = latLngs.map(p => `${p[1]},${p[0]}`).join(';');
-        const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordString}?overview=full&geometries=geojson`;
+        metricsEl.textContent = `🧭 當日移動總計：約 ${totalMins} 分 (${totalDistKm.toFixed(1)} km)`;
+        breakdownEl.innerHTML = segmentCards.join('');
+        lucide.createIcons();
 
-        try {
-          const resp = await fetch(osrmUrl);
-          if (currentToken !== routeRequestToken) return;
-          const routeData = await resp.json();
-
-          if (routeData.code === 'Ok' && routeData.routes && routeData.routes.length > 0) {
-            const bestRoute = routeData.routes[0];
-            const routeCoords = bestRoute.geometry.coordinates.map(c => [c[1], c[0]]);
-            const distKm = (bestRoute.distance / 1000).toFixed(1);
-            const durMins = Math.max(1, Math.round(bestRoute.duration / 60));
-
-            const lineColor = travelMode === 'walking' ? '#059669' : '#2B4C7E';
-            const dashPattern = travelMode === 'walking' ? '4, 6' : null;
-
-            const routePolyline = L.polyline(routeCoords, {
-              color: lineColor,
-              weight: 4.5,
-              opacity: 0.85,
-              dashArray: dashPattern
-            }).addTo(mapLayerGroup);
-
-            const legs = bestRoute.legs || [];
-            breakdownEl.innerHTML = legs.map((leg, idx) => {
-              const lKm = (leg.distance / 1000).toFixed(1);
-              const lMin = Math.max(1, Math.round(leg.duration / 60));
-              const icon = travelMode === 'walking' ? '🚶' : '🚗';
-              return `
-                <div class="flex items-center justify-between bg-slate-50 px-2 py-1 rounded">
-                  <span class="truncate"><strong>${idx + 1}→${idx + 2}</strong> ${icon} ${filtered[idx].name} → ${filtered[idx + 1].name}</span>
-                  <span class="font-bold text-slate-700 shrink-0 ml-1">${lKm}km · ${lMin}分</span>
-                </div>
-              `;
-            }).join('');
-
-            metricsEl.textContent = travelMode === 'walking'
-              ? `🚶 步行總計：約 ${durMins} 分 (${distKm} km)`
-              : `🚗 自駕總計：約 ${durMins} 分 (${distKm} km)`;
-
-            mapInstance.fitBounds(routePolyline.getBounds(), { padding: [40, 40], maxZoom: 15 });
-            return;
-          }
-        } catch (err) {
-          console.warn('OSRM 路網計算失敗:', err);
+        if (allBoundsPts.length > 0) {
+          mapInstance.fitBounds(L.latLngBounds(allBoundsPts), { padding: [40, 40], maxZoom: 15 });
         }
-
-        L.polyline(latLngs, { color: '#64748B', weight: 3, dashArray: '6, 8', opacity: 0.75 }).addTo(mapLayerGroup);
-        metricsEl.textContent = '已顯示景點位置（點擊右側開啟 Google 路線）';
+        return;
       } else {
         summaryBox.classList.add('hidden');
         summaryBox.classList.remove('flex');
