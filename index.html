@@ -201,7 +201,7 @@
       <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket"></div>
     </section>
 
-    <!-- ==================== 中欄：每日行程看板 (Kanban) ==================== -->
+    <!-- ==================== 中欄：每日行程看板 (Kanban + 自動時間軸) ==================== -->
     <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[320px] flex-col bg-washi-bg overflow-hidden h-full">
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar"></div>
@@ -280,9 +280,9 @@
 
   </main>
 
-  <!-- ==================== 視窗 1：卡片詳細資訊與編輯 Modal ==================== -->
+  <!-- ==================== 視窗 1：卡片詳細資訊與 Google 圖文評論摘錄 Modal ==================== -->
   <div id="modal-card-detail" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
+    <div class="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-xl overflow-hidden">
       <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
         <h3 class="font-bold text-base text-ink-dark" id="modal-card-title">資料庫卡片詳情</h3>
         <button onclick="closeModal('modal-card-detail')" class="text-slate-400 hover:text-slate-700">
@@ -307,6 +307,49 @@
               <option value="住宿">🏨 住宿</option>
               <option value="交通">🚉 交通</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Google Maps 圖片、簡介與網友評論一鍵摘錄區塊 -->
+        <div class="bg-sky-50/80 border border-sky-200 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4 text-sky-600"></i>
+              <span>Google Maps 景點情報與網友評論参考</span>
+            </div>
+            <button type="button" onclick="handleFetchGoogleInsights()" id="btn-fetch-insights"
+              class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs shrink-0">
+              <i data-lucide="search" class="w-3.5 h-3.5"></i>
+              <span>擷取圖文與評論</span>
+            </button>
+          </div>
+
+          <!-- 擷取結果預覽區 -->
+          <div id="google-insights-result" class="hidden bg-white border border-sky-200/90 rounded-lg p-2.5 space-y-2 text-xs">
+            <div class="flex gap-2.5 items-start">
+              <img id="insight-photo-preview" src="" alt="景點預覽圖" class="w-20 h-20 rounded-lg object-cover bg-slate-100 shrink-0 hidden border border-slate-200" onerror="this.classList.add('hidden')" />
+              <div class="flex-1 min-w-0 space-y-1">
+                <div id="insight-rating-badge" class="font-bold text-amber-600 text-xs"></div>
+                <p id="insight-summary-text" class="text-slate-700 leading-snug"></p>
+                <p id="insight-address-text" class="text-[11px] text-slate-400 truncate"></p>
+              </div>
+            </div>
+
+            <div id="insight-reviews-box" class="hidden pt-1.5 border-t border-slate-100 space-y-1">
+              <div class="text-[11px] font-bold text-slate-600">💬 網友評論重點摘錄：</div>
+              <ul id="insight-reviews-list" class="space-y-1 text-[11px] text-slate-600 list-disc pl-4"></ul>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5 pt-1 border-t border-slate-100">
+              <button type="button" onclick="applyInsightPhoto()" id="btn-apply-insight-photo"
+                class="hidden text-[11px] bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 font-medium px-2.5 py-1 rounded-md transition">
+                🖼️ 套用照片至卡片
+              </button>
+              <button type="button" onclick="applyInsightNotes()"
+                class="text-[11px] bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 font-medium px-2.5 py-1 rounded-md transition">
+                📝 將簡介與評論摘錄寫入說明
+              </button>
+            </div>
           </div>
         </div>
 
@@ -351,12 +394,12 @@
             <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
           </div>
           <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5"></div>
-          <p class="text-[11px] text-purple-700/80 mt-1.5">若同一天需排「出發」與「返回飯店」，可直接從左側資料庫拖入或點卡片上的「↩️ 加入當日回程」。</p>
+          <p class="text-[11px] text-purple-700/80 mt-1.5">若同一天需排「出發」與「返回飯店」，可直接從左側資料庫拖入或點卡片上的「加入當日回程」。</p>
         </div>
 
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">說明 / 體驗心得 / 轉乘備註</label>
-          <textarea id="field-description" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none"></textarea>
+          <textarea id="field-description" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none"></textarea>
         </div>
 
         <div>
@@ -381,7 +424,7 @@
             <input type="url" id="field-source-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🖼️ 照片連結 (雲端硬碟或圖床)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🖼️ 照片連結 (自動擷取或手動貼上)</label>
             <input type="url" id="field-photo-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
         </div>
@@ -466,6 +509,7 @@
     const STORAGE_KEY_SPOTS = 'okinawa_planner_spots_v1';
     const STORAGE_KEY_CONFIG = 'okinawa_planner_config_v1';
     const STORAGE_KEY_LEG_MODES = 'okinawa_planner_leg_modes_v1';
+    const STORAGE_KEY_DAY_STARTS = 'okinawa_planner_day_starts_v1';
 
     const CATEGORY_THEME = {
       '景點': { hex: '#10B981', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', borderLeft: 'border-l-emerald-500' },
@@ -473,6 +517,14 @@
       '購物': { hex: '#6366F1', badge: 'bg-indigo-50 text-indigo-700 border-indigo-200', borderLeft: 'border-l-indigo-500' },
       '住宿': { hex: '#7E22CE', badge: 'bg-purple-100 text-purple-800 border-purple-300', borderLeft: 'border-l-purple-700' },
       '交通': { hex: '#0284C7', badge: 'bg-sky-50 text-sky-700 border-sky-200', borderLeft: 'border-l-sky-600' }
+    };
+
+    const MODE_SHORT_LABEL = {
+      monorail: '🚝 單軌+步行',
+      bus: '🚌 公車+步行',
+      taxi: '🚕 計程車',
+      walking: '🚶 步行',
+      driving: '🚗 自駕'
     };
 
     // 沖繩都市單軌電車 (Yui Rail) 高精度軌道點序列
@@ -512,7 +564,6 @@
       .map((pt, trackIdx) => ({ ...pt, trackIdx }))
       .filter(pt => pt.stationIdx !== null);
 
-    // 預設可一鍵匯入的沖繩單軌與主要轉運站資料庫
     const PRESET_OKINAWA_STATIONS = [
       { name: '單軌 那霸空港站', category: '交通', area: '那霸市區', description: '沖繩單軌電車起點站，連結國內線與國際線航廈2樓連通道。', must_buy: 'OKICA交通卡 / 單軌一日券', business_hours: '06:00-23:30', estimated_duration: 15, lat: 26.2064, lng: 127.6522 },
       { name: '單軌 縣廳前站', category: '交通', area: '那霸市區', description: '國際通西側入口、久茂地飯店區與琉貿百貨轉乘樞紐。', must_buy: '往美國村/恩納村公車站牌', business_hours: '06:00-23:30', estimated_duration: 10, lat: 26.2145, lng: 127.6793 },
@@ -582,6 +633,8 @@
 
     let spots = [];
     let legModeOverrides = {};
+    let dayStartTimes = {}; // { "2027-02-18": "09:00" }
+    let latestFetchedInsights = null;
     let currentCategoryFilter = '全部';
     let currentAreaFilter = '全部';
     let currentDbStatusFilter = 'all';
@@ -615,6 +668,9 @@
       const savedLegs = localStorage.getItem(STORAGE_KEY_LEG_MODES);
       if (savedLegs) legModeOverrides = JSON.parse(savedLegs);
 
+      const savedStarts = localStorage.getItem(STORAGE_KEY_DAY_STARTS);
+      if (savedStarts) dayStartTimes = JSON.parse(savedStarts);
+
       updateHeaderUI();
       updateSyncBadge();
     }
@@ -623,6 +679,7 @@
       localStorage.setItem(STORAGE_KEY_SPOTS, JSON.stringify(spots));
       localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(appConfig));
       localStorage.setItem(STORAGE_KEY_LEG_MODES, JSON.stringify(legModeOverrides));
+      localStorage.setItem(STORAGE_KEY_DAY_STARTS, JSON.stringify(dayStartTimes));
     }
 
     function updateHeaderUI() {
@@ -673,6 +730,197 @@
         if (label) label.textContent = '同步資料';
       }
       lucide.createIcons();
+    }
+
+    // ==================== 每日出發時間與時間軸計算 ====================
+    function getDayStartTime(dateStr) {
+      return dayStartTimes[dateStr] || '09:00';
+    }
+
+    function setDayStartTime(dateStr, timeStr) {
+      dayStartTimes[dateStr] = timeStr || '09:00';
+      saveLocalState();
+      renderAll();
+      if (appConfig.gasUrl) {
+        fetch(appConfig.gasUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'update_config',
+            config: { day_start_times: JSON.stringify(dayStartTimes) }
+          })
+        }).catch(err => console.error('出發時間同步失敗', err));
+      }
+    }
+
+    function timeStrToMinutes(hhmm) {
+      const parts = String(hhmm || '09:00').split(':');
+      return (parseInt(parts[0], 10) || 9) * 60 + (parseInt(parts[1], 10) || 0);
+    }
+
+    function minutesToTimeStr(totalMins) {
+      const normalized = ((totalMins % 1440) + 1440) % 1440;
+      const h = String(Math.floor(normalized / 60)).padStart(2, '0');
+      const m = String(normalized % 60).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+
+    function getMealWindowBadge(startMins, endMins) {
+      // 午餐時段 11:30 (690) ~ 13:30 (810)
+      if (endMins >= 710 && startMins <= 795) {
+        return `<span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-100 text-orange-800 font-bold">🍽️ 午餐時段</span>`;
+      }
+      // 晚餐時段 17:30 (1050) ~ 19:30 (1170)
+      if (endMins >= 1070 && startMins <= 1155) {
+        return `<span class="text-[10px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-bold">🍽️ 晚餐時段</span>`;
+      }
+      return '';
+    }
+
+    /**
+     * 為單日行程項目計算完整的時間軸（出發時間、路段移動時間、抵達時間、停留時間、離開時間）
+     */
+    function buildDayTimeline(dateStr, dayItems) {
+      const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
+      let cursorMins = timeStrToMinutes(getDayStartTime(dateStr));
+
+      return dayItems.map((item, idx) => {
+        let transitFromPrev = null;
+        if (idx > 0) {
+          const prevItem = dayItems[idx - 1];
+          const legInfo = estimateSingleLegQuick(dateStr, prevItem, item, globalMode);
+          transitFromPrev = legInfo;
+          cursorMins += legInfo.mins;
+        }
+
+        const arriveMins = cursorMins;
+        const isHotel = item.spot.category === '住宿';
+        const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
+        const stayMins = (isHotel || isReturnLeg) ? 0 : (Number(item.spot.estimated_duration) || 0);
+        const departMins = arriveMins + stayMins;
+        cursorMins = departMins;
+
+        return {
+          ...item,
+          transitFromPrev,
+          arriveMins,
+          departMins,
+          stayMins,
+          arriveStr: minutesToTimeStr(arriveMins),
+          departStr: minutesToTimeStr(departMins)
+        };
+      });
+    }
+
+    // ==================== Google Maps 景點圖文與網友評論摘錄 ====================
+    async function handleFetchGoogleInsights() {
+      const name = document.getElementById('field-name').value.trim();
+      const sourceUrl = document.getElementById('field-source-url').value.trim();
+      if (!name && !sourceUrl) {
+        showToast('請先輸入地點名稱或貼上 Google Maps 連結！');
+        return;
+      }
+      if (!appConfig.gasUrl) {
+        showToast('請先在右上角設定中連線 Google Apps Script 後端，即可擷取 Google 景點圖文與評論！');
+        return;
+      }
+
+      const btn = document.getElementById('btn-fetch-insights');
+      btn.disabled = true;
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>擷取中...</span>`;
+      lucide.createIcons();
+
+      try {
+        const res = await fetch(appConfig.gasUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'fetch_place_insights',
+            name: name,
+            source_url: sourceUrl
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'success' && data.insights) {
+          latestFetchedInsights = data.insights;
+          renderInsightsPreview(data.insights);
+          showToast('✅ 已擷取 Google 景點圖文與評論參考！');
+        } else {
+          throw new Error(data.message || '無法取得景點資訊');
+        }
+      } catch (err) {
+        showToast('⚠️ 擷取失敗：' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i> <span>擷取圖文與評論</span>`;
+        lucide.createIcons();
+      }
+    }
+
+    function renderInsightsPreview(ins) {
+      const box = document.getElementById('google-insights-result');
+      const imgEl = document.getElementById('insight-photo-preview');
+      const ratingEl = document.getElementById('insight-rating-badge');
+      const sumEl = document.getElementById('insight-summary-text');
+      const addrEl = document.getElementById('insight-address-text');
+      const revBox = document.getElementById('insight-reviews-box');
+      const revList = document.getElementById('insight-reviews-list');
+      const applyPhotoBtn = document.getElementById('btn-apply-insight-photo');
+
+      box.classList.remove('hidden');
+
+      if (ins.photo_url) {
+        imgEl.src = ins.photo_url;
+        imgEl.classList.remove('hidden');
+        applyPhotoBtn.classList.remove('hidden');
+        // 若目前卡片照片欄為空，自動帶入
+        const photoInput = document.getElementById('field-photo-url');
+        if (!photoInput.value.trim()) {
+          photoInput.value = ins.photo_url;
+        }
+      } else {
+        imgEl.classList.add('hidden');
+        applyPhotoBtn.classList.add('hidden');
+      }
+
+      if (ins.rating) {
+        ratingEl.textContent = `⭐ ${ins.rating} 分 ${ins.review_count ? `(${ins.review_count} 則 Google 評論)` : ''}`;
+      } else {
+        ratingEl.textContent = '📍 Google 地點情報摘錄';
+      }
+
+      sumEl.textContent = ins.summary || '已比對到該地點基本情報。';
+      addrEl.textContent = ins.address ? `地址：${ins.address}` : '';
+
+      if (ins.reviews && ins.reviews.length > 0) {
+        revBox.classList.remove('hidden');
+        revList.innerHTML = ins.reviews.map(r => `<li>${r}</li>`).join('');
+      } else {
+        revBox.classList.add('hidden');
+      }
+    }
+
+    function applyInsightPhoto() {
+      if (latestFetchedInsights && latestFetchedInsights.photo_url) {
+        document.getElementById('field-photo-url').value = latestFetchedInsights.photo_url;
+        showToast('🖼️ 已套用景點照片網址！');
+      }
+    }
+
+    function applyInsightNotes() {
+      if (!latestFetchedInsights) return;
+      const descEl = document.getElementById('field-description');
+      const lines = [];
+      if (latestFetchedInsights.rating) {
+        lines.push(`【Google 評價 ${latestFetchedInsights.rating}★${latestFetchedInsights.review_count ? ` / ${latestFetchedInsights.review_count}則` : ''}】`);
+      }
+      if (latestFetchedInsights.summary) {
+        lines.push(latestFetchedInsights.summary);
+      }
+      if (latestFetchedInsights.reviews && latestFetchedInsights.reviews.length > 0) {
+        lines.push('網友評論重點：' + latestFetchedInsights.reviews.slice(0, 2).join('；'));
+      }
+      const addedText = lines.join('\n');
+      descEl.value = descEl.value.trim() ? `${descEl.value.trim()}\n\n${addedText}` : addedText;
+      showToast('📝 已將景點簡介與網友評論重點寫入說明欄！');
     }
 
     // ==================== 版面空間調整 ====================
@@ -797,16 +1045,11 @@
       }
     }
 
-    // ==================== 多時段排程解析與輔助工具（支援同一天多次出現，如飯店出發＋返回飯店） ====================
+    // ==================== 多時段排程解析與輔助工具 ====================
     function isSpotRevisit(spot) {
       return String(spot.status || '').includes('revisit');
     }
 
-    /**
-     * 解析卡片的所有排程出現紀錄：
-     * 例如 assigned_day = "2027-02-17,2027-02-18,2027-02-18" 且 sort_order = "1,1,6"
-     * 回傳 [{ dateStr: '2027-02-17', order: 1 }, { dateStr: '2027-02-18', order: 1 }, { dateStr: '2027-02-18', order: 6 }]
-     */
     function getSpotOccurrences(spot) {
       const rawDays = String(spot.assigned_day || 'pocket').trim();
       if (!rawDays || rawDays === 'pocket') return [];
@@ -826,9 +1069,6 @@
       return [...new Set(getSpotAssignedDays(spot))];
     }
 
-    /**
-     * 取得指定日期的所有行程項目（含同一天出現多次的卡片，依 sort_order 排序）
-     */
     function getDayItems(dateStr) {
       const items = [];
       spots.forEach(spot => {
@@ -841,13 +1081,12 @@
               spot,
               order: occ.order,
               globalOccIdx,
-              dayOccNum: dayOccCounter // 1 = 當日第1次出現（如出發）, 2 = 當日第2次出現（如回程）
+              dayOccNum: dayOccCounter
             });
           }
         });
       });
       items.sort((a, b) => a.order - b.order);
-      // 標記同一天內總共出現幾次
       const countBySpot = {};
       items.forEach(it => { countBySpot[it.spot.id] = (countBySpot[it.spot.id] || 0) + 1; });
       items.forEach(it => { it.totalDayOccs = countBySpot[it.spot.id]; });
@@ -875,7 +1114,6 @@
       return list;
     }
 
-    // ==================== 一鍵匯入沖繩單軌與主要轉運站 ====================
     async function importOkinawaPresetStations() {
       const existingNames = new Set(spots.map(s => s.name.trim()));
       const toAdd = PRESET_OKINAWA_STATIONS.filter(st => !existingNames.has(st.name.trim())).map((st, idx) => ({
@@ -928,9 +1166,6 @@
       }
     }
 
-    /**
-     * 從某一天移除指定那一筆出現紀錄（若同一天有排「出發」與「回程」，只會移除點選的那一筆）
-     */
     function removeSpotOccurrenceFromDay(spotId, targetDateStr, globalOccIdx) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
@@ -963,9 +1198,6 @@
       }
     }
 
-    /**
-     * 一鍵將飯店或交通站加入「當日回程終點」（排在當日最後一筆）
-     */
     function appendReturnStopToDay(spotId, dateStr) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
@@ -1159,7 +1391,6 @@
       const isIncluded = assignedDays.length > 0;
       const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
 
-      // 統計每天出現次數，若同一天出現2次以上顯示「Day 2(往返)」
       const dayCounts = {};
       assignedDays.forEach(d => { dayCounts[d] = (dayCounts[d] || 0) + 1; });
       const dayNamesText = Object.keys(dayCounts).map(d => {
@@ -1250,6 +1481,9 @@
       const stA = findNearestYuiRailStation(latA, lngA);
       const stB = findNearestYuiRailStation(latB, lngB);
 
+      if (km <= 0.15) {
+        return 'walking'; // 同商場或緊鄰設施內移動
+      }
       if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
         return 'monorail';
       }
@@ -1270,6 +1504,9 @@
       const km = haversineKm(latA, lngA, latB, lngB);
       const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
 
+      if (km <= 0.15) {
+        return { mins: 2, km: km, mode: 'walking', isIndoor: true };
+      }
       if (mode === 'monorail') {
         const stA = findNearestYuiRailStation(latA, lngA);
         const stB = findNearestYuiRailStation(latB, lngB);
@@ -1289,48 +1526,52 @@
       return { mins: Math.max(8, Math.round((km * 1.3 / 24) * 60 + 8)), km: km * 1.3, mode: 'bus' };
     }
 
-    function estimateDayTransitMinutes(dateStr, dayItems) {
-      if (!dayItems || dayItems.length < 2) return 0;
-      const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
-      let total = 0;
-      for (let i = 0; i < dayItems.length - 1; i++) {
-        total += estimateSingleLegQuick(dateStr, dayItems[i], dayItems[i + 1], globalMode).mins;
-      }
-      return total;
-    }
-
     function renderKanbanDays(daysList) {
       const container = document.getElementById('days-kanban-container');
       container.innerHTML = daysList.map((day, dayIdx) => {
-        const dayItems = getDayItems(day.dateStr);
+        const rawItems = getDayItems(day.dateStr);
+        const timelineItems = buildDayTimeline(day.dateStr, rawItems);
+        const startTimeVal = getDayStartTime(day.dateStr);
 
-        const activityMins = dayItems
+        const activityMins = timelineItems
           .filter(it => it.spot.category !== '住宿' && it.spot.category !== '交通')
           .reduce((sum, it) => sum + (Number(it.spot.estimated_duration) || 60), 0);
         const activityHours = (activityMins / 60).toFixed(1).replace('.0', '');
-        const transitMins = estimateDayTransitMinutes(day.dateStr, dayItems);
+        const transitMins = timelineItems.reduce((sum, it) => sum + (it.transitFromPrev ? it.transitFromPrev.mins : 0), 0);
+        const endTimeStr = timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].departStr : '';
         const nextDayObj = daysList[dayIdx + 1] || null;
 
         return `
-          <div id="day-col-${day.dateStr}" class="w-[270px] sm:w-[285px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0 transition-shadow">
-            <div class="px-3 py-2 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between">
-              <div>
+          <div id="day-col-${day.dateStr}" class="w-[285px] sm:w-[300px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0 transition-shadow">
+            <div class="px-3 py-2 border-b border-slate-200 bg-white rounded-t-2xl space-y-1.5">
+              <div class="flex items-center justify-between">
                 <div class="flex items-center gap-1.5">
                   <span class="font-bold text-sm text-ai-indigo">${day.label}</span>
                   <span class="text-xs font-medium text-slate-600">${day.shortDate}</span>
                 </div>
-                <p class="text-[11px] text-slate-500 mt-0.5">
-                  共 ${dayItems.length} 項 · 活動 ${activityHours}h${transitMins > 0 ? ` · <span class="text-sky-700 font-medium">移動約${transitMins}分</span>` : ''}
-                </p>
+                <div class="flex items-center gap-1">
+                  <label class="flex items-center gap-1 bg-slate-100 hover:bg-slate-200/80 px-2 py-0.5 rounded-lg text-[11px] font-medium text-slate-700 cursor-pointer" title="設定當日行程預計出發時間">
+                    <span>⏰ 出發</span>
+                    <input type="time" value="${startTimeVal}" onchange="setDayStartTime('${day.dateStr}', this.value)"
+                      class="bg-transparent font-bold text-ai-indigo focus:outline-none w-[54px] cursor-pointer" />
+                  </label>
+                  <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日多層次交通路線">
+                    <i data-lucide="map" class="w-4 h-4"></i>
+                  </button>
+                </div>
               </div>
-              <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日多層次交通路線">
-                <i data-lucide="map" class="w-4 h-4"></i>
-              </button>
+              <p class="text-[11px] text-slate-500 flex items-center justify-between">
+                <span>共 ${timelineItems.length} 項 · 活動 ${activityHours}h</span>
+                <span>
+                  ${transitMins > 0 ? `<span class="text-sky-700 font-medium">移動${transitMins}分</span>` : ''}
+                  ${endTimeStr ? ` · <span class="text-slate-700 font-medium">約${endTimeStr}結束</span>` : ''}
+                </span>
+              </p>
             </div>
             
-            <div class="p-2 flex-1 overflow-y-auto space-y-2 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
-              ${dayItems.length > 0 
-                ? dayItems.map((item, idx) => buildScheduledCardHTML(item, idx + 1, dayItems.length, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
+            <div class="p-2 flex-1 overflow-y-auto space-y-1.5 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
+              ${timelineItems.length > 0 
+                ? timelineItems.map((item, idx) => buildScheduledCardHTML(item, idx + 1, timelineItems.length, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
                 : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫拖曳卡片至此</div>`
               }
             </div>
@@ -1353,8 +1594,30 @@
       const canExtendNextNight = isHotel && dayContext && dayContext.nextDay &&
         !getSpotUniqueDays(spot).includes(dayContext.nextDay.dateStr);
 
-      // 若是住宿/交通卡片，且當天尚未排入「返回該點」作為最後一站，提供一鍵加入回程鈕
       const canAddReturnToday = (isHotel || isTransport) && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
+
+      // 卡片時間軸標籤
+      let timeBadgeHTML = '';
+      if (orderNum === 1 && (isHotel || isTransport)) {
+        timeBadgeHTML = `<span class="text-[11px] font-bold text-ai-indigo bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} 出發</span>`;
+      } else if (isReturnLeg) {
+        timeBadgeHTML = `<span class="text-[11px] font-bold text-purple-800 bg-purple-100 border border-purple-200 px-1.5 py-0.2 rounded">約 ${item.arriveStr} 返抵</span>`;
+      } else if (item.stayMins > 0) {
+        timeBadgeHTML = `<span class="text-[11px] font-bold text-slate-800 bg-slate-100 border border-slate-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} ~ ${item.departStr}</span>`;
+      } else {
+        timeBadgeHTML = `<span class="text-[11px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.2 rounded">${item.arriveStr}</span>`;
+      }
+
+      const mealBadge = (!isHotel && !isTransport && !isReturnLeg) ? getMealWindowBadge(item.arriveMins, item.departMins) : '';
+
+      // 卡片上方的交通移動連接條
+      const transitConnectorHTML = item.transitFromPrev ? `
+        <div class="flex items-center justify-center py-0.5 select-none pointer-events-none">
+          <span class="text-[10px] text-slate-500 bg-white/90 border border-slate-200/80 rounded-full px-2 py-0.2 shadow-2xs">
+            ↓ ${item.transitFromPrev.isIndoor ? '🚶 館內/緊鄰移動' : MODE_SHORT_LABEL[item.transitFromPrev.mode]} 約 ${item.transitFromPrev.mins} 分
+          </span>
+        </div>
+      ` : '';
 
       const roleTag = isReturnLeg
         ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-600 text-white font-bold">回程</span>`
@@ -1362,8 +1625,24 @@
 
       if (uiState.boardCompact) {
         return `
+          ${transitConnectorHTML}
           <div class="spot-card bg-white rounded-xl border border-slate-200/95 border-l-4 ${theme.borderLeft} shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing px-2.5 py-2 group"
                data-id="${spot.id}" data-occ="${item.globalOccIdx}" onclick="openEditCardModal('${spot.id}')">
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <div class="flex items-center gap-1 flex-wrap">
+                ${timeBadgeHTML}
+                ${mealBadge}
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                ${roleTag}
+                <span class="text-[10px] px-1.5 py-0.2 rounded border font-medium ${theme.badge}">${spot.category}</span>
+                <button type="button" onclick="event.stopPropagation(); removeSpotOccurrenceFromDay('${spot.id}', '${dayContext.currentDay}', ${item.globalOccIdx})"
+                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此時段（保留於資料庫）">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+
             <div class="flex items-center justify-between gap-1.5">
               <div class="flex items-center gap-1.5 min-w-0">
                 <span style="background-color: ${theme.hex};"
@@ -1372,29 +1651,19 @@
                 </span>
                 <h4 class="font-bold text-xs text-ink-dark truncate" title="${spot.name}">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
               </div>
-              <div class="flex items-center gap-1 shrink-0">
-                ${roleTag}
-                <span class="text-[10px] px-1.5 py-0.5 rounded border font-medium ${theme.badge}">${spot.category}</span>
-                <button type="button" onclick="event.stopPropagation(); removeSpotOccurrenceFromDay('${spot.id}', '${dayContext.currentDay}', ${item.globalOccIdx})"
-                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此時段（保留於資料庫）">
-                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                </button>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1.5 pl-6">
-              <span class="truncate">
-                ${isHotel 
-                  ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${spot.area}`
-                  : (isTransport 
-                      ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : '轉乘/交通節點'}</span> · ${spot.area}`
-                      : `${spot.area} · ${spot.estimated_duration || 60}分`)
-                }
-                ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
-              </span>
-              <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-slate-400 hover:text-ai-indigo shrink-0 ml-1" title="在地圖定位">
+              <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-slate-400 hover:text-ai-indigo shrink-0" title="在地圖定位">
                 <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
               </button>
+            </div>
+
+            <div class="text-[11px] text-slate-400 mt-1 pl-6 truncate">
+              ${isHotel 
+                ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${spot.area}`
+                : (isTransport 
+                    ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : '轉乘/交通節點'}</span> · ${spot.area}`
+                    : `${spot.area} · 停留${spot.estimated_duration || 60}分`)
+              }
+              ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
             </div>
 
             ${(canAddReturnToday || (canExtendNextNight && !isReturnLeg)) ? `
@@ -1419,21 +1688,29 @@
 
       const cardBorder = isHotel ? 'border-purple-300 bg-purple-50/30' : 'border-slate-200/90 bg-white';
       return `
+        ${transitConnectorHTML}
         <div class="spot-card ${cardBorder} rounded-xl border shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
              data-id="${spot.id}" data-occ="${item.globalOccIdx}" onclick="openEditCardModal('${spot.id}')">
           <div class="p-2.5">
-            <div class="flex items-start justify-between gap-1.5 mb-1">
-              <div class="flex items-center gap-1.5">
-                <span style="background-color: ${theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : (isTransport ? '行' : orderNum)}</span>
-                <h4 class="font-bold text-xs text-ink-dark leading-snug">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
+            <div class="flex items-center justify-between gap-1 mb-1.5">
+              <div class="flex items-center gap-1 flex-wrap">
+                ${timeBadgeHTML}
+                ${mealBadge}
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 ${roleTag}
-                <span class="text-[10px] px-1.5 py-0.5 rounded-md border font-medium ${theme.badge}">${spot.category}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded-md border font-medium ${theme.badge}">${spot.category}</span>
                 <button type="button" onclick="event.stopPropagation(); removeSpotOccurrenceFromDay('${spot.id}', '${dayContext.currentDay}', ${item.globalOccIdx})"
                   class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此時段">
                   <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
+              </div>
+            </div>
+
+            <div class="flex items-start justify-between gap-1.5 mb-1">
+              <div class="flex items-center gap-1.5">
+                <span style="background-color: ${theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : (isTransport ? '行' : orderNum)}</span>
+                <h4 class="font-bold text-xs text-ink-dark leading-snug">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
               </div>
             </div>
 
@@ -1509,7 +1786,7 @@
       }
     }
 
-    // ==================== 拖曳排序互動（允許同一張卡片多次拖入同一天） ====================
+    // ==================== 拖曳排序互動 ====================
     function initSortableDragAndDrop() {
       const pocketEl = document.getElementById('pocket-dropzone');
       if (pocketEl) {
@@ -1525,6 +1802,7 @@
       document.querySelectorAll('.day-dropzone').forEach(zone => {
         new Sortable(zone, {
           group: 'okinawa-cards',
+          draggable: '.spot-card',
           animation: 180,
           ghostClass: 'sortable-ghost',
           dragClass: 'sortable-drag',
@@ -1539,7 +1817,6 @@
       const cardOccMap = {};
       spots.forEach(s => { cardOccMap[s.id] = []; });
 
-      // 依序掃描所有每日看板欄位，完整記錄每一張卡片出現的日期與順序（允許同日多次出現）
       document.querySelectorAll('.day-dropzone').forEach(zone => {
         const dayStr = zone.dataset.day;
         zone.querySelectorAll('.spot-card').forEach((card, idx) => {
@@ -1565,7 +1842,7 @@
 
       saveLocalState();
       renderAll();
-      showToast('已更新行程排程與順序！');
+      showToast('已更新行程排程與時間軸！');
 
       if (appConfig.gasUrl) {
         fetch(appConfig.gasUrl, {
@@ -1739,7 +2016,6 @@
         if (isNaN(lat) || isNaN(lng)) return;
 
         latLngs.push([lat, lng]);
-        // 若同一天出現多次（如飯店出發與返回飯店），地圖上避免兩個完全重疊圖釘遮擋，合併顯示為「宿·往返」
         if (isSingleDayRoute && renderedSpotIds.has(spot.id)) return;
         renderedSpotIds.add(spot.id);
 
@@ -1770,7 +2046,6 @@
         `);
       });
 
-      // ==================== 單日多層次逐段路線計算與地圖繪製 ====================
       if (isSingleDayRoute && dayRouteItems.length > 1) {
         summaryBox.classList.remove('hidden');
         summaryBox.classList.add('flex');
@@ -1961,7 +2236,15 @@
       document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = true; });
     }
 
+    function resetInsightsModalUI() {
+      latestFetchedInsights = null;
+      document.getElementById('google-insights-result').classList.add('hidden');
+      document.getElementById('insight-photo-preview').classList.add('hidden');
+      document.getElementById('insight-reviews-box').classList.add('hidden');
+    }
+
     function openNewCardModal(prefillText = '') {
+      resetInsightsModalUI();
       document.getElementById('modal-card-title').textContent = '新增沖繩資料庫卡片';
       document.getElementById('card-form').reset();
       document.getElementById('field-id').value = '';
@@ -1979,6 +2262,7 @@
       const spot = spots.find(s => s.id === id);
       if (!spot) return;
 
+      resetInsightsModalUI();
       document.getElementById('modal-card-title').textContent = '編輯資料庫卡片詳情';
       document.getElementById('field-id').value = spot.id;
       document.getElementById('field-name').value = spot.name || '';
@@ -2027,7 +2311,6 @@
           assignedDay = 'pocket';
           sortOrderStr = '99';
         } else {
-          // 保留原有同日多筆（如出發＋回程）結構，僅增刪被勾選/取消的日期
           const prevOccs = existingSpot ? getSpotOccurrences(existingSpot) : [];
           const nextOccs = [];
           checkedDays.sort().forEach(dStr => {
@@ -2047,7 +2330,6 @@
         if (selDay === 'pocket') {
           sortOrderStr = '99';
         } else if (existingSpot && getSpotUniqueDays(existingSpot).includes(selDay)) {
-          // 保留原本在該日的排程
           const prevOccs = getSpotOccurrences(existingSpot).filter(o => o.dateStr === selDay);
           assignedDay = prevOccs.map(o => o.dateStr).join(',');
           sortOrderStr = prevOccs.map(o => o.order).join(',');
@@ -2162,6 +2444,12 @@
             if (data.config.trip_title) appConfig.tripTitle = data.config.trip_title;
             if (data.config.start_date) appConfig.startDate = String(data.config.start_date).slice(0, 10);
             if (data.config.end_date) appConfig.endDate = String(data.config.end_date).slice(0, 10);
+            if (data.config.day_start_times) {
+              try {
+                const parsedStarts = JSON.parse(data.config.day_start_times);
+                dayStartTimes = { ...dayStartTimes, ...parsedStarts };
+              } catch (e) {}
+            }
           }
           saveLocalState();
           updateHeaderUI();
@@ -2250,7 +2538,8 @@
             config: {
               trip_title: appConfig.tripTitle,
               start_date: appConfig.startDate,
-              end_date: appConfig.endDate
+              end_date: appConfig.endDate,
+              day_start_times: JSON.stringify(dayStartTimes)
             }
           })
         });
