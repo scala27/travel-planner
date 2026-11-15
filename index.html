@@ -241,7 +241,6 @@
 
     <!-- ==================== 右欄：多層次交通路網互動地圖 ==================== -->
     <section id="panel-map" style="width: 410px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
-      <!-- 日期選擇與全域預設交通策略切換列 -->
       <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
         <div class="flex items-center justify-between gap-1.5">
           <select id="map-day-selector" onchange="updateMapMarkers()" class="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
@@ -257,7 +256,6 @@
           </select>
         </div>
 
-        <!-- 實際路徑總時間與可逐段調整的交通工具明細卡片 -->
         <div id="map-route-summary" class="hidden flex-col bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-[11px] space-y-1.5 shadow-2xs">
           <div class="flex items-center justify-between gap-2">
             <span id="map-route-metrics" class="text-slate-800 font-bold truncate">計算多層次路網中...</span>
@@ -265,12 +263,10 @@
               重設分段
             </button>
           </div>
-          <!-- 分段交通工具自訂與耗時明細（支援單軌+步行、公車+步行、計程車短程接駁混搭） -->
           <div id="map-segment-breakdown" class="max-h-36 overflow-y-auto space-y-1.5 pt-1 border-t border-slate-100 text-[10px] text-slate-700"></div>
         </div>
       </div>
 
-      <!-- 地圖圖例列 -->
       <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10B981;"></span>景點</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#F59E0B;"></span>美食</span>
@@ -350,12 +346,12 @@
         <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
           <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
-              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住日期安排（可複選連住多晚）
+              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住日期安排（可複選連住多晚，同日可往返排程）
             </label>
             <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
           </div>
           <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5"></div>
-          <p class="text-[11px] text-purple-700/80 mt-1.5">未勾選任何日期時，卡片僅保留於左側資料庫中。</p>
+          <p class="text-[11px] text-purple-700/80 mt-1.5">若同一天需排「出發」與「返回飯店」，可直接從左側資料庫拖入或點卡片上的「↩️ 加入當日回程」。</p>
         </div>
 
         <div>
@@ -479,7 +475,7 @@
       '交通': { hex: '#0284C7', badge: 'bg-sky-50 text-sky-700 border-sky-200', borderLeft: 'border-l-sky-600' }
     };
 
-    // 沖繩都市單軌電車 (Yui Rail) 高精度軌道點序列（包含車站與實際高架橋彎道點，讓地圖路線貼合真實鐵道）
+    // 沖繩都市單軌電車 (Yui Rail) 高精度軌道點序列
     const YUI_RAIL_TRACK = [
       { stationIdx: 0, name: '那霸空港站', lat: 26.2064, lng: 127.6522 },
       { stationIdx: null, lat: 26.2035, lng: 127.6524 },
@@ -560,9 +556,9 @@
         photo_url: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=600&q=80',
         status: 'pocket',
         assigned_day: 'pocket',
-        sort_order: 1,
-        lat: 26.2572,
-        lng: 127.7185
+        sort_order: '1',
+        lat: 26.261754,
+        lng: 127.698180
       },
       {
         id: 'spot_002',
@@ -578,14 +574,14 @@
         photo_url: 'https://images.unsplash.com/photo-1519915028121-7d3463d20b13?auto=format&fit=crop&w=600&q=80',
         status: 'pocket',
         assigned_day: 'pocket',
-        sort_order: 2,
+        sort_order: '2',
         lat: 26.2588,
         lng: 127.7153
       }
     ];
 
     let spots = [];
-    let legModeOverrides = {}; // 儲存各日期各路段的自訂交通工具，例如 { "2027-02-18|spotA|spotB": "taxi" }
+    let legModeOverrides = {};
     let currentCategoryFilter = '全部';
     let currentAreaFilter = '全部';
     let currentDbStatusFilter = 'all';
@@ -801,15 +797,61 @@
       }
     }
 
-    // ==================== 資料庫狀態輔助工具 ====================
+    // ==================== 多時段排程解析與輔助工具（支援同一天多次出現，如飯店出發＋返回飯店） ====================
     function isSpotRevisit(spot) {
       return String(spot.status || '').includes('revisit');
     }
 
+    /**
+     * 解析卡片的所有排程出現紀錄：
+     * 例如 assigned_day = "2027-02-17,2027-02-18,2027-02-18" 且 sort_order = "1,1,6"
+     * 回傳 [{ dateStr: '2027-02-17', order: 1 }, { dateStr: '2027-02-18', order: 1 }, { dateStr: '2027-02-18', order: 6 }]
+     */
+    function getSpotOccurrences(spot) {
+      const rawDays = String(spot.assigned_day || 'pocket').trim();
+      if (!rawDays || rawDays === 'pocket') return [];
+      const daysArr = rawDays.split(',').map(d => d.trim()).filter(Boolean);
+      const rawOrders = String(spot.sort_order || '99').split(',').map(o => Number(o.trim()) || 99);
+      return daysArr.map((dateStr, idx) => ({
+        dateStr,
+        order: rawOrders[idx] !== undefined ? rawOrders[idx] : (rawOrders[0] || 99)
+      }));
+    }
+
     function getSpotAssignedDays(spot) {
-      const raw = String(spot.assigned_day || 'pocket').trim();
-      if (!raw || raw === 'pocket') return [];
-      return raw.split(',').map(d => d.trim()).filter(Boolean);
+      return getSpotOccurrences(spot).map(o => o.dateStr);
+    }
+
+    function getSpotUniqueDays(spot) {
+      return [...new Set(getSpotAssignedDays(spot))];
+    }
+
+    /**
+     * 取得指定日期的所有行程項目（含同一天出現多次的卡片，依 sort_order 排序）
+     */
+    function getDayItems(dateStr) {
+      const items = [];
+      spots.forEach(spot => {
+        const occs = getSpotOccurrences(spot);
+        let dayOccCounter = 0;
+        occs.forEach((occ, globalOccIdx) => {
+          if (occ.dateStr === dateStr) {
+            dayOccCounter++;
+            items.push({
+              spot,
+              order: occ.order,
+              globalOccIdx,
+              dayOccNum: dayOccCounter // 1 = 當日第1次出現（如出發）, 2 = 當日第2次出現（如回程）
+            });
+          }
+        });
+      });
+      items.sort((a, b) => a.order - b.order);
+      // 標記同一天內總共出現幾次
+      const countBySpot = {};
+      items.forEach(it => { countBySpot[it.spot.id] = (countBySpot[it.spot.id] || 0) + 1; });
+      items.forEach(it => { it.totalDayOccs = countBySpot[it.spot.id]; });
+      return items;
     }
 
     function getDateRangeArray(startStr, endStr) {
@@ -844,7 +886,7 @@
         photo_url: '',
         status: 'pocket',
         assigned_day: 'pocket',
-        sort_order: 10 + idx
+        sort_order: String(10 + idx)
       }));
 
       if (toAdd.length === 0) {
@@ -886,24 +928,69 @@
       }
     }
 
-    function removeSpotFromDay(spotId, targetDateStr) {
+    /**
+     * 從某一天移除指定那一筆出現紀錄（若同一天有排「出發」與「回程」，只會移除點選的那一筆）
+     */
+    function removeSpotOccurrenceFromDay(spotId, targetDateStr, globalOccIdx) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
-      const days = getSpotAssignedDays(spot).filter(d => d !== targetDateStr);
-      spot.assigned_day = days.length > 0 ? days.join(',') : 'pocket';
+
+      const occs = getSpotOccurrences(spot);
+      if (globalOccIdx !== undefined && occs[globalOccIdx] && occs[globalOccIdx].dateStr === targetDateStr) {
+        occs.splice(globalOccIdx, 1);
+      } else {
+        const idx = occs.findIndex(o => o.dateStr === targetDateStr);
+        if (idx > -1) occs.splice(idx, 1);
+      }
+
       const rev = isSpotRevisit(spot);
-      spot.status = days.length > 0 ? (rev ? 'scheduled|revisit' : 'scheduled') : (rev ? 'pocket|revisit' : 'pocket');
+      spot.assigned_day = occs.length > 0 ? occs.map(o => o.dateStr).join(',') : 'pocket';
+      spot.sort_order = occs.length > 0 ? occs.map(o => o.order).join(',') : '99';
+      spot.status = occs.length > 0 ? (rev ? 'scheduled|revisit' : 'scheduled') : (rev ? 'pocket|revisit' : 'pocket');
 
       saveLocalState();
       renderAll();
-      showToast(`已將「${spot.name}」移出該日行程（仍保留於左側資料庫）`);
+      showToast(`已將「${spot.name}」移出該時段（仍保留於左側資料庫）`);
 
       if (appConfig.gasUrl) {
         fetch(appConfig.gasUrl, {
           method: 'POST',
           body: JSON.stringify({
             action: 'sync_board',
-            updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order || 99, is_revisit: rev }]
+            updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order, is_revisit: rev }]
+          })
+        }).catch(err => console.error('背景同步失敗', err));
+      }
+    }
+
+    /**
+     * 一鍵將飯店或交通站加入「當日回程終點」（排在當日最後一筆）
+     */
+    function appendReturnStopToDay(spotId, dateStr) {
+      const spot = spots.find(s => s.id === spotId);
+      if (!spot) return;
+
+      const dayItems = getDayItems(dateStr);
+      const maxOrder = dayItems.reduce((m, it) => Math.max(m, it.order), 0);
+      const occs = getSpotOccurrences(spot);
+      occs.push({ dateStr, order: maxOrder + 1 });
+      occs.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.order - b.order);
+
+      const rev = isSpotRevisit(spot);
+      spot.assigned_day = occs.map(o => o.dateStr).join(',');
+      spot.sort_order = occs.map(o => o.order).join(',');
+      spot.status = rev ? 'scheduled|revisit' : 'scheduled';
+
+      saveLocalState();
+      renderAll();
+      showToast(`↩️ 已將「${spot.name}」加入當日最後一站（返回飯店/車站）！`);
+
+      if (appConfig.gasUrl) {
+        fetch(appConfig.gasUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'sync_board',
+            updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order, is_revisit: rev }]
           })
         }).catch(err => console.error('背景同步失敗', err));
       }
@@ -940,9 +1027,9 @@
             photo_url: '',
             status: 'pocket',
             assigned_day: 'pocket',
-            sort_order: 1,
-            lat: /^那霸(空港|機場)/.test(line) ? 26.2064 : 26.2124,
-            lng: /^那霸(空港|機場)/.test(line) ? 127.6522 : 127.6809
+            sort_order: '1',
+            lat: /^那霸(空港|機場)/.test(line) ? 26.2064 : (/PARCO\s*CITY/i.test(line) ? 26.261754 : 26.2124),
+            lng: /^那霸(空港|機場)/.test(line) ? 127.6522 : (/PARCO\s*CITY/i.test(line) ? 127.698180 : 127.6809)
           });
         });
         saveLocalState();
@@ -1003,7 +1090,7 @@
       const navBar = document.getElementById('kanban-day-nav-bar');
       if (!navBar) return;
       navBar.innerHTML = daysList.map(d => {
-        const count = spots.filter(s => getSpotAssignedDays(s).includes(d.dateStr)).length;
+        const count = getDayItems(d.dateStr).length;
         return `
           <button onclick="scrollToDayColumn('${d.dateStr}')"
             class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 transition shrink-0 flex items-center gap-1">
@@ -1036,7 +1123,7 @@
           (s.must_buy && s.must_buy.toLowerCase().includes(keyword)) ||
           (s.description && s.description.toLowerCase().includes(keyword))
         )
-        .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
+        .sort((a, b) => (parseInt(a.sort_order) || 99) - (parseInt(b.sort_order) || 99));
 
       document.getElementById('mobile-pocket-count').textContent = dbSpots.length;
 
@@ -1072,7 +1159,13 @@
       const isIncluded = assignedDays.length > 0;
       const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
 
-      const dayNamesText = assignedDays.map(d => dayLabelMap[d] || d.slice(5)).join(', ');
+      // 統計每天出現次數，若同一天出現2次以上顯示「Day 2(往返)」
+      const dayCounts = {};
+      assignedDays.forEach(d => { dayCounts[d] = (dayCounts[d] || 0) + 1; });
+      const dayNamesText = Object.keys(dayCounts).map(d => {
+        const lbl = dayLabelMap[d] || d.slice(5);
+        return dayCounts[d] > 1 ? `${lbl}(往返)` : lbl;
+      }).join(', ');
 
       return `
         <div class="spot-card bg-white rounded-xl border ${isIncluded ? 'border-emerald-300/90' : 'border-slate-200/90'} shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
@@ -1119,7 +1212,7 @@
             <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
               <span class="flex items-center gap-1">
                 ${isHotel 
-                  ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> 住宿飯店` 
+                  ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> 住宿飯店 (可重複拖入)` 
                   : (isTransport
                       ? `<i data-lucide="train" class="w-3 h-3 text-sky-600"></i> 交通樞紐`
                       : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
@@ -1138,55 +1231,44 @@
     }
 
     // ==================== 多層次交通策略與單日分段耗時計算 ====================
-    function getLegKey(dateStr, spotA, spotB) {
-      return `${dateStr}|${spotA.id}|${spotB.id}`;
+    function getLegKey(dateStr, itemA, itemB) {
+      return `${dateStr}|${itemA.spot.id}#${itemA.dayOccNum}|${itemB.spot.id}#${itemB.dayOccNum}`;
     }
 
-    /**
-     * 智慧決定兩點間最適交通方式：
-     * - monorail: 單軌+步行（兩端皆在單軌站 1.2km 內且跨站）
-     * - walking: 純步行（直線距離 < 1.1km 且無需跨大幹道或步程 <= 18分）
-     * - bus: 公車+步行（沿國道58號/幹線長距離移動）
-     * - taxi: 計程車短程接駁（無直達單軌/公車的跨區短程，例如港川外人住宅 -> 浦添 PARCO CITY）
-     */
-    function resolveLegMode(dateStr, spotA, spotB, globalMode) {
-      const key = getLegKey(dateStr, spotA, spotB);
+    function resolveLegMode(dateStr, itemA, itemB, globalMode) {
+      const key = getLegKey(dateStr, itemA, itemB);
       if (legModeOverrides[key]) return legModeOverrides[key];
 
       if (globalMode === 'driving') return 'driving';
       if (globalMode === 'walking') return 'walking';
 
+      const spotA = itemA.spot;
+      const spotB = itemB.spot;
       const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
       const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
       const km = haversineKm(latA, lngA, latB, lngB);
       const stA = findNearestYuiRailStation(latA, lngA);
       const stB = findNearestYuiRailStation(latB, lngB);
 
-      // 1. 單軌沿線站點（1.2 km 內）
       if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
         return 'monorail';
       }
-
-      // 2. 極短距離（<= 0.75 km）適合直接步行
       if (km <= 0.75) {
         return 'walking';
       }
-
-      // 3. 中部/浦添/海濱等無直達公車的短程跨區（0.75 ~ 3.2 km 且不在單軌沿線）
       if (globalMode === 'hybrid' && km > 0.75 && km <= 3.2 && (stA.distKm > 1.2 || stB.distKm > 1.2)) {
         return 'taxi';
       }
-
-      // 4. 其余中長程優先使用公車+步行
       return 'bus';
     }
 
-    function estimateSingleLegQuick(dateStr, spotA, spotB, globalMode) {
+    function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
+      const spotA = itemA.spot, spotB = itemB.spot;
       if (!spotA.lat || !spotA.lng || !spotB.lat || !spotB.lng) return { mins: 0, km: 0, mode: 'bus' };
       const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
       const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
       const km = haversineKm(latA, lngA, latB, lngB);
-      const mode = resolveLegMode(dateStr, spotA, spotB, globalMode);
+      const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
 
       if (mode === 'monorail') {
         const stA = findNearestYuiRailStation(latA, lngA);
@@ -1204,16 +1286,15 @@
       if (mode === 'driving') {
         return { mins: Math.max(3, Math.round((km * 1.3 / 34) * 60)), km: km * 1.3, mode };
       }
-      // bus
       return { mins: Math.max(8, Math.round((km * 1.3 / 24) * 60 + 8)), km: km * 1.3, mode: 'bus' };
     }
 
-    function estimateDayTransitMinutes(dateStr, daySpots) {
-      if (!daySpots || daySpots.length < 2) return 0;
+    function estimateDayTransitMinutes(dateStr, dayItems) {
+      if (!dayItems || dayItems.length < 2) return 0;
       const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
       let total = 0;
-      for (let i = 0; i < daySpots.length - 1; i++) {
-        total += estimateSingleLegQuick(dateStr, daySpots[i], daySpots[i + 1], globalMode).mins;
+      for (let i = 0; i < dayItems.length - 1; i++) {
+        total += estimateSingleLegQuick(dateStr, dayItems[i], dayItems[i + 1], globalMode).mins;
       }
       return total;
     }
@@ -1221,15 +1302,13 @@
     function renderKanbanDays(daysList) {
       const container = document.getElementById('days-kanban-container');
       container.innerHTML = daysList.map((day, dayIdx) => {
-        const daySpots = spots
-          .filter(s => getSpotAssignedDays(s).includes(day.dateStr))
-          .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
+        const dayItems = getDayItems(day.dateStr);
 
-        const activityMins = daySpots
-          .filter(s => s.category !== '住宿' && s.category !== '交通')
-          .reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
+        const activityMins = dayItems
+          .filter(it => it.spot.category !== '住宿' && it.spot.category !== '交通')
+          .reduce((sum, it) => sum + (Number(it.spot.estimated_duration) || 60), 0);
         const activityHours = (activityMins / 60).toFixed(1).replace('.0', '');
-        const transitMins = estimateDayTransitMinutes(day.dateStr, daySpots);
+        const transitMins = estimateDayTransitMinutes(day.dateStr, dayItems);
         const nextDayObj = daysList[dayIdx + 1] || null;
 
         return `
@@ -1241,7 +1320,7 @@
                   <span class="text-xs font-medium text-slate-600">${day.shortDate}</span>
                 </div>
                 <p class="text-[11px] text-slate-500 mt-0.5">
-                  共 ${daySpots.length} 項 · 活動 ${activityHours}h${transitMins > 0 ? ` · <span class="text-sky-700 font-medium">移動約${transitMins}分</span>` : ''}
+                  共 ${dayItems.length} 項 · 活動 ${activityHours}h${transitMins > 0 ? ` · <span class="text-sky-700 font-medium">移動約${transitMins}分</span>` : ''}
                 </p>
               </div>
               <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日多層次交通路線">
@@ -1250,8 +1329,8 @@
             </div>
             
             <div class="p-2 flex-1 overflow-y-auto space-y-2 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
-              ${daySpots.length > 0 
-                ? daySpots.map((s, idx) => buildScheduledCardHTML(s, idx + 1, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
+              ${dayItems.length > 0 
+                ? dayItems.map((item, idx) => buildScheduledCardHTML(item, idx + 1, dayItems.length, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
                 : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫拖曳卡片至此</div>`
               }
             </div>
@@ -1260,19 +1339,31 @@
       }).join('');
     }
 
-    function buildScheduledCardHTML(spot, orderNum, dayContext) {
+    function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
+      const spot = item.spot;
       const isHotel = spot.category === '住宿';
       const isTransport = spot.category === '交通';
       const isRevisit = isSpotRevisit(spot);
       const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700', borderLeft: 'border-l-slate-400' };
 
+      const uniqueStayNights = getSpotUniqueDays(spot).length;
+      const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
+      const isOutboundLeg = item.totalDayOccs > 1 && item.dayOccNum === 1;
+
       const canExtendNextNight = isHotel && dayContext && dayContext.nextDay &&
-        !getSpotAssignedDays(spot).includes(dayContext.nextDay.dateStr);
+        !getSpotUniqueDays(spot).includes(dayContext.nextDay.dateStr);
+
+      // 若是住宿/交通卡片，且當天尚未排入「返回該點」作為最後一站，提供一鍵加入回程鈕
+      const canAddReturnToday = (isHotel || isTransport) && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
+
+      const roleTag = isReturnLeg
+        ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-600 text-white font-bold">回程</span>`
+        : (isOutboundLeg ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-bold">出發</span>` : '');
 
       if (uiState.boardCompact) {
         return `
           <div class="spot-card bg-white rounded-xl border border-slate-200/95 border-l-4 ${theme.borderLeft} shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing px-2.5 py-2 group"
-               data-id="${spot.id}" onclick="openEditCardModal('${spot.id}')">
+               data-id="${spot.id}" data-occ="${item.globalOccIdx}" onclick="openEditCardModal('${spot.id}')">
             <div class="flex items-center justify-between gap-1.5">
               <div class="flex items-center gap-1.5 min-w-0">
                 <span style="background-color: ${theme.hex};"
@@ -1282,9 +1373,10 @@
                 <h4 class="font-bold text-xs text-ink-dark truncate" title="${spot.name}">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
               </div>
               <div class="flex items-center gap-1 shrink-0">
+                ${roleTag}
                 <span class="text-[10px] px-1.5 py-0.5 rounded border font-medium ${theme.badge}">${spot.category}</span>
-                <button type="button" onclick="event.stopPropagation(); removeSpotFromDay('${spot.id}', '${dayContext.currentDay}')"
-                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此日行程（保留於資料庫）">
+                <button type="button" onclick="event.stopPropagation(); removeSpotOccurrenceFromDay('${spot.id}', '${dayContext.currentDay}', ${item.globalOccIdx})"
+                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此時段（保留於資料庫）">
                   <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
@@ -1293,24 +1385,32 @@
             <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1.5 pl-6">
               <span class="truncate">
                 ${isHotel 
-                  ? `<span class="text-purple-700 font-medium">連住 ${getSpotAssignedDays(spot).length} 晚</span> · ${spot.area}`
+                  ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${spot.area}`
                   : (isTransport 
-                      ? `<span class="text-sky-700 font-medium">轉乘/交通節點</span> · ${spot.area}`
+                      ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : '轉乘/交通節點'}</span> · ${spot.area}`
                       : `${spot.area} · ${spot.estimated_duration || 60}分`)
                 }
-                ${spot.must_buy ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
+                ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
               </span>
               <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-slate-400 hover:text-ai-indigo shrink-0 ml-1" title="在地圖定位">
                 <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
               </button>
             </div>
 
-            ${canExtendNextNight ? `
-              <div class="mt-1.5 pl-6">
-                <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
-                  class="w-full py-0.5 px-2 rounded bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white border border-purple-200 text-[10px] font-medium flex items-center justify-center gap-1 transition">
-                  <i data-lucide="calendar-plus" class="w-3 h-3"></i> 延續至 ${dayContext.nextDay.label}
-                </button>
+            ${(canAddReturnToday || (canExtendNextNight && !isReturnLeg)) ? `
+              <div class="mt-1.5 pl-6 flex gap-1">
+                ${canAddReturnToday ? `
+                  <button type="button" onclick="event.stopPropagation(); appendReturnStopToDay('${spot.id}', '${dayContext.currentDay}')"
+                    class="flex-1 py-0.5 px-1.5 rounded bg-slate-100 hover:bg-ai-indigo text-slate-700 hover:text-white border border-slate-200 text-[10px] font-medium flex items-center justify-center gap-0.5 transition">
+                    <i data-lucide="corner-down-left" class="w-3 h-3"></i> 加入當日回程
+                  </button>
+                ` : ''}
+                ${(canExtendNextNight && !isReturnLeg) ? `
+                  <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
+                    class="flex-1 py-0.5 px-1.5 rounded bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white border border-purple-200 text-[10px] font-medium flex items-center justify-center gap-0.5 transition">
+                    <i data-lucide="calendar-plus" class="w-3 h-3"></i> 延續至 ${dayContext.nextDay.label}
+                  </button>
+                ` : ''}
               </div>
             ` : ''}
           </div>
@@ -1320,7 +1420,7 @@
       const cardBorder = isHotel ? 'border-purple-300 bg-purple-50/30' : 'border-slate-200/90 bg-white';
       return `
         <div class="spot-card ${cardBorder} rounded-xl border shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
-             data-id="${spot.id}" onclick="openEditCardModal('${spot.id}')">
+             data-id="${spot.id}" data-occ="${item.globalOccIdx}" onclick="openEditCardModal('${spot.id}')">
           <div class="p-2.5">
             <div class="flex items-start justify-between gap-1.5 mb-1">
               <div class="flex items-center gap-1.5">
@@ -1328,9 +1428,10 @@
                 <h4 class="font-bold text-xs text-ink-dark leading-snug">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
               </div>
               <div class="flex items-center gap-1 shrink-0">
+                ${roleTag}
                 <span class="text-[10px] px-1.5 py-0.5 rounded-md border font-medium ${theme.badge}">${spot.category}</span>
-                <button type="button" onclick="event.stopPropagation(); removeSpotFromDay('${spot.id}', '${dayContext.currentDay}')"
-                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此日行程">
+                <button type="button" onclick="event.stopPropagation(); removeSpotOccurrenceFromDay('${spot.id}', '${dayContext.currentDay}', ${item.globalOccIdx})"
+                  class="text-slate-300 hover:text-red-500 p-0.5 rounded transition" title="移出此時段">
                   <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
@@ -1344,21 +1445,29 @@
               </div>
             ` : ''}
 
-            ${canExtendNextNight ? `
-              <div class="mb-1.5">
-                <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
-                  class="w-full py-1 px-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-medium flex items-center justify-center gap-1 transition">
-                  <i data-lucide="calendar-plus" class="w-3 h-3"></i> 連住延續至 ${dayContext.nextDay.label}
-                </button>
+            ${(canAddReturnToday || (canExtendNextNight && !isReturnLeg)) ? `
+              <div class="mb-1.5 flex gap-1.5">
+                ${canAddReturnToday ? `
+                  <button type="button" onclick="event.stopPropagation(); appendReturnStopToDay('${spot.id}', '${dayContext.currentDay}')"
+                    class="flex-1 py-1 px-2 rounded-lg bg-slate-700 hover:bg-ai-indigo text-white text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                    <i data-lucide="corner-down-left" class="w-3 h-3"></i> 加入當日回程
+                  </button>
+                ` : ''}
+                ${(canExtendNextNight && !isReturnLeg) ? `
+                  <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
+                    class="flex-1 py-1 px-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                    <i data-lucide="calendar-plus" class="w-3 h-3"></i> 延續至 ${dayContext.nextDay.label}
+                  </button>
+                ` : ''}
               </div>
             ` : ''}
 
             <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
               <span class="flex items-center gap-1">
                 ${isHotel 
-                  ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">已排 ${getSpotAssignedDays(spot).length} 晚</span>` 
+                  ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店' : `已排 ${uniqueStayNights} 晚`}</span>` 
                   : (isTransport
-                      ? `<i data-lucide="train" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">交通節點</span>`
+                      ? `<i data-lucide="train" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : '交通節點'}</span>`
                       : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
                 }
                 · ${spot.area}
@@ -1375,11 +1484,12 @@
     function extendHotelToDay(spotId, nextDateStr, nextDayLabel) {
       const spot = spots.find(s => s.id === spotId);
       if (!spot) return;
-      const days = getSpotAssignedDays(spot);
-      if (!days.includes(nextDateStr)) {
-        days.push(nextDateStr);
-        days.sort();
-        spot.assigned_day = days.join(',');
+      const occs = getSpotOccurrences(spot);
+      if (!occs.some(o => o.dateStr === nextDateStr)) {
+        occs.push({ dateStr: nextDateStr, order: 1 });
+        occs.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.order - b.order);
+        spot.assigned_day = occs.map(o => o.dateStr).join(',');
+        spot.sort_order = occs.map(o => o.order).join(',');
         const rev = isSpotRevisit(spot);
         spot.status = rev ? 'scheduled|revisit' : 'scheduled';
         saveLocalState();
@@ -1392,14 +1502,14 @@
             method: 'POST',
             body: JSON.stringify({
               action: 'sync_board',
-              updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order || 99, is_revisit: rev }]
+              updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order, is_revisit: rev }]
             })
           }).catch(err => console.error('背景同步失敗', err));
         }
       }
     }
 
-    // ==================== 拖曳排序互動 ====================
+    // ==================== 拖曳排序互動（允許同一張卡片多次拖入同一天） ====================
     function initSortableDragAndDrop() {
       const pocketEl = document.getElementById('pocket-dropzone');
       if (pocketEl) {
@@ -1418,16 +1528,7 @@
           animation: 180,
           ghostClass: 'sortable-ghost',
           dragClass: 'sortable-drag',
-          onAdd: function (evt) {
-            const addedId = evt.item.dataset.id;
-            const sameIdCards = zone.querySelectorAll(`.spot-card[data-id="${addedId}"]`);
-            if (sameIdCards.length > 1) {
-              evt.item.remove();
-              showToast('此地點已在該日行程中！');
-              return;
-            }
-            handleDragEnd();
-          },
+          onAdd: handleDragEnd,
           onUpdate: handleDragEnd,
           onRemove: handleDragEnd
         });
@@ -1435,27 +1536,24 @@
     }
 
     function handleDragEnd() {
-      const cardDaysMap = {};
-      const cardOrderMap = {};
-      spots.forEach(s => { cardDaysMap[s.id] = []; });
+      const cardOccMap = {};
+      spots.forEach(s => { cardOccMap[s.id] = []; });
 
+      // 依序掃描所有每日看板欄位，完整記錄每一張卡片出現的日期與順序（允許同日多次出現）
       document.querySelectorAll('.day-dropzone').forEach(zone => {
         const dayStr = zone.dataset.day;
         zone.querySelectorAll('.spot-card').forEach((card, idx) => {
           const id = card.dataset.id;
-          if (!cardDaysMap[id]) cardDaysMap[id] = [];
-          if (!cardDaysMap[id].includes(dayStr)) {
-            cardDaysMap[id].push(dayStr);
-          }
-          cardOrderMap[id] = idx + 1;
+          if (!cardOccMap[id]) cardOccMap[id] = [];
+          cardOccMap[id].push({ dateStr: dayStr, order: idx + 1 });
         });
       });
 
       const updates = [];
       spots.forEach(spot => {
-        const days = cardDaysMap[spot.id] || [];
-        const newAssigned = days.length > 0 ? days.sort().join(',') : 'pocket';
-        const newOrder = cardOrderMap[spot.id] || spot.sort_order || 99;
+        const occs = cardOccMap[spot.id] || [];
+        const newAssigned = occs.length > 0 ? occs.map(o => o.dateStr).join(',') : 'pocket';
+        const newOrder = occs.length > 0 ? occs.map(o => o.order).join(',') : (String(spot.sort_order).split(',')[0] || '99');
         const rev = isSpotRevisit(spot);
         spot.assigned_day = newAssigned;
         spot.status = newAssigned === 'pocket'
@@ -1467,7 +1565,7 @@
 
       saveLocalState();
       renderAll();
-      showToast('已納入行程並更新排序！');
+      showToast('已更新行程排程與順序！');
 
       if (appConfig.gasUrl) {
         fetch(appConfig.gasUrl, {
@@ -1534,7 +1632,6 @@
       };
     }
 
-    // 產生單一段點對點 Google Maps 連結（避免 transit 模式下 waypoints 導致 Google 無法規劃）
     function buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode) {
       const gMode = legMode === 'walking' ? 'walking' : ((legMode === 'driving' || legMode === 'taxi') ? 'driving' : 'transit');
       const params = new URLSearchParams({
@@ -1546,9 +1643,8 @@
       return `https://www.google.com/maps/dir/?${params.toString()}`;
     }
 
-    function setLegModeOverride(dateStr, idA, idB, newMode) {
-      const key = `${dateStr}|${idA}|${idB}`;
-      legModeOverrides[key] = newMode;
+    function setLegModeOverride(legKey, newMode) {
+      legModeOverrides[legKey] = newMode;
       saveLocalState();
       renderAll();
     }
@@ -1565,7 +1661,6 @@
 
     function handleGlobalModeChange() {
       const filterDay = document.getElementById('map-day-selector').value;
-      // 切換全域策略時，清除當日手動覆蓋讓新策略立即生效
       Object.keys(legModeOverrides).forEach(k => {
         if (k.startsWith(filterDay + '|')) delete legModeOverrides[k];
       });
@@ -1621,44 +1716,54 @@
       const breakdownEl = document.getElementById('map-segment-breakdown');
       const resetBtn = document.getElementById('btn-reset-leg-modes');
 
-      let filtered = spots.filter(s => s.lat && s.lng);
+      const isSingleDayRoute = filterDay !== 'all' && filterDay !== 'scheduled_all';
+      let dayRouteItems = [];
 
-      if (filterDay === 'scheduled_all') {
-        filtered = filtered.filter(s => getSpotAssignedDays(s).length > 0);
-      } else if (filterDay !== 'all') {
-        filtered = filtered
-          .filter(s => getSpotAssignedDays(s).includes(filterDay))
-          .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
+      if (isSingleDayRoute) {
+        dayRouteItems = getDayItems(filterDay).filter(it => it.spot.lat && it.spot.lng);
+      } else {
+        let baseSpots = spots.filter(s => s.lat && s.lng);
+        if (filterDay === 'scheduled_all') {
+          baseSpots = baseSpots.filter(s => getSpotAssignedDays(s).length > 0);
+        }
+        dayRouteItems = baseSpots.map(s => ({ spot: s, dayOccNum: 1, totalDayOccs: 1 }));
       }
 
       const latLngs = [];
-      filtered.forEach((spot, index) => {
+      const renderedSpotIds = new Set();
+
+      dayRouteItems.forEach((item, index) => {
+        const spot = item.spot;
         const lat = parseFloat(spot.lat);
         const lng = parseFloat(spot.lng);
         if (isNaN(lat) || isNaN(lng)) return;
 
         latLngs.push([lat, lng]);
-        const isDayRoute = filterDay !== 'all' && filterDay !== 'scheduled_all';
+        // 若同一天出現多次（如飯店出發與返回飯店），地圖上避免兩個完全重疊圖釘遮擋，合併顯示為「宿·往返」
+        if (isSingleDayRoute && renderedSpotIds.has(spot.id)) return;
+        renderedSpotIds.add(spot.id);
+
         const isHotel = spot.category === '住宿';
         const isTransport = spot.category === '交通';
         const theme = CATEGORY_THEME[spot.category] || { hex: '#2B4C7E' };
+        const isRoundTrip = isSingleDayRoute && item.totalDayOccs > 1;
 
         let markerHtml = '';
         if (isHotel) {
-          markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">宿</div>`;
+          markerHtml = `<div style="background:${theme.hex};color:#fff;width:${isRoundTrip ? 32 : 26}px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:10px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${isRoundTrip ? '宿↺' : '宿'}</div>`;
         } else if (isTransport) {
-          markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">行</div>`;
-        } else if (isDayRoute) {
+          markerHtml = `<div style="background:${theme.hex};color:#fff;width:${isRoundTrip ? 32 : 26}px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:10px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${isRoundTrip ? '行↺' : '行'}</div>`;
+        } else if (isSingleDayRoute) {
           markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${index + 1}</div>`;
         } else {
           markerHtml = `<div style="background:${theme.hex};width:18px;height:18px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>`;
         }
 
-        const customIcon = L.divIcon({ html: markerHtml, className: '', iconSize: [26, 26], iconAnchor: [13, 13] });
+        const customIcon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 26], iconAnchor: [14, 13] });
         const marker = L.marker([lat, lng], { icon: customIcon }).addTo(mapLayerGroup);
         marker.bindPopup(`
           <div class="text-xs">
-            <strong class="text-sm text-slate-800">${spot.name}</strong><br/>
+            <strong class="text-sm text-slate-800">${spot.name}</strong>${isRoundTrip ? ' <span class="text-purple-700 font-bold">(當日出發＋回程)</span>' : ''}<br/>
             <span style="color:${theme.hex};font-weight:bold;">● ${spot.category}</span> · <span class="text-slate-500">${spot.area}</span><br/>
             ${spot.must_buy ? `<span class="text-slate-700">${isHotel ? '備註' : '重點'}：${spot.must_buy}</span>` : ''}
           </div>
@@ -1666,7 +1771,7 @@
       });
 
       // ==================== 單日多層次逐段路線計算與地圖繪製 ====================
-      if (filterDay !== 'all' && filterDay !== 'scheduled_all' && filtered.length > 1) {
+      if (isSingleDayRoute && dayRouteItems.length > 1) {
         summaryBox.classList.remove('hidden');
         summaryBox.classList.add('flex');
         metricsEl.textContent = '正在計算多層次路網與轉乘時間...';
@@ -1682,13 +1787,16 @@
         const allBoundsPts = [];
         const segmentCards = [];
 
-        for (let i = 0; i < filtered.length - 1; i++) {
-          const pA = filtered[i];
-          const pB = filtered[i + 1];
+        for (let i = 0; i < dayRouteItems.length - 1; i++) {
+          const itemA = dayRouteItems[i];
+          const itemB = dayRouteItems[i + 1];
+          const pA = itemA.spot;
+          const pB = itemB.spot;
           const latA = parseFloat(pA.lat), lngA = parseFloat(pA.lng);
           const latB = parseFloat(pB.lat), lngB = parseFloat(pB.lng);
 
-          const legMode = resolveLegMode(filterDay, pA, pB, globalMode);
+          const legKey = getLegKey(filterDay, itemA, itemB);
+          const legMode = resolveLegMode(filterDay, itemA, itemB, globalMode);
           const gmapsLegUrl = buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode);
 
           let legMins = 0;
@@ -1700,11 +1808,9 @@
             const stB = findNearestYuiRailStation(latB, lngB);
             const railCoords = getYuiRailTrackSlice(stA, stB);
 
-            // 繪製真實曲率單軌高架軌道線（天藍色實線）
             L.polyline(railCoords, { color: '#0284C7', weight: 5, opacity: 0.92 }).addTo(mapLayerGroup);
             allBoundsPts.push(...railCoords);
 
-            // 兩端真實街道步行接駁線（綠色虛線）
             let walkMinsA = 0, walkMinsB = 0;
             if (stA.distKm > 0.08) {
               const walkA = await fetchOsrmSegment('foot', latA, lngA, stA.station.lat, stA.station.lng);
@@ -1756,7 +1862,6 @@
             detailNote = `街道步行 (${legDistKm.toFixed(1)} km)`;
 
           } else {
-            // driving
             const drive = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
             if (currentToken !== routeRequestToken) return;
             L.polyline(drive.coords, { color: '#2B4C7E', weight: 4.5, opacity: 0.9 }).addTo(mapLayerGroup);
@@ -1769,16 +1874,18 @@
           totalMins += legMins;
           totalDistKm += legDistKm;
 
+          const nameBDisplay = (itemB.totalDayOccs > 1 && itemB.dayOccNum > 1) ? `${pB.name} (回程)` : pB.name;
+
           segmentCards.push(`
             <div class="bg-slate-50 border border-slate-200/80 rounded-lg p-1.5 space-y-1">
               <div class="flex items-center justify-between gap-1">
                 <span class="font-bold text-slate-800 truncate">
-                  ${i + 1}→${i + 2} ${pA.name} → ${pB.name}
+                  ${i + 1}→${i + 2} ${pA.name} → ${nameBDisplay}
                 </span>
                 <span class="font-bold text-ai-indigo shrink-0">約 ${legMins} 分</span>
               </div>
               <div class="flex items-center justify-between gap-1.5">
-                <select onchange="setLegModeOverride('${filterDay}', '${pA.id}', '${pB.id}', this.value)"
+                <select onchange="setLegModeOverride('${legKey}', this.value)"
                   class="text-[10px] bg-white border border-slate-300 rounded px-1.5 py-0.5 font-medium text-slate-700 focus:outline-none">
                   <option value="monorail" ${legMode === 'monorail' ? 'selected' : ''}>🚝 單軌+步行</option>
                   <option value="bus" ${legMode === 'bus' ? 'selected' : ''}>🚌 公車+步行</option>
@@ -1880,10 +1987,10 @@
       document.getElementById('field-duration').value = spot.estimated_duration !== undefined ? spot.estimated_duration : 60;
       document.getElementById('field-revisit').checked = isSpotRevisit(spot);
 
-      const assignedDays = getSpotAssignedDays(spot);
-      document.getElementById('field-day').value = assignedDays.length > 0 ? assignedDays[0] : 'pocket';
+      const uniqueDays = getSpotUniqueDays(spot);
+      document.getElementById('field-day').value = uniqueDays.length > 0 ? uniqueDays[0] : 'pocket';
       document.querySelectorAll('input[name="stay_days"]').forEach(cb => {
-        cb.checked = assignedDays.includes(cb.value);
+        cb.checked = uniqueDays.includes(cb.value);
       });
       toggleMultiDayStayUI();
 
@@ -1909,13 +2016,42 @@
       const id = document.getElementById('field-id').value;
       const category = document.getElementById('field-category').value;
       const isRevisit = document.getElementById('field-revisit').checked;
+      const existingSpot = id ? spots.find(s => s.id === id) : null;
 
       let assignedDay = 'pocket';
+      let sortOrderStr = existingSpot ? String(existingSpot.sort_order || '99') : '99';
+
       if (category === '住宿') {
         const checkedDays = [...document.querySelectorAll('input[name="stay_days"]:checked')].map(cb => cb.value);
-        assignedDay = checkedDays.length > 0 ? checkedDays.sort().join(',') : 'pocket';
+        if (checkedDays.length === 0) {
+          assignedDay = 'pocket';
+          sortOrderStr = '99';
+        } else {
+          // 保留原有同日多筆（如出發＋回程）結構，僅增刪被勾選/取消的日期
+          const prevOccs = existingSpot ? getSpotOccurrences(existingSpot) : [];
+          const nextOccs = [];
+          checkedDays.sort().forEach(dStr => {
+            const matched = prevOccs.filter(o => o.dateStr === dStr);
+            if (matched.length > 0) {
+              nextOccs.push(...matched);
+            } else {
+              nextOccs.push({ dateStr: dStr, order: 1 });
+            }
+          });
+          assignedDay = nextOccs.map(o => o.dateStr).join(',');
+          sortOrderStr = nextOccs.map(o => o.order).join(',');
+        }
       } else {
-        assignedDay = document.getElementById('field-day').value;
+        const selDay = document.getElementById('field-day').value;
+        assignedDay = selDay;
+        if (selDay === 'pocket') {
+          sortOrderStr = '99';
+        } else if (existingSpot && getSpotUniqueDays(existingSpot).includes(selDay)) {
+          // 保留原本在該日的排程
+          const prevOccs = getSpotOccurrences(existingSpot).filter(o => o.dateStr === selDay);
+          assignedDay = prevOccs.map(o => o.dateStr).join(',');
+          sortOrderStr = prevOccs.map(o => o.order).join(',');
+        }
       }
 
       const baseStatus = assignedDay === 'pocket' ? 'pocket' : 'scheduled';
@@ -1928,6 +2064,7 @@
         area: document.getElementById('field-area').value,
         estimated_duration: Number(document.getElementById('field-duration').value) || 0,
         assigned_day: assignedDay,
+        sort_order: sortOrderStr,
         status: finalStatus,
         description: document.getElementById('field-description').value.trim(),
         must_buy: document.getElementById('field-must-buy').value.trim(),
@@ -1943,7 +2080,6 @@
         const idx = spots.findIndex(s => s.id === id);
         if (idx > -1) spots[idx] = { ...spots[idx], ...cardObj };
       } else {
-        cardObj.sort_order = 99;
         spots.unshift(cardObj);
       }
 
