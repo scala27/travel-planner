@@ -61,8 +61,8 @@
         <i data-lucide="compass" class="w-5 h-5"></i>
       </div>
       <div>
-        <h1 id="header-trip-title" class="font-bold text-base sm:text-lg text-ink-dark leading-tight">2027 沖繩冬日自駕與散策之旅</h1>
-        <p id="header-trip-dates" class="text-xs text-ink-muted">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
+        <h1 id="header-trip-title" class="font-bold text-base sm:text-lg text-ink-dark leading-tight">2027 沖繩首發自由行</h1>
+        <p id="header-trip-dates" class="text-xs text-ink-muted">2027-02-16 ~ 2027-02-21 (6天5夜)</p>
       </div>
     </div>
 
@@ -74,9 +74,9 @@
       <button onclick="openModal('modal-settings')" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition" title="系統與後端設定">
         <i data-lucide="settings" class="w-5 h-5"></i>
       </button>
-      <button onclick="syncFromCloud()" class="flex items-center gap-1.5 bg-ai-indigo hover:bg-slate-800 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition shadow-xs">
+      <button onclick="syncFromCloud()" id="btn-sync-cloud" class="flex items-center gap-1.5 bg-ai-indigo hover:bg-slate-800 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition shadow-xs">
         <i data-lucide="refresh-cw" class="w-4 h-4" id="refresh-icon"></i>
-        <span class="hidden sm:inline">同步資料</span>
+        <span class="hidden sm:inline" id="sync-btn-label">同步資料</span>
       </button>
     </div>
   </header>
@@ -115,14 +115,14 @@
           </div>
         </div>
 
-        <!-- 多行輸入區（支援貼上貼文文案、店名、Google Maps 或 YouTube 連結） -->
+        <!-- 多行輸入區 -->
         <div class="relative">
           <textarea id="ai-url-input" rows="2" oninput="detectInputMode()"
-            placeholder="貼上影片截圖(Ctrl+V)、YouTube連結、Google Maps連結、店名或貼文文字..." 
+            placeholder="貼上影片截圖(Ctrl+V)、YouTube連結、飯店名稱或Google Maps連結..." 
             class="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
         </div>
 
-        <!-- 截圖預覽區（當使用者選取或貼上圖片時顯示） -->
+        <!-- 截圖預覽區 -->
         <div id="inbox-image-preview-wrap" class="hidden items-center justify-between bg-white border border-indigo-200 rounded-lg p-1.5">
           <div class="flex items-center gap-2 overflow-hidden">
             <img id="inbox-image-preview" src="" alt="截圖預覽" class="w-10 h-10 object-cover rounded border border-slate-200 shrink-0" />
@@ -156,7 +156,7 @@
       <div class="px-3.5 py-2.5 border-b border-slate-100 space-y-2 shrink-0">
         <div class="relative">
           <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、必買商品、區域..." 
+          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋景點、飯店、必買商品、區域..." 
             class="w-full text-xs bg-slate-100 rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
         </div>
         <div class="flex gap-1.5 overflow-x-auto pb-0.5" id="category-filters">
@@ -186,7 +186,7 @@
       <div class="px-4 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-2 text-xs text-ink-muted">
           <i data-lucide="grip-vertical" class="w-4 h-4 text-ai-slate"></i>
-          <span>直接將左側口袋卡片<strong>拖曳</strong>至各日行程中，或上下調整順序</span>
+          <span>拖曳卡片排入各日行程；<strong>住宿飯店卡片</strong>可一鍵「延續隔晚」或多日勾選連住</span>
         </div>
         <button onclick="saveBoardOrderToCloud()" class="text-xs bg-moss-green hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition shadow-xs">
           <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> 儲存排程順序
@@ -230,12 +230,12 @@
         
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block text-xs font-medium text-slate-600 mb-1">景點 / 店家名稱 *</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">景點 / 店家 / 飯店名稱 *</label>
             <input type="text" id="field-name" required class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">分類</label>
-            <select id="field-category" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
+            <select id="field-category" onchange="toggleMultiDayStayUI()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
               <option value="景點">🏞️ 景點</option>
               <option value="美食">🍜 美食</option>
               <option value="購物">🛍️ 購物</option>
@@ -256,9 +256,9 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">預計停留(分)</label>
-            <input type="number" id="field-duration" value="60" min="10" step="10" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <input type="number" id="field-duration" value="60" min="0" step="10" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
-          <div>
+          <div id="single-day-select-wrap">
             <label class="block text-xs font-medium text-slate-600 mb-1">排入日期</label>
             <select id="field-day" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
               <option value="pocket">📌 口袋名單</option>
@@ -266,30 +266,44 @@
           </div>
         </div>
 
+        <!-- 住宿連住多日勾選區塊（當分類為住宿或已排入多日時顯示） -->
+        <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
+              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住日期安排（可複選連住多晚）
+            </label>
+            <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
+          </div>
+          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5">
+            <!-- 動態產生每日勾選膠囊 -->
+          </div>
+          <p class="text-[11px] text-purple-700/80 mt-1.5">未勾選任何日期時，卡片將保留在左側「口袋名單」中。</p>
+        </div>
+
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">必訪說明與特色亮點</label>
+          <label class="block text-xs font-medium text-slate-600 mb-1">必訪說明 / 飯店訂房與特色亮點</label>
           <textarea id="field-description" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none"></textarea>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌</label>
-          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：檸檬塔, 限定伴手禮" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+          <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌 / 房型備註</label>
+          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：雙床房含早餐, 檸檬塔" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間與公休日</label>
-            <input type="text" id="field-hours" placeholder="例如：11:00-19:00 (週三休)" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 入住退房時間</label>
+            <input type="text" id="field-hours" placeholder="例如：15:00入住 / 11:00退房" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">🚗 停車與 MapCode 資訊</label>
-            <input type="text" id="field-parking" placeholder="免費停車場 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <input type="text" id="field-parking" placeholder="飯店停車場 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 原始參考連結</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 訂房網 / 原始參考連結</label>
             <input type="url" id="field-source-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
@@ -341,22 +355,22 @@
           <label class="block text-xs font-bold text-slate-700 mb-1">Google Apps Script 網頁應用程式網址 (Web App URL)</label>
           <input type="url" id="setting-gas-url" placeholder="https://script.google.com/macros/s/.../exec" 
             class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:border-ai-indigo focus:outline-none" />
-          <p class="text-[11px] text-slate-500 mt-1">填入後即可與您的 Google 試算表雙向同步，並啟用截圖 Vision、YouTube 原生影音與 Google 搜尋建卡。</p>
+          <p class="text-[11px] text-slate-500 mt-1">請確認 GAS 部署時「誰可以存取」已設為<strong>所有人 (Anyone)</strong>，否則同步會被 Google 登入牆阻擋。</p>
         </div>
 
         <div class="pt-2 border-t border-slate-100">
           <label class="block text-xs font-bold text-slate-700 mb-1">行程標題</label>
-          <input type="text" id="setting-trip-title" value="2027 沖繩冬日自駕與散策之旅" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+          <input type="text" id="setting-trip-title" value="2027沖繩首發自由行" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">出發日期</label>
-            <input type="date" id="setting-start-date" value="2027-02-17" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <input type="date" id="setting-start-date" value="2027-02-16" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">回程日期</label>
-            <input type="date" id="setting-end-date" value="2027-02-22" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <input type="date" id="setting-end-date" value="2027-02-21" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
           </div>
         </div>
       </div>
@@ -369,7 +383,7 @@
   </div>
 
   <!-- Toast 提示訊息 -->
-  <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 text-white text-xs px-4 py-3 rounded-xl shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center gap-2">
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 text-white text-xs px-4 py-3 rounded-xl shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center gap-2 max-w-sm">
     <span id="toast-msg">訊息提示</span>
   </div>
 
@@ -380,12 +394,11 @@
 
     let appConfig = {
       gasUrl: '',
-      tripTitle: '2027 沖繩冬日自駕與散策之旅',
-      startDate: '2027-02-17',
-      endDate: '2027-02-22'
+      tripTitle: '2027沖繩首發自由行',
+      startDate: '2027-02-16',
+      endDate: '2027-02-21'
     };
 
-    // 智慧收件匣暫存圖片狀態
     let inboxPendingImage = {
       base64: '',
       mimeType: 'image/jpeg',
@@ -428,42 +441,6 @@
         sort_order: 2,
         lat: 26.2588,
         lng: 127.7153
-      },
-      {
-        id: 'spot_003',
-        name: '波上宮 & 波之上海灘',
-        category: '景點',
-        area: '那霸市區',
-        description: '建於珊瑚礁懸崖上的琉球八社之首，步行即可抵達那霸市區唯一海灘。',
-        must_buy: '紅型花紋書包御守, 海洋健康御守',
-        business_hours: '09:00-17:00 (全天開放參拜)',
-        estimated_duration: 60,
-        parking_info: '神社旁有免費參拜專用停車位（約10台）',
-        source_url: '',
-        photo_url: 'https://images.unsplash.com/photo-1590559899731-a382839e5549?auto=format&fit=crop&w=600&q=80',
-        status: 'scheduled',
-        assigned_day: '2027-02-17',
-        sort_order: 1,
-        lat: 26.2206,
-        lng: 127.6711
-      },
-      {
-        id: 'spot_004',
-        name: '沖繩美麗海水族館',
-        category: '景點',
-        area: '北部',
-        description: '黑潮之海巨大水槽與鯨鯊餵食秀震撼必看，建議下午4點後星光票或一早入場。',
-        must_buy: '限定鯨鯊絨毛玩偶, 黑潮之海明信片',
-        business_hours: '08:30-18:30',
-        estimated_duration: 180,
-        parking_info: '推薦停放 P7 立體停車場（離水族館入口最近，免費）',
-        source_url: '',
-        photo_url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=600&q=80',
-        status: 'pocket',
-        assigned_day: 'pocket',
-        sort_order: 3,
-        lat: 26.6943,
-        lng: 127.8779
       }
     ];
 
@@ -515,9 +492,14 @@
       document.getElementById('setting-end-date').value = appConfig.endDate;
     }
 
-    function updateSyncBadge() {
+    function updateSyncBadge(customText, colorClass) {
       const dot = document.getElementById('sync-dot');
       const text = document.getElementById('sync-text');
+      if (customText) {
+        dot.className = `w-2 h-2 rounded-full ${colorClass || 'bg-amber-500'}`;
+        text.textContent = customText;
+        return;
+      }
       if (appConfig.gasUrl) {
         dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
         text.textContent = 'Google 試算表已連線';
@@ -550,7 +532,6 @@
       event.target.value = '';
     }
 
-    // 前端 Canvas 自動壓縮圖片（最大寬度 1024px），確保上傳 GAS 快速且不超時
     function processAndCompressImage(file, displayName) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -620,7 +601,7 @@
       const rawText = inputEl.value.trim();
 
       if (!rawText && !inboxPendingImage.base64) {
-        showToast('請貼上截圖、YouTube 連結、Google Maps 連結或輸入店名！');
+        showToast('請貼上截圖、YouTube 連結、飯店名稱或 Google Maps 連結！');
         return;
       }
 
@@ -647,7 +628,6 @@
         });
         const data = await res.json();
         if (data.status === 'success' && data.spots && data.spots.length > 0) {
-          // 支援單張或影片介紹的多張卡片批次匯入
           data.spots.reverse().forEach(s => spots.unshift(s));
           saveLocalState();
           renderAll();
@@ -668,11 +648,11 @@
       }
     }
 
-    // ==================== 日期計算工具 ====================
+    // ==================== 日期計算與多日住宿解析工具 ====================
     function getDateRangeArray(startStr, endStr) {
       const list = [];
-      let curr = new Date(startStr);
-      const end = new Date(endStr);
+      let curr = new Date(startStr + 'T00:00:00');
+      const end = new Date(endStr + 'T00:00:00');
       const weekNames = ['日', '一', '二', '三', '四', '五', '六'];
       let idx = 1;
       while (curr <= end && idx <= 14) {
@@ -688,6 +668,13 @@
         idx++;
       }
       return list;
+    }
+
+    // 取得某張卡片所有已排程的日期陣列（支援逗號分隔多日住宿）
+    function getSpotAssignedDays(spot) {
+      const raw = String(spot.assigned_day || 'pocket').trim();
+      if (!raw || raw === 'pocket') return [];
+      return raw.split(',').map(d => d.trim()).filter(Boolean);
     }
 
     // ==================== 畫面渲染核心 ====================
@@ -706,7 +693,7 @@
       const keyword = document.getElementById('search-input').value.trim().toLowerCase();
 
       const pocketSpots = spots
-        .filter(s => s.assigned_day === 'pocket')
+        .filter(s => getSpotAssignedDays(s).length === 0)
         .filter(s => currentCategoryFilter === '全部' || s.category === currentCategoryFilter)
         .filter(s => currentAreaFilter === '全部' || s.area === currentAreaFilter)
         .filter(s => !keyword || 
@@ -722,23 +709,30 @@
         container.innerHTML = `
           <div class="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs">
             <p class="mb-1 font-medium">目前沒有符合條件的口袋卡片</p>
-            <p>上方可上傳截圖、貼上 YouTube 連結或輸入店名建卡！</p>
+            <p>上方可上傳截圖、貼上 YouTube 連結或輸入飯店/店名建卡！</p>
           </div>`;
         return;
       }
 
-      container.innerHTML = pocketSpots.map(spot => buildCardHTML(spot, false)).join('');
+      container.innerHTML = pocketSpots.map(spot => buildCardHTML(spot, false, null, null)).join('');
     }
 
     function renderKanbanDays(daysList) {
       const container = document.getElementById('days-kanban-container');
-      container.innerHTML = daysList.map(day => {
+      container.innerHTML = daysList.map((day, dayIdx) => {
         const daySpots = spots
-          .filter(s => s.assigned_day === day.dateStr)
-          .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
+          .filter(s => getSpotAssignedDays(s).includes(day.dateStr))
+          .sort((a, b) => {
+            // 住宿卡片可自然依 sort_order 排列，若無指定則放最後
+            return (a.sort_order || 99) - (b.sort_order || 99);
+          });
 
-        const totalMins = daySpots.reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
+        // 計算非住宿景點的預計停留時間總和
+        const totalMins = daySpots
+          .filter(s => s.category !== '住宿')
+          .reduce((sum, s) => sum + (Number(s.estimated_duration) || 60), 0);
         const hoursText = (totalMins / 60).toFixed(1).replace('.0', '');
+        const nextDayObj = daysList[dayIdx + 1] || null;
 
         return `
           <div class="w-[290px] sm:w-[310px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0">
@@ -748,7 +742,7 @@
                   <span class="font-bold text-sm text-ai-indigo">${day.label}</span>
                   <span class="text-xs font-medium text-slate-600">${day.shortDate}</span>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-0.5">共 ${daySpots.length} 個點 · 預計停留 ${hoursText} 小時</p>
+                <p class="text-[11px] text-slate-400 mt-0.5">共 ${daySpots.length} 項 · 活動約 ${hoursText} 小時</p>
               </div>
               <button onclick="focusMapOnDay('${day.dateStr}')" class="p-1.5 text-slate-400 hover:text-ai-indigo hover:bg-slate-100 rounded-lg" title="在地圖上檢視此日路線">
                 <i data-lucide="map" class="w-4 h-4"></i>
@@ -757,8 +751,8 @@
             
             <div class="p-2.5 flex-1 overflow-y-auto space-y-2.5 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
               ${daySpots.length > 0 
-                ? daySpots.map((s, idx) => buildCardHTML(s, true, idx + 1)).join('') 
-                : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">拖曳口袋卡片至此排程</div>`
+                ? daySpots.map((s, idx) => buildCardHTML(s, true, idx + 1, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
+                : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">拖曳口袋卡片或飯店至此排程</div>`
               }
             </div>
           </div>
@@ -766,28 +760,37 @@
       }).join('');
     }
 
-    function buildCardHTML(spot, isScheduled, orderNum) {
+    function buildCardHTML(spot, isScheduled, orderNum, dayContext) {
+      const isHotel = spot.category === '住宿';
       const badgeColors = {
         '景點': 'bg-emerald-50 text-emerald-700 border-emerald-200',
         '美食': 'bg-amber-50 text-amber-700 border-amber-200',
         '購物': 'bg-indigo-50 text-indigo-700 border-indigo-200',
-        '住宿': 'bg-purple-50 text-purple-700 border-purple-200'
+        '住宿': 'bg-purple-100 text-purple-800 border-purple-300'
       };
       const badgeClass = badgeColors[spot.category] || 'bg-slate-100 text-slate-700';
+      const cardBorder = isHotel && isScheduled
+        ? 'border-purple-300 bg-purple-50/30'
+        : 'border-slate-200/90 bg-white';
+
+      // 住宿卡片在看板中若還有下一天，顯示「+ 延續隔晚」快捷按鈕
+      const canExtendNextNight = isHotel && isScheduled && dayContext && dayContext.nextDay &&
+        !getSpotAssignedDays(spot).includes(dayContext.nextDay.dateStr);
 
       return `
-        <div class="spot-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
+        <div class="spot-card ${cardBorder} rounded-xl border shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
              data-id="${spot.id}" onclick="openEditCardModal('${spot.id}')">
           ${spot.photo_url ? `
             <div class="h-24 w-full bg-slate-200 overflow-hidden relative">
               <img src="${spot.photo_url}" alt="${spot.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'"/>
               <span class="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs">${spot.area}</span>
+              ${isHotel ? `<span class="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-700 text-white shadow-2xs">🏨 住宿飯店</span>` : ''}
             </div>
           ` : ''}
           <div class="p-3">
             <div class="flex items-start justify-between gap-2 mb-1">
               <div class="flex items-center gap-1.5">
-                ${isScheduled ? `<span class="w-5 h-5 rounded-full bg-ai-indigo text-white text-[11px] font-bold flex items-center justify-center shrink-0">${orderNum}</span>` : ''}
+                ${isScheduled ? `<span class="w-5 h-5 rounded-full ${isHotel ? 'bg-purple-700' : 'bg-ai-indigo'} text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : orderNum}</span>` : ''}
                 <h4 class="font-bold text-sm text-ink-dark leading-snug">${spot.name}</h4>
               </div>
               <span class="text-[10px] px-2 py-0.5 rounded-md border font-medium shrink-0 ${badgeClass}">${spot.category}</span>
@@ -796,18 +799,30 @@
             ${spot.description ? `<p class="text-xs text-slate-500 line-clamp-2 mb-2">${spot.description}</p>` : ''}
 
             ${spot.must_buy ? `
-              <div class="bg-amber-50/70 border border-amber-100 rounded-lg px-2 py-1 mb-2 text-[11px] text-amber-900">
-                <span class="font-bold">🛍️ 必買/必吃：</span>${spot.must_buy}
+              <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : 'bg-amber-50/70 border-amber-100 text-amber-900'} border rounded-lg px-2 py-1 mb-2 text-[11px]">
+                <span class="font-bold">${isHotel ? '🛏️ 訂房重點：' : '🛍️ 必買/必吃：'}</span>${spot.must_buy}
+              </div>
+            ` : ''}
+
+            ${canExtendNextNight ? `
+              <div class="mb-2">
+                <button type="button" onclick="event.stopPropagation(); extendHotelToDay('${spot.id}', '${dayContext.nextDay.dateStr}', '${dayContext.nextDay.label}')"
+                  class="w-full py-1 px-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                  <i data-lucide="calendar-plus" class="w-3 h-3"></i> 連住延續至 ${dayContext.nextDay.label} (${dayContext.nextDay.shortDate})
+                </button>
               </div>
             ` : ''}
 
             <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
               <span class="flex items-center gap-1">
-                <i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分
+                ${isHotel 
+                  ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">已排 ${getSpotAssignedDays(spot).length} 晚</span>` 
+                  : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`
+                }
                 ${!spot.photo_url ? `· ${spot.area}` : ''}
               </span>
               <div class="flex items-center gap-2">
-                ${spot.business_hours ? `<span title="${spot.business_hours}" class="text-slate-500 truncate max-w-[110px]">⏰ ${spot.business_hours}</span>` : ''}
+                ${spot.business_hours ? `<span title="${spot.business_hours}" class="text-slate-500 truncate max-w-[115px]">⏰ ${spot.business_hours}</span>` : ''}
                 <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo" title="在地圖定位">
                   <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
                 </button>
@@ -816,6 +831,32 @@
           </div>
         </div>
       `;
+    }
+
+    // 住宿卡片一鍵延續至隔晚
+    function extendHotelToDay(spotId, nextDateStr, nextDayLabel) {
+      const spot = spots.find(s => s.id === spotId);
+      if (!spot) return;
+      const days = getSpotAssignedDays(spot);
+      if (!days.includes(nextDateStr)) {
+        days.push(nextDateStr);
+        days.sort();
+        spot.assigned_day = days.join(',');
+        spot.status = 'scheduled';
+        saveLocalState();
+        renderAll();
+        showToast(`🏨 已將「${spot.name}」連住排入 ${nextDayLabel}！`);
+
+        if (appConfig.gasUrl) {
+          fetch(appConfig.gasUrl, {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'sync_board',
+              updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order || 99 }]
+            })
+          }).catch(err => console.error('背景同步失敗', err));
+        }
+      }
     }
 
     // ==================== 拖曳排序互動 (SortableJS) ====================
@@ -843,30 +884,37 @@
     }
 
     function handleDragEnd() {
-      const updates = [];
+      // 彙整每張卡片在各看板中出現的所有日期（支援同一張住宿卡片出現在多天）
+      const cardDaysMap = {};
+      const cardOrderMap = {};
+      spots.forEach(s => { cardDaysMap[s.id] = []; });
+
       document.querySelectorAll('#pocket-dropzone .spot-card').forEach((card, idx) => {
         const id = card.dataset.id;
-        const spot = spots.find(s => s.id === id);
-        if (spot) {
-          spot.assigned_day = 'pocket';
-          spot.status = 'pocket';
-          spot.sort_order = idx + 1;
-          updates.push({ id, assigned_day: 'pocket', sort_order: idx + 1 });
-        }
+        cardOrderMap[id] = idx + 1;
       });
 
       document.querySelectorAll('.day-dropzone').forEach(zone => {
         const dayStr = zone.dataset.day;
         zone.querySelectorAll('.spot-card').forEach((card, idx) => {
           const id = card.dataset.id;
-          const spot = spots.find(s => s.id === id);
-          if (spot) {
-            spot.assigned_day = dayStr;
-            spot.status = 'scheduled';
-            spot.sort_order = idx + 1;
-            updates.push({ id, assigned_day: dayStr, sort_order: idx + 1 });
+          if (!cardDaysMap[id]) cardDaysMap[id] = [];
+          if (!cardDaysMap[id].includes(dayStr)) {
+            cardDaysMap[id].push(dayStr);
           }
+          cardOrderMap[id] = idx + 1;
         });
+      });
+
+      const updates = [];
+      spots.forEach(spot => {
+        const days = cardDaysMap[spot.id] || [];
+        const newAssigned = days.length > 0 ? days.sort().join(',') : 'pocket';
+        const newOrder = cardOrderMap[spot.id] || spot.sort_order || 99;
+        spot.assigned_day = newAssigned;
+        spot.status = newAssigned === 'pocket' ? 'pocket' : 'scheduled';
+        spot.sort_order = newOrder;
+        updates.push({ id: spot.id, assigned_day: newAssigned, sort_order: newOrder });
       });
 
       saveLocalState();
@@ -881,12 +929,12 @@
       }
     }
 
-    // ==================== 地圖模組 (Leaflet.js) ====================
+    // ==================== 地圖模組 (OpenStreetMap 免金鑰圖磚) ====================
     function initMap() {
       mapInstance = L.map('okinawa-map').setView([26.35, 127.78], 10);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        maxZoom: 18
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19
       }).addTo(mapInstance);
       mapLayerGroup = L.layerGroup().addTo(mapInstance);
     }
@@ -895,7 +943,7 @@
       const mapSel = document.getElementById('map-day-selector');
       const currentVal = mapSel.value;
       mapSel.innerHTML = `
-        <option value="all">顯示全部景點</option>
+        <option value="all">顯示全部景點與飯店</option>
         <option value="pocket">僅顯示口袋名單</option>
         ${daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate}) 路線</option>`).join('')}
       `;
@@ -908,6 +956,15 @@
         <option value="pocket">📌 口袋名單</option>
         ${daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate})</option>`).join('')}
       `;
+
+      // 產生住宿多日勾選膠囊
+      const multiBox = document.getElementById('multi-day-checkboxes');
+      multiBox.innerHTML = daysList.map(d => `
+        <label class="cursor-pointer inline-flex items-center gap-1.5 bg-white border border-purple-200 hover:border-purple-400 px-2.5 py-1 rounded-lg text-xs text-slate-700 select-none">
+          <input type="checkbox" name="stay_days" value="${d.dateStr}" class="accent-purple-700 rounded" />
+          <span>${d.label} (${d.shortDate.split(' ')[0]})</span>
+        </label>
+      `).join('');
     }
 
     function updateMapMarkers() {
@@ -918,10 +975,10 @@
       let filtered = spots.filter(s => s.lat && s.lng);
 
       if (filterDay === 'pocket') {
-        filtered = filtered.filter(s => s.assigned_day === 'pocket');
+        filtered = filtered.filter(s => getSpotAssignedDays(s).length === 0);
       } else if (filterDay !== 'all') {
         filtered = filtered
-          .filter(s => s.assigned_day === filterDay)
+          .filter(s => getSpotAssignedDays(s).includes(filterDay))
           .sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99));
       }
 
@@ -933,18 +990,25 @@
 
         latLngs.push([lat, lng]);
         const isDayRoute = filterDay !== 'all' && filterDay !== 'pocket';
+        const isHotel = spot.category === '住宿';
 
-        const markerHtml = isDayRoute
-          ? `<div style="background:#2B4C7E;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">${index + 1}</div>`
-          : `<div style="background:${spot.assigned_day === 'pocket' ? '#D98A3C' : '#4A7C59'};width:16px;height:16px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>`;
+        let markerHtml = '';
+        if (isHotel) {
+          markerHtml = `<div style="background:#7E22CE;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">宿</div>`;
+        } else if (isDayRoute) {
+          markerHtml = `<div style="background:#2B4C7E;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">${index + 1}</div>`;
+        } else {
+          const isPocket = getSpotAssignedDays(spot).length === 0;
+          markerHtml = `<div style="background:${isPocket ? '#D98A3C' : '#4A7C59'};width:16px;height:16px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>`;
+        }
 
-        const customIcon = L.divIcon({ html: markerHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12] });
+        const customIcon = L.divIcon({ html: markerHtml, className: '', iconSize: [26, 26], iconAnchor: [13, 13] });
         const marker = L.marker([lat, lng], { icon: customIcon }).addTo(mapLayerGroup);
         marker.bindPopup(`
           <div class="text-xs">
             <strong class="text-sm text-slate-800">${spot.name}</strong><br/>
             <span class="text-slate-500">${spot.category} · ${spot.area}</span><br/>
-            ${spot.must_buy ? `<span class="text-amber-700">必買：${spot.must_buy}</span>` : ''}
+            ${spot.must_buy ? `<span class="text-amber-700">${isHotel ? '備註' : '必買'}：${spot.must_buy}</span>` : ''}
           </div>
         `);
       });
@@ -975,12 +1039,31 @@
     }
 
     // ==================== Modal 表單與 CRUD 操作 ====================
+    function toggleMultiDayStayUI() {
+      const cat = document.getElementById('field-category').value;
+      const multiBox = document.getElementById('multi-day-stay-box');
+      const singleWrap = document.getElementById('single-day-select-wrap');
+      if (cat === '住宿') {
+        multiBox.classList.remove('hidden');
+        singleWrap.classList.add('opacity-40', 'pointer-events-none');
+      } else {
+        multiBox.classList.add('hidden');
+        singleWrap.classList.remove('opacity-40', 'pointer-events-none');
+      }
+    }
+
+    function selectAllStayDays() {
+      document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = true; });
+    }
+
     function openNewCardModal(prefillText = '') {
-      document.getElementById('modal-card-title').textContent = '新增沖繩景點卡片';
+      document.getElementById('modal-card-title').textContent = '新增沖繩景點 / 飯店卡片';
       document.getElementById('card-form').reset();
       document.getElementById('field-id').value = '';
       document.getElementById('field-name').value = prefillText.startsWith('http') ? '' : prefillText;
       document.getElementById('field-source-url').value = prefillText.startsWith('http') ? prefillText : '';
+      document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = false; });
+      toggleMultiDayStayUI();
       document.getElementById('btn-delete-card').classList.add('hidden');
       document.getElementById('btn-google-nav').classList.add('hidden');
       openModal('modal-card-detail');
@@ -990,13 +1073,20 @@
       const spot = spots.find(s => s.id === id);
       if (!spot) return;
 
-      document.getElementById('modal-card-title').textContent = '編輯景點卡片';
+      document.getElementById('modal-card-title').textContent = '編輯卡片詳情';
       document.getElementById('field-id').value = spot.id;
       document.getElementById('field-name').value = spot.name || '';
       document.getElementById('field-category').value = spot.category || '景點';
       document.getElementById('field-area').value = spot.area || '那霸市區';
       document.getElementById('field-duration').value = spot.estimated_duration || 60;
-      document.getElementById('field-day').value = spot.assigned_day || 'pocket';
+
+      const assignedDays = getSpotAssignedDays(spot);
+      document.getElementById('field-day').value = assignedDays.length > 0 ? assignedDays[0] : 'pocket';
+      document.querySelectorAll('input[name="stay_days"]').forEach(cb => {
+        cb.checked = assignedDays.includes(cb.value);
+      });
+      toggleMultiDayStayUI();
+
       document.getElementById('field-description').value = spot.description || '';
       document.getElementById('field-must-buy').value = spot.must_buy || '';
       document.getElementById('field-hours').value = spot.business_hours || '';
@@ -1017,12 +1107,20 @@
     async function handleSaveCard(e) {
       e.preventDefault();
       const id = document.getElementById('field-id').value;
-      const assignedDay = document.getElementById('field-day').value;
+      const category = document.getElementById('field-category').value;
+
+      let assignedDay = 'pocket';
+      if (category === '住宿') {
+        const checkedDays = [...document.querySelectorAll('input[name="stay_days"]:checked')].map(cb => cb.value);
+        assignedDay = checkedDays.length > 0 ? checkedDays.sort().join(',') : 'pocket';
+      } else {
+        assignedDay = document.getElementById('field-day').value;
+      }
 
       const cardObj = {
         id: id || ('spot_' + Date.now()),
         name: document.getElementById('field-name').value.trim(),
-        category: document.getElementById('field-category').value,
+        category: category,
         area: document.getElementById('field-area').value,
         estimated_duration: Number(document.getElementById('field-duration').value) || 60,
         assigned_day: assignedDay,
@@ -1071,7 +1169,7 @@
 
     async function handleDeleteCard() {
       const id = document.getElementById('field-id').value;
-      if (!id || !confirm('確定要刪除這張景點卡片嗎？')) return;
+      if (!id || !confirm('確定要刪除這張卡片嗎？')) return;
 
       spots = spots.filter(s => s.id !== id);
       saveLocalState();
@@ -1087,7 +1185,7 @@
       }
     }
 
-    // ==================== 雲端雙向同步 ====================
+    // ==================== 雲端雙向同步 (含逾時防卡死與權限診斷) ====================
     async function syncFromCloud() {
       if (!appConfig.gasUrl) {
         openModal('modal-settings');
@@ -1095,12 +1193,33 @@
         return;
       }
 
+      const btn = document.getElementById('btn-sync-cloud');
       const icon = document.getElementById('refresh-icon');
+      const label = document.getElementById('sync-btn-label');
+
+      btn.disabled = true;
       icon.classList.add('animate-spin');
+      if (label) label.textContent = '同步中...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒逾時保護
 
       try {
-        const res = await fetch(appConfig.gasUrl);
-        const data = await res.json();
+        const res = await fetch(appConfig.gasUrl, {
+          method: 'GET',
+          redirect: 'follow',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const contentType = res.headers.get('content-type') || '';
+        const rawText = await res.text();
+
+        if (!contentType.includes('application/json') && rawText.trim().startsWith('<')) {
+          throw new Error('GAS 回傳了網頁而非 JSON，請確認部署權限「誰可以存取」已設為「所有人 (Anyone)」。');
+        }
+
+        const data = JSON.parse(rawText);
         if (data.status === 'success') {
           spots = data.spots || [];
           if (data.config) {
@@ -1110,13 +1229,24 @@
           }
           saveLocalState();
           updateHeaderUI();
+          updateSyncBadge('Google 試算表已連線', 'bg-emerald-500');
           renderAll();
-          showToast('已與 Google 試算表完成同步！');
+          showToast(`✅ 同步完成！共載入 ${spots.length} 張卡片`);
+        } else {
+          throw new Error(data.message || '後端回傳錯誤');
         }
       } catch (err) {
-        showToast('同步失敗，請檢查 GAS 網址或網路狀態');
+        clearTimeout(timeoutId);
+        updateSyncBadge('連線異常 (點擊重試)', 'bg-red-500');
+        const errMsg = err.name === 'AbortError'
+          ? '連線逾時（超過15秒），請檢查網路或 GAS 部署狀態。'
+          : err.message;
+        showToast('⚠️ ' + errMsg);
+        console.error('Sync Error:', err);
       } finally {
+        btn.disabled = false;
         icon.classList.remove('animate-spin');
+        if (label) label.textContent = '同步資料';
       }
     }
 
@@ -1153,7 +1283,7 @@
 
     function saveSettings() {
       appConfig.gasUrl = document.getElementById('setting-gas-url').value.trim();
-      appConfig.tripTitle = document.getElementById('setting-trip-title').value.trim() || '我的沖繩旅遊規劃';
+      appConfig.tripTitle = document.getElementById('setting-trip-title').value.trim() || '2027沖繩首發自由行';
       appConfig.startDate = document.getElementById('setting-start-date').value;
       appConfig.endDate = document.getElementById('setting-end-date').value;
 
@@ -1222,7 +1352,7 @@
       const toast = document.getElementById('toast');
       document.getElementById('toast-msg').textContent = msg;
       toast.classList.remove('translate-y-20', 'opacity-0');
-      setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3500);
+      setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
     }
 
     function registerInlinePWA() {
