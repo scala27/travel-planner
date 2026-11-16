@@ -116,7 +116,7 @@
   <main class="flex-1 flex w-full min-w-0 overflow-hidden relative" id="main-workspace">
 
     <!-- ==================== 左欄：全球永久口袋資料庫 ==================== -->
-    <section id="panel-pocket" class="w-full lg:w-[305px] xl:w-[335px] min-w-0 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
+    <section id="panel-pocket" class="w-full lg:w-[310px] xl:w-[340px] min-w-0 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
       <!-- 精簡建卡與批次匯入工具列 -->
       <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
         <div class="flex items-center justify-between gap-1">
@@ -130,7 +130,7 @@
             </button>
             <button onclick="toggleInboxDrawer()" id="btn-toggle-inbox"
               class="text-[11px] bg-white border border-slate-300 text-slate-700 hover:border-ai-indigo hover:text-ai-indigo font-medium flex items-center gap-0.5 px-2 py-1 rounded-md shadow-2xs transition"
-              title="展開或收合批次建卡與自動行政區分類工具">
+              title="展開或收合批次建卡與自動行政區整理工具">
               <i data-lucide="wand-2" class="w-3 h-3"></i>
               <span>智慧入庫</span>
             </button>
@@ -152,7 +152,7 @@
           </div>
 
           <textarea id="quick-batch-input" rows="2"
-            placeholder="貼上 Google Maps 網址，或輸入國內外地點名稱（一行一筆，自動定位並歸類國家/縣市/鄉鎮區）..." 
+            placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，自動定位並歸類國內/國外行政區）..." 
             class="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
 
           <button onclick="handleQuickBatchAdd()" id="btn-quick-add"
@@ -163,34 +163,47 @@
 
           <button onclick="batchAutoClassifyAllSpots()" id="btn-batch-classify-areas"
             class="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-medium px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition"
-            title="依照每張卡片的經緯度座標，自動轉為 國家·縣市·鄉鎮區 格式">
+            title="依照每張卡片的經緯度座標，將舊標籤統一更新為標準 國內/國外行政區 並同步回試算表">
             <i data-lucide="compass" class="w-3.5 h-3.5 text-amber-700"></i>
             <span>🧭 依座標自動更新所有卡片行政區</span>
           </button>
         </div>
       </div>
 
-      <!-- 篩選列：關鍵字 ＋ 類別 ＋ 狀態 ＋ 兩層式全球行政區聯動篩選 -->
+      <!-- 篩選列：關鍵字 ＋ 國內/國外階層篩選 ＋ 類別 ＋ 狀態 -->
       <div class="px-2.5 py-2 border-b border-slate-100 space-y-1.5 shrink-0 bg-white">
         <div class="relative">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋地點、早餐、餐廳、縣市..." 
+          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋地點、早餐、餐廳、行政區..." 
             class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-7 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
           <button type="button" onclick="document.getElementById('search-input').value=''; renderAll();"
             class="text-slate-400 hover:text-slate-600 absolute right-2 top-1.5 text-xs" title="清除搜尋">✕</button>
         </div>
 
-        <!-- 兩層級自動行政區篩選（國家/縣市 -> 城市/鄉鎮區） -->
+        <!-- 第一層：全部 / 國內 / 國外 切換鈕 -->
+        <div class="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-lg" id="region-scope-tabs">
+          <button type="button" onclick="setFilterRegionScope('all')" class="scope-btn py-1 rounded-md text-[11px] font-bold bg-white text-ai-indigo shadow-2xs transition">
+            🌍 全部 (<span id="scope-count-all">0</span>)
+          </button>
+          <button type="button" onclick="setFilterRegionScope('domestic')" class="scope-btn py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-ink-dark transition">
+            🇹🇼 國內 (<span id="scope-count-domestic">0</span>)
+          </button>
+          <button type="button" onclick="setFilterRegionScope('international')" class="scope-btn py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-ink-dark transition">
+            ✈️ 國外 (<span id="scope-count-international">0</span>)
+          </button>
+        </div>
+
+        <!-- 第二、三層：縣市/國家都道府縣 ＋ 鄉鎮市區/城市 聯動篩選 -->
         <div class="grid grid-cols-2 gap-1.5">
           <select id="filter-region-l1" onchange="handleRegionL1Change(this.value)"
             class="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-none focus:border-ai-indigo truncate"
-            title="依國家或台灣縣市篩選">
-            <option value="全部">🌍 全部國家 / 縣市</option>
+            title="依縣市或國家/都道府縣篩選">
+            <option value="全部">全部縣市 / 地區</option>
           </select>
           <select id="filter-region-l2" onchange="handleRegionL2Change(this.value)"
             class="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-none focus:border-ai-indigo truncate"
-            title="依城市或鄉鎮區篩選">
-            <option value="全部">📍 全部城市 / 鄉鎮區</option>
+            title="依鄉鎮市區或城市篩選">
+            <option value="全部">全部鄉鎮市區 / 城市</option>
           </select>
         </div>
 
@@ -256,7 +269,6 @@
     <!-- ==================== 右欄：多層次路網 ＋ 周邊口袋雷達互動地圖 ==================== -->
     <section id="panel-map" style="width: 385px; max-width: 46vw;" class="hidden lg:flex w-full min-w-0 bg-white flex-col shrink-0 h-full">
       <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
-        <!-- 路線天數與策略切換 -->
         <div class="flex items-center justify-between gap-1.5">
           <select id="map-day-selector" onchange="handleMapDayChange()" class="flex-1 min-w-0 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
             <option value="all">顯示全部資料庫地點（可直接點圖排程）</option>
@@ -358,43 +370,24 @@
           </div>
         </div>
 
-        <!-- 全球精準定位、行政區自動辨識與 Google 地圖捷徑 -->
+        <!-- Google 地圖點位驗證與自動座標/行政區連動區塊 -->
         <div class="bg-sky-50/70 border border-sky-200/90 rounded-xl p-3 space-y-2">
-          <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center justify-between gap-2">
             <div class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
               <i data-lucide="map-pin" class="w-4 h-4 text-sky-600"></i>
-              <span>精準座標校正與行政區辨識</span>
+              <span>Google 地圖位置驗證與自動座標同步</span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button type="button" onclick="handleLookupPlaceAddress(true)" id="btn-lookup-address"
-                class="bg-white hover:bg-sky-600 text-sky-800 hover:text-white border border-sky-300 text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs"
-                title="依目前地圖視野重新搜尋並覆蓋座標與行政區">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                <span>依地圖視野重抓座標</span>
-              </button>
-              <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
-                class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs">
-                <span>開啟 Google 地圖</span>
-                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-              </a>
-            </div>
+            <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
+              class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs shrink-0">
+              <span>開啟 Google 地圖</span>
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+            </a>
           </div>
 
-          <div id="place-address-result" class="hidden bg-white border border-sky-200/80 rounded-lg p-2.5 text-xs space-y-1.5">
-            <div class="text-slate-700 leading-snug">
-              <span class="font-bold text-slate-900">📍 官方地址：</span>
-              <span id="place-address-text"></span>
-            </div>
-            <div class="flex items-center justify-between pt-1 border-t border-slate-100">
-              <span id="place-coords-text" class="text-[11px] text-slate-400"></span>
-              <button type="button" onclick="applyAddressToParking()"
-                class="text-[11px] bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 font-medium px-2.5 py-0.5 rounded transition">
-                📋 填入地址至下方欄位
-              </button>
-            </div>
-          </div>
-          <p class="text-[11px] text-sky-800/80 leading-snug">
-            💡 提示：若座標有誤，可先將右側地圖移至目標城市後點「依地圖視野重抓座標」，或直接從 Google 地圖複製網址貼入下方「Google 地圖連結」即可自動萃取精準經緯度。
+          <div id="place-sync-feedback" class="hidden bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 text-xs text-emerald-900 font-medium"></div>
+
+          <p class="text-[11px] text-sky-800/85 leading-snug">
+            💡 操作方式：點右側 <strong>「開啟 Google 地圖」</strong> 確認點位無誤後，複製網址貼入下方 <strong>「🔗 Google 地圖連結」</strong>，系統即會<strong>自動抓出精準經緯度並更新行政區分類</strong>。
           </p>
         </div>
 
@@ -411,7 +404,7 @@
 
         <div class="grid grid-cols-3 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">行政區分類 (自動辨識)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">行政區分類 (依座標自動辨識)</label>
             <input type="text" id="field-area" list="area-suggestions-list" placeholder="例如：日本 · 沖繩縣 · 那霸市"
               class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-xs focus:border-ai-indigo focus:outline-none" />
             <datalist id="area-suggestions-list"></datalist>
@@ -502,7 +495,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖連結 (貼入自動抓座標)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖連結 (貼入自動抓座標與行政區)</label>
             <input type="url" id="field-source-url" oninput="handleSourceUrlInputChange()" placeholder="https://www.google.com/maps/..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
@@ -513,12 +506,12 @@
 
         <div class="grid grid-cols-2 gap-3 pt-1 border-t border-slate-100">
           <div>
-            <label class="block text-[11px] text-slate-400">緯度 (留空自動抓取)</label>
-            <input type="text" id="field-lat" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
+            <label class="block text-[11px] text-slate-400">緯度 (修改後自動更新行政區)</label>
+            <input type="text" id="field-lat" onchange="handleLatLngManualChange()" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
           </div>
           <div>
-            <label class="block text-[11px] text-slate-400">經度 (留空自動抓取)</label>
-            <input type="text" id="field-lng" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
+            <label class="block text-[11px] text-slate-400">經度 (修改後自動更新行政區)</label>
+            <input type="text" id="field-lng" onchange="handleLatLngManualChange()" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
           </div>
         </div>
 
