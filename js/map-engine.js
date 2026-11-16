@@ -33,9 +33,45 @@ function populateDaySelectors(daysList) {
       <span>${d.label} (${d.shortDate.split(' ')[0]})</span>
     </label>
   `).join('');
+
+  syncRadarAnchorOptions();
 }
 
-// ==================== 空間距離、跨海航班弧線與地理圍欄插件 ====================
+function syncRadarAnchorOptions() {
+  const anchorSel = document.getElementById('radar-anchor-select');
+  if (!anchorSel) return;
+  const prevVal = anchorSel.value;
+  const filterDay = document.getElementById('map-day-selector')?.value || 'all';
+  const isSingleDay = filterDay !== 'all' && filterDay !== 'scheduled_all';
+
+  let optionsHtml = `<option value="auto">📍 自動以當日住宿為中心</option>`;
+  if (isSingleDay) {
+    const dayItems = getDayItems(filterDay).filter(it => it.spot.lat && it.spot.lng);
+    const seen = new Set();
+    dayItems.forEach(it => {
+      if (!seen.has(it.spot.id)) {
+        seen.add(it.spot.id);
+        optionsHtml += `<option value="${it.spot.id}">🎯 ${it.spot.name}</option>`;
+      }
+    });
+  } else {
+    spots.filter(s => s.category === '住宿' && s.lat && s.lng).forEach(h => {
+      optionsHtml += `<option value="${h.id}">🏨 ${h.name}</option>`;
+    });
+  }
+  optionsHtml += `<option value="map_center">🗺️ 目前地圖畫面中心</option>`;
+  anchorSel.innerHTML = optionsHtml;
+  if ([...anchorSel.options].some(o => o.value === prevVal)) {
+    anchorSel.value = prevVal;
+  }
+}
+
+function handleMapDayChange() {
+  syncRadarAnchorOptions();
+  updateMapMarkers();
+}
+
+// ==================== 空間距離、跨海航班弧線與地理圍欄 ====================
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -44,6 +80,11 @@ function haversineKm(lat1, lon1, lat2, lon2) {
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calcSlowWalkMinutes(distKm) {
+  const speed = (typeof WALK_SPEED_KMH === 'number' && WALK_SPEED_KMH > 0) ? WALK_SPEED_KMH : 3.6;
+  return Math.max(3, Math.round((distKm / speed) * 60));
 }
 
 function isInOkinawaGeofence(lat, lng) {
@@ -98,7 +139,7 @@ function estimateFlightMinutes(km) {
   return Math.max(45, Math.round((km / 720) * 60 + 40));
 }
 
-// ==================== 多層次路網與跨國航班模式判斷 ====================
+// ==================== 多層次路網判斷與左右看板時間統一 ====================
 function getLegKey(dateStr, itemA, itemB) {
   return `${dateStr}|${itemA.spot.id}#${itemA.dayOccNum}|${itemB.spot.id}#${itemB.dayOccNum}`;
 }
@@ -110,7 +151,6 @@ function resolveLegMode(dateStr, itemA, itemB, globalMode) {
   const spotA = itemA.spot;
   const spotB = itemB.spot;
 
-  // 若起點機場設定了機票起迄時刻，直接判為航班
   if (spotA.category === '交通' && typeof parseFlightSchedule === 'function' && parseFlightSchedule(spotA.business_hours)) {
     return 'flight';
   }
@@ -120,9 +160,7 @@ function resolveLegMode(dateStr, itemA, itemB, globalMode) {
 
   if (!isNaN(latA) && !isNaN(lngA) && !isNaN(latB) && !isNaN(lngB)) {
     const km = haversineKm(latA, lngA, latB, lngB);
-    if (km > 150) {
-      return 'flight';
-    }
+    if (km > 150) return 'flight';
     if (globalMode === 'driving') return 'driving';
     if (globalMode === 'walking') return 'walking';
 
@@ -153,6 +191,14 @@ function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
     ? parseFlightSchedule(spotA.business_hours)
     : null;
 
+  const key = getLegKey(dateStr, itemA, itemB);
+  const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
+
+  // 若右側地圖已算過此段實際路網時間且模式相符，優先回傳完全一致的結果！
+  if (typeof resolvedLegCache === 'object' && resolvedLegCache[key] && resolvedLegCache[key].mode === mode) {
+    return { ...resolvedLegCache[key], flightSched };
+  }
+
   if (!spotA.lat || !spotA.lng || !spotB.lat || !spotB.lng) {
     if (flightSched) return { mins: flightSched.flightMins, km: 0, mode: 'flight', flightSched };
     return { mins: 0, km: 0, mode: 'bus' };
@@ -161,7 +207,6 @@ function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
   const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
   const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
   const km = haversineKm(latA, lngA, latB, lngB);
-  const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
 
   if (mode === 'flight') {
     const mins = flightSched ? flightSched.flightMins : estimateFlightMinutes(km);
@@ -174,11 +219,12 @@ function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
     const stA = findNearestYuiRailStation(latA, lngA);
     const stB = findNearestYuiRailStation(latB, lngB);
     const hops = Math.abs(stA.index - stB.index);
-    const walkMins = Math.round(((stA.distKm + stB.distKm) * 1.25 / 4.2) * 60);
+    const walkMins = calcSlowWalkMinutes((stA.distKm + stB.distKm) * 1.25);
     return { mins: Math.round(hops * 2.2 + 4 + walkMins), km: km * 1.2, mode };
   }
   if (mode === 'walking') {
-    return { mins: Math.max(3, Math.round((km * 1.25 / 4.2) * 60)), km: km * 1.25, mode };
+    const walkDistKm = km * 1.25;
+    return { mins: calcSlowWalkMinutes(walkDistKm), km: walkDistKm, mode };
   }
   if (mode === 'taxi') {
     return { mins: Math.max(4, Math.round((km * 1.35 / 30) * 60 + 2)), km: km * 1.35, mode };
@@ -195,19 +241,26 @@ async function fetchOsrmSegment(profile, latA, lngA, latB, lngB) {
     const resp = await fetch(url);
     const data = await resp.json();
     if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const distKm = data.routes[0].distance / 1000;
+      // 步行模式不使用 OSRM 偏快的預設時間，一律採用旅遊慢活步行速度重新換算
+      const durMins = profile === 'foot'
+        ? calcSlowWalkMinutes(distKm)
+        : Math.max(1, Math.round(data.routes[0].duration / 60));
       return {
         coords: data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]),
-        distKm: data.routes[0].distance / 1000,
-        durMins: Math.max(1, Math.round(data.routes[0].duration / 60))
+        distKm,
+        durMins
       };
     }
   } catch (e) {}
   const fallbackKm = haversineKm(latA, lngA, latB, lngB) * 1.25;
-  const speed = profile === 'foot' ? 4.2 : 30;
+  const durMins = profile === 'foot'
+    ? calcSlowWalkMinutes(fallbackKm)
+    : Math.max(1, Math.round((fallbackKm / 30) * 60));
   return {
     coords: [[latA, lngA], [latB, lngB]],
     distKm: fallbackKm,
-    durMins: Math.max(1, Math.round((fallbackKm / speed) * 60))
+    durMins
   };
 }
 
@@ -227,6 +280,7 @@ function buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode) {
 
 function setLegModeOverride(legKey, newMode) {
   legModeOverrides[legKey] = newMode;
+  if (typeof resolvedLegCache === 'object') delete resolvedLegCache[legKey];
   saveLocalState();
   renderAll();
 }
@@ -236,6 +290,11 @@ function resetDaySegmentOverrides() {
   Object.keys(legModeOverrides).forEach(k => {
     if (k.startsWith(filterDay + '|')) delete legModeOverrides[k];
   });
+  if (typeof resolvedLegCache === 'object') {
+    Object.keys(resolvedLegCache).forEach(k => {
+      if (k.startsWith(filterDay + '|')) delete resolvedLegCache[k];
+    });
+  }
   saveLocalState();
   renderAll();
   showToast('已重設當日各分段交通方式為自動最佳組合');
@@ -246,8 +305,188 @@ function handleGlobalModeChange() {
   Object.keys(legModeOverrides).forEach(k => {
     if (k.startsWith(filterDay + '|')) delete legModeOverrides[k];
   });
+  if (typeof resolvedLegCache === 'object') {
+    Object.keys(resolvedLegCache).forEach(k => {
+      if (k.startsWith(filterDay + '|')) delete resolvedLegCache[k];
+    });
+  }
   saveLocalState();
   renderAll();
+}
+
+// ==================== 🧭 周邊口袋雷達（早餐 / 午餐 / 順遊景點） ====================
+function checkSpotBusinessWindow(spot, radarMode) {
+  const rawHours = String(spot.business_hours || '').trim();
+  const textBlob = `${spot.name || ''} ${spot.description || ''} ${spot.must_buy || ''} ${rawHours}`;
+
+  if (radarMode === 'breakfast') {
+    if (spot.category !== '美食') return false;
+    const hasBreakfastKeyword = /早餐|早午餐|咖啡|吐司|飯糰|蛋餅|三明治|喫茶|モーニング|朝|bakery|coffee/i.test(textBlob);
+    const timeRange = rawHours.match(/(\d{1,2}):(\d{2})\s*[-~～]\s*(\d{1,2}):(\d{2})/);
+    if (timeRange) {
+      const openMins = parseInt(timeRange[1], 10) * 60 + parseInt(timeRange[2], 10);
+      let closeMins = parseInt(timeRange[3], 10) * 60 + parseInt(timeRange[4], 10);
+      if (closeMins <= openMins) closeMins += 1440; // 跨午夜或 24 小時營業
+      // 早上 09:30 前即開始營業，且至少營業至 08:30 後
+      return openMins <= 570 && closeMins >= 510;
+    }
+    if (/24小時|24H/i.test(rawHours)) return true;
+    return hasBreakfastKeyword;
+  }
+
+  if (radarMode === 'lunch') {
+    if (spot.category !== '美食') return false;
+    const timeRange = rawHours.match(/(\d{1,2}):(\d{2})\s*[-~～]\s*(\d{1,2}):(\d{2})/);
+    if (timeRange) {
+      const openMins = parseInt(timeRange[1], 10) * 60 + parseInt(timeRange[2], 10);
+      let closeMins = parseInt(timeRange[3], 10) * 60 + parseInt(timeRange[4], 10);
+      if (closeMins <= openMins) closeMins += 1440;
+      // 午間 11:30 ~ 13:30 期間有營業（排除 17:00 才開的居酒屋）
+      return openMins <= 750 && closeMins >= 720;
+    }
+    // 未填營業時間的餐廳，若明顯為宵夜/居酒屋且無午餐字樣則排除
+    if (/居酒屋|宵夜/.test(textBlob) && !/午餐|午間|定食|拉麵/.test(textBlob)) return false;
+    return true;
+  }
+
+  if (radarMode === 'sightseeing') {
+    return spot.category === '景點' || spot.category === '購物';
+  }
+
+  // all_nearby
+  return spot.category !== '住宿' && spot.category !== '交通';
+}
+
+function renderNearbyPocketRadar(filterDay, dayRouteItems) {
+  const radarMode = document.getElementById('radar-filter-mode')?.value || 'off';
+  const subBox = document.getElementById('radar-sub-controls');
+  const statusEl = document.getElementById('radar-status-text');
+  if (!subBox || !statusEl) return [];
+
+  if (radarMode === 'off') {
+    subBox.classList.add('hidden');
+    subBox.classList.remove('grid');
+    statusEl.classList.add('hidden');
+    return [];
+  }
+
+  subBox.classList.remove('hidden');
+  subBox.classList.add('grid');
+  statusEl.classList.remove('hidden');
+
+  const isSingleDay = filterDay !== 'all' && filterDay !== 'scheduled_all';
+  const anchorVal = document.getElementById('radar-anchor-select')?.value || 'auto';
+  const radiusMeters = Number(document.getElementById('radar-radius-select')?.value || 1000);
+  const radiusKm = radiusMeters / 1000;
+
+  let centerLat = null;
+  let centerLng = null;
+  let anchorLabel = '';
+  let anchorSpotId = '';
+
+  if (anchorVal === 'map_center') {
+    const c = mapInstance.getCenter();
+    centerLat = c.lat;
+    centerLng = c.lng;
+    anchorLabel = '目前地圖中心';
+  } else if (anchorVal !== 'auto') {
+    const targetSpot = spots.find(s => String(s.id) === String(anchorVal));
+    if (targetSpot && targetSpot.lat && targetSpot.lng) {
+      centerLat = parseFloat(targetSpot.lat);
+      centerLng = parseFloat(targetSpot.lng);
+      anchorLabel = targetSpot.name;
+      anchorSpotId = targetSpot.id;
+    }
+  }
+
+  // 自動模式：優先找當日「住宿飯店」，若無則找當日第 1 個有座標的地點
+  if (centerLat === null) {
+    const hotelItem = dayRouteItems.find(it => it.spot.category === '住宿' && it.spot.lat && it.spot.lng);
+    const fallbackItem = dayRouteItems.find(it => it.spot.lat && it.spot.lng);
+    const chosen = hotelItem || fallbackItem;
+    if (chosen) {
+      centerLat = parseFloat(chosen.spot.lat);
+      centerLng = parseFloat(chosen.spot.lng);
+      anchorLabel = chosen.spot.name;
+      anchorSpotId = chosen.spot.id;
+    } else {
+      const c = mapInstance.getCenter();
+      centerLat = c.lat;
+      centerLng = c.lng;
+      anchorLabel = '地圖中心';
+    }
+  }
+
+  // 繪製雷達半透明搜尋範圍圓圈
+  L.circle([centerLat, centerLng], {
+    radius: radiusMeters,
+    color: '#D97706',
+    weight: 2,
+    dashArray: '6, 6',
+    fillColor: '#F59E0B',
+    fillOpacity: 0.10,
+    interactive: false
+  }).addTo(mapLayerGroup);
+
+  const alreadyInDayIds = new Set(isSingleDay ? dayRouteItems.map(it => it.spot.id) : []);
+
+  const candidates = spots
+    .filter(s => s.lat && s.lng && !alreadyInDayIds.has(s.id))
+    .filter(s => checkSpotBusinessWindow(s, radarMode))
+    .map(s => {
+      const distKm = haversineKm(centerLat, centerLng, parseFloat(s.lat), parseFloat(s.lng));
+      return { spot: s, distKm, walkMins: calcSlowWalkMinutes(distKm * 1.2) };
+    })
+    .filter(entry => entry.distKm <= radiusKm)
+    .sort((a, b) => a.distKm - b.distKm);
+
+  const radarBounds = [[centerLat, centerLng]];
+
+  candidates.forEach(entry => {
+    const s = entry.spot;
+    const lat = parseFloat(s.lat);
+    const lng = parseFloat(s.lng);
+    radarBounds.push([lat, lng]);
+
+    const theme = CATEGORY_THEME[s.category] || { hex: '#F59E0B' };
+    const badgeEmoji = radarMode === 'breakfast' ? '🍳' : (s.category === '美食' ? '🍜' : '📍');
+
+    const radarIcon = L.divIcon({
+      html: `<div style="background:#fff;color:${theme.hex};border:2.5px dashed ${theme.hex};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 3px 8px rgba(0,0,0,0.28);">${badgeEmoji}</div>`,
+      className: '',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+
+    const distText = entry.distKm < 1
+      ? `${Math.round(entry.distKm * 1000)}m`
+      : `${entry.distKm.toFixed(1)}km`;
+
+    const actionHtml = isSingleDay
+      ? `<button type="button" onclick="quickInsertRadarSpotToDay('${s.id}', '${filterDay}', '${anchorSpotId}')"
+           style="margin-top:6px;width:100%;background:#2B4C7E;color:#fff;border:none;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:bold;cursor:pointer;">
+           ＋ 立即排入本日行程
+         </button>`
+      : `<div style="margin-top:4px;font-size:10px;color:#64748B;">請先在上方選單指定天數，即可一鍵排入</div>`;
+
+    const marker = L.marker([lat, lng], { icon: radarIcon }).addTo(mapLayerGroup);
+    marker.bindPopup(`
+      <div class="text-xs" style="min-width:170px;">
+        <div style="font-size:10px;color:#B45309;font-weight:bold;">🧭 雷達推薦 · 距${anchorLabel} ${distText} (慢步約${entry.walkMins}分)</div>
+        <strong class="text-sm text-slate-800">${s.name}</strong><br/>
+        <span style="color:${theme.hex};font-weight:bold;">● ${s.category}</span> · <span class="text-slate-500">${s.area}</span><br/>
+        ${s.business_hours ? `<span class="text-slate-600">⏰ 營業：${s.business_hours}</span><br/>` : ''}
+        ${s.must_buy ? `<span class="text-slate-700">🛍️ 推薦：${s.must_buy}</span>` : ''}
+        ${actionHtml}
+      </div>
+    `);
+  });
+
+  statusEl.innerHTML = candidates.length > 0
+    ? `🎯 以「<strong>${anchorLabel}</strong>」為中心 ${radiusMeters}m 內找到 <strong>${candidates.length}</strong> 筆口袋推薦（點擊虛線圖釘可直接排入）`
+    : `⚠️「<strong>${anchorLabel}</strong>」${radiusMeters}m 內暫無符合條件的口袋卡片，可試著放寬半徑至 2km`;
+
+  return radarBounds;
 }
 
 // ==================== 地圖標記、跨海飛行弧線與多層次路網繪製 ====================
@@ -315,10 +554,13 @@ async function updateMapMarkers() {
     `);
   });
 
+  // 渲染周邊口袋雷達標記
+  const radarBounds = renderNearbyPocketRadar(filterDay, dayRouteItems);
+
   if (isSingleDayRoute && dayRouteItems.length > 1) {
     summaryBox.classList.remove('hidden');
     summaryBox.classList.add('flex');
-    metricsEl.textContent = '正在計算跨國航線與地面路網...';
+    metricsEl.textContent = '正在計算跨國航線與慢活路網...';
     breakdownEl.innerHTML = '';
 
     const hasOverrides = Object.keys(legModeOverrides).some(k => k.startsWith(filterDay + '|'));
@@ -328,8 +570,9 @@ async function updateMapMarkers() {
     const currentToken = ++routeRequestToken;
     let totalMins = 0;
     let totalDistKm = 0;
-    const allBoundsPts = [];
+    const allBoundsPts = [...radarBounds];
     const segmentCards = [];
+    let anyLegChanged = false;
 
     for (let i = 0; i < dayRouteItems.length - 1; i++) {
       const itemA = dayRouteItems[i];
@@ -404,7 +647,7 @@ async function updateMapMarkers() {
         const railRideMins = Math.max(2, Math.round(hops * 2.2 + 4));
         legMins = railRideMins + walkMinsA + walkMinsB;
         legDistKm = haversineKm(latA, lngA, latB, lngB) * 1.25;
-        detailNote = `單軌(${stA.station.name.replace('站','')}→${stB.station.name.replace('站','')}) ${(walkMinsA + walkMinsB) > 0 ? `+ 步行${walkMinsA + walkMinsB}分` : ''}`;
+        detailNote = `單軌(${stA.station.name.replace('站','')}→${stB.station.name.replace('站','')}) ${(walkMinsA + walkMinsB) > 0 ? `+ 慢步${walkMinsA + walkMinsB}分` : ''}`;
 
       } else if (legMode === 'bus') {
         const road = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
@@ -431,7 +674,7 @@ async function updateMapMarkers() {
         allBoundsPts.push(...walk.coords);
         legDistKm = walk.distKm;
         legMins = walk.durMins;
-        detailNote = `街道步行 (${legDistKm.toFixed(1)} km)`;
+        detailNote = `慢活街道步行 (${legDistKm.toFixed(1)} km)`;
 
       } else {
         const drive = await fetchOsrmSegment('driving', latA, lngA, latB, lngB);
@@ -441,6 +684,15 @@ async function updateMapMarkers() {
         legDistKm = drive.distKm;
         legMins = drive.durMins;
         detailNote = `自駕行駛 (${legDistKm.toFixed(1)} km)`;
+      }
+
+      // 同步回寫至全域路網快取，讓中間每日看板與右側地圖時間 100% 一致
+      if (typeof resolvedLegCache === 'object') {
+        const prevCached = resolvedLegCache[legKey];
+        if (!prevCached || prevCached.mins !== legMins || prevCached.mode !== legMode) {
+          resolvedLegCache[legKey] = { mins: legMins, km: legDistKm, mode: legMode };
+          anyLegChanged = true;
+        }
       }
 
       totalMins += legMins;
@@ -463,7 +715,7 @@ async function updateMapMarkers() {
               ${canUseOkinawaMonorail ? `<option value="monorail" ${legMode === 'monorail' ? 'selected' : ''}>🚝 單軌+步行</option>` : ''}
               <option value="bus" ${legMode === 'bus' ? 'selected' : ''}>🚌 大眾運輸/客運</option>
               <option value="taxi" ${legMode === 'taxi' ? 'selected' : ''}>🚕 計程車接駁</option>
-              <option value="walking" ${legMode === 'walking' ? 'selected' : ''}>🚶 純步行</option>
+              <option value="walking" ${legMode === 'walking' ? 'selected' : ''}>🚶 慢活步行</option>
               <option value="driving" ${legMode === 'driving' ? 'selected' : ''}>🚗 自駕</option>
             </select>
             <span class="text-slate-500 truncate flex-1">${detailNote}</span>
@@ -478,10 +730,18 @@ async function updateMapMarkers() {
 
     metricsEl.textContent = `🧭 當日移動總計：約 ${totalMins} 分 (${totalDistKm.toFixed(1)} km)`;
     breakdownEl.innerHTML = segmentCards.join('');
+
+    // 若實測路網分鐘數與初始估算不同，立即重繪中間每日看板使左右時間完全對齊
+    if (anyLegChanged && typeof renderKanbanDays === 'function') {
+      const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+      renderKanbanDays(daysList);
+      initSortableDragAndDrop();
+    }
+
     lucide.createIcons();
 
     if (allBoundsPts.length > 0) {
-      mapInstance.fitBounds(L.latLngBounds(allBoundsPts), { padding: [40, 40], maxZoom: 15 });
+      mapInstance.fitBounds(L.latLngBounds(allBoundsPts), { padding: [36, 36], maxZoom: 15 });
     }
     return;
   } else {
@@ -489,8 +749,9 @@ async function updateMapMarkers() {
     summaryBox.classList.remove('flex');
   }
 
-  if (latLngs.length > 0) {
-    mapInstance.fitBounds(L.latLngBounds(latLngs), { padding: [40, 40], maxZoom: 14 });
+  const combinedPts = [...latLngs, ...radarBounds];
+  if (combinedPts.length > 0) {
+    mapInstance.fitBounds(L.latLngBounds(combinedPts), { padding: [36, 36], maxZoom: 14 });
   }
 }
 
@@ -512,6 +773,7 @@ function focusMapOnDay(dateStr) {
     toggleRightPanel();
   }
   document.getElementById('map-day-selector').value = dateStr;
+  syncRadarAnchorOptions();
   updateMapMarkers();
   switchMobileTab('map');
 }
