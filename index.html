@@ -41,7 +41,7 @@
       background-color: #F6F7F9;
       color: #1E293B;
     }
-    ::-webkit-scrollbar { width: 7px; height: 9px; }
+    ::-webkit-scrollbar { width: 6px; height: 8px; }
     ::-webkit-scrollbar-track { background: #E2E8F0; border-radius: 999px; }
     ::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 999px; }
     ::-webkit-scrollbar-thumb:hover { background: #64748B; }
@@ -52,10 +52,10 @@
     .resizer-active { background-color: #2B4C7E !important; }
   </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden select-none sm:select-auto">
+<body class="h-screen w-screen flex flex-col overflow-hidden select-none sm:select-auto">
 
   <!-- 頂部導覽列 -->
-  <header class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 z-20 shadow-xs gap-2">
+  <header class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 z-20 shadow-xs gap-2 w-full">
     <div class="flex items-center gap-2.5 min-w-0">
       <div class="w-9 h-9 rounded-xl bg-ai-indigo text-white flex items-center justify-center shadow-xs shrink-0">
         <i data-lucide="globe" class="w-5 h-5"></i>
@@ -67,7 +67,7 @@
     </div>
 
     <!-- 版面檢視控制列 -->
-    <div class="hidden lg:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+    <div class="hidden lg:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0">
       <button onclick="toggleLeftPanel()" id="btn-toggle-left"
         class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition"
         title="顯示或隱藏左側口袋資料庫">
@@ -112,42 +112,45 @@
     </button>
   </div>
 
-  <!-- 主工作區：三欄式可調整佈局 -->
-  <main class="flex-1 flex overflow-hidden relative" id="main-workspace">
+  <!-- 主工作區：三欄式防溢位自適應佈局 -->
+  <main class="flex-1 flex w-full min-w-0 overflow-hidden relative" id="main-workspace">
 
-    <!-- ==================== 左欄：永久口袋資料庫與快速建卡區 ==================== -->
-    <section id="panel-pocket" class="w-full lg:w-[345px] xl:w-[370px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
-      <div class="p-3 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-ai-indigo flex items-center gap-1">
-            <i data-lucide="database" class="w-3.5 h-3.5"></i> 口袋資料庫建卡
+    <!-- ==================== 左欄：永久口袋資料庫（精簡高可用設計） ==================== -->
+    <section id="panel-pocket" class="w-full lg:w-[300px] xl:w-[330px] min-w-0 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
+      <!-- 精簡建卡工具列（預設收合批次輸入框，釋放更多卡片空間） -->
+      <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-xs font-bold text-ai-indigo flex items-center gap-1 truncate">
+            <i data-lucide="database" class="w-3.5 h-3.5 shrink-0"></i>
+            <span>口袋資料庫</span>
           </span>
-          <div class="flex items-center gap-1.5">
-            <button onclick="openNewCardModal()" class="text-xs bg-white border border-slate-300 text-slate-700 hover:border-ai-indigo hover:text-ai-indigo font-medium flex items-center gap-0.5 px-2 py-0.5 rounded-md shadow-2xs">
-              <i data-lucide="plus" class="w-3.5 h-3.5"></i> 詳細新增
+          <div class="flex items-center gap-1 shrink-0">
+            <button onclick="openNewCardModal()" class="text-[11px] bg-ai-indigo hover:bg-slate-800 text-white font-medium flex items-center gap-0.5 px-2 py-1 rounded-md shadow-2xs transition">
+              <i data-lucide="plus" class="w-3 h-3"></i> 新增卡片
             </button>
-            <button onclick="toggleInboxDrawer()" id="btn-toggle-inbox" class="text-slate-400 hover:text-slate-700 p-0.5 rounded" title="收合/展開輸入框">
-              <i data-lucide="chevron-up" class="w-4 h-4"></i>
+            <button onclick="toggleInboxDrawer()" id="btn-toggle-inbox"
+              class="text-[11px] bg-white border border-slate-300 text-slate-700 hover:border-ai-indigo hover:text-ai-indigo font-medium flex items-center gap-0.5 px-2 py-1 rounded-md shadow-2xs transition"
+              title="展開或收合批次連結貼上工具">
+              <i data-lucide="list-plus" class="w-3 h-3"></i>
+              <span>批次匯入</span>
             </button>
           </div>
         </div>
 
-        <div id="inbox-collapsible-body" class="space-y-2">
+        <div id="inbox-collapsible-body" class="hidden space-y-2 pt-1 border-t border-slate-200/80">
           <div class="grid grid-cols-2 gap-1.5">
-            <select id="quick-category" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700">
+            <select id="quick-category" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700 min-w-0">
               <option value="景點">🏞️ 類別：景點</option>
               <option value="美食">🍜 類別：美食</option>
               <option value="購物">🛍️ 類別：購物</option>
               <option value="住宿">🏨 類別：住宿</option>
               <option value="交通">🚉 類別：交通</option>
             </select>
-            <select id="quick-area" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700">
-              <!-- 由 config.js 動態填入自訂區域 -->
-            </select>
+            <select id="quick-area" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700 min-w-0"></select>
           </div>
 
           <textarea id="quick-batch-input" rows="2"
-            placeholder="貼上 Google Maps 連結，或一次輸入多行地點（一行一筆，自動全球定位入庫）..." 
+            placeholder="貼上 Google Maps 連結，或一次輸入多行地點（一行一筆，自動定位入庫）..." 
             class="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
 
           <button onclick="handleQuickBatchAdd()" id="btn-quick-add"
@@ -158,51 +161,51 @@
         </div>
       </div>
 
-      <!-- 篩選列 -->
-      <div class="px-3 py-2 border-b border-slate-100 space-y-1.5 shrink-0">
+      <!-- 篩選列（使用自動換行折疊，無需水平捲動） -->
+      <div class="px-2.5 py-2 border-b border-slate-100 space-y-1.5 shrink-0 bg-white">
         <div class="relative">
-          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋資料庫地點、機場、車站、飯店..." 
-            class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋地點、早餐、餐廳、飯店..." 
+            class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-7 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
+          <button type="button" onclick="document.getElementById('search-input').value=''; renderAll();"
+            class="text-slate-400 hover:text-slate-600 absolute right-2 top-1.5 text-xs" title="清除搜尋">✕</button>
         </div>
 
-        <div class="flex gap-1 overflow-x-auto pb-0.5" id="category-filters">
-          <button onclick="setFilterCategory('全部')" class="cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white shrink-0">全部</button>
-          <button onclick="setFilterCategory('景點')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏞️ 景點</button>
-          <button onclick="setFilterCategory('美食')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🍜 美食</button>
-          <button onclick="setFilterCategory('購物')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🛍️ 購物</button>
-          <button onclick="setFilterCategory('住宿')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🏨 住宿</button>
-          <button onclick="setFilterCategory('交通')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">🚉 交通</button>
+        <div class="flex flex-wrap gap-1" id="category-filters">
+          <button onclick="setFilterCategory('全部')" class="cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white">全部</button>
+          <button onclick="setFilterCategory('景點')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏞️ 景點</button>
+          <button onclick="setFilterCategory('美食')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🍜 美食</button>
+          <button onclick="setFilterCategory('購物')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🛍️ 購物</button>
+          <button onclick="setFilterCategory('住宿')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏨 住宿</button>
+          <button onclick="setFilterCategory('交通')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🚉 交通</button>
         </div>
 
-        <div class="flex items-center justify-between gap-1 text-[11px]" id="status-filters">
-          <div class="flex gap-1 overflow-x-auto">
-            <button onclick="setFilterDbStatus('all')" class="db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium shrink-0">全部資料庫</button>
-            <button onclick="setFilterDbStatus('unscheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">未排入</button>
-            <button onclick="setFilterDbStatus('scheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">✅ 已納入</button>
-            <button onclick="setFilterDbStatus('revisit')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0">⭐ 值得二訪</button>
-          </div>
+        <div class="flex flex-wrap items-center gap-1 text-[11px]" id="status-filters">
+          <button onclick="setFilterDbStatus('all')" class="db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium">全部</button>
+          <button onclick="setFilterDbStatus('unscheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">未排入</button>
+          <button onclick="setFilterDbStatus('scheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">✅ 已納入</button>
+          <button onclick="setFilterDbStatus('revisit')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">⭐ 二訪</button>
         </div>
 
         <!-- 動態區域篩選列 -->
-        <div class="flex gap-1 overflow-x-auto text-[11px]" id="area-filters"></div>
+        <div class="flex flex-wrap gap-1 text-[11px]" id="area-filters"></div>
       </div>
 
       <!-- 永久資料庫卡片列表區 -->
-      <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket"></div>
+      <div class="flex-1 overflow-y-auto p-2.5 space-y-2 bg-slate-50/60" id="pocket-dropzone" data-day="pocket"></div>
     </section>
 
-    <!-- ==================== 中欄：每日行程看板 (Kanban + 跨國機票時間軸) ==================== -->
-    <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[320px] flex-col bg-washi-bg overflow-hidden h-full">
-      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar"></div>
+    <!-- ==================== 中欄：每日行程看板 (Kanban + 機票與慢活時間軸) ==================== -->
+    <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[280px] flex-col bg-washi-bg overflow-hidden h-full">
+      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 min-w-0">
+        <div class="flex items-center gap-1 overflow-x-auto py-0.5 min-w-0" id="kanban-day-nav-bar"></div>
 
         <div class="flex items-center gap-1.5 shrink-0">
           <button onclick="toggleBoardCompactMode()" id="btn-board-density"
-            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition"
+            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg font-medium flex items-center gap-1 transition"
             title="切換行程卡片為精簡列表或完整圖文模式">
             <i data-lucide="list" class="w-3.5 h-3.5 text-ai-indigo"></i>
-            <span>精簡檢視</span>
+            <span class="hidden xl:inline">精簡檢視</span>
           </button>
 
           <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
@@ -220,7 +223,7 @@
         </div>
       </div>
 
-      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3.5 overflow-x-auto overflow-y-hidden items-start scroll-smooth"></div>
+      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3 overflow-x-auto overflow-y-hidden items-start scroll-smooth"></div>
     </section>
 
     <!-- ==================== 可拖曳寬度調整分隔線 (中欄 <-> 右欄) ==================== -->
@@ -230,23 +233,57 @@
       <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
     </div>
 
-    <!-- ==================== 右欄：多層次交通與跨海航班互動地圖 ==================== -->
-    <section id="panel-map" style="width: 410px;" class="hidden lg:flex w-full bg-white flex-col shrink-0 h-full">
+    <!-- ==================== 右欄：多層次路網 ＋ 周邊口袋雷達互動地圖 ==================== -->
+    <section id="panel-map" style="width: 375px; max-width: 46vw;" class="hidden lg:flex w-full min-w-0 bg-white flex-col shrink-0 h-full">
       <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
+        <!-- 路線天數與策略切換 -->
         <div class="flex items-center justify-between gap-1.5">
-          <select id="map-day-selector" onchange="updateMapMarkers()" class="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
+          <select id="map-day-selector" onchange="handleMapDayChange()" class="flex-1 min-w-0 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
             <option value="all">顯示全部資料庫地點</option>
             <option value="scheduled_all">僅顯示已納入行程地點</option>
           </select>
 
-          <select id="map-travel-mode" onchange="handleGlobalModeChange()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none" title="切換當日預設交通策略（下方各路段仍可單獨微調）">
-            <option value="hybrid">🔀 智慧混搭 (含跨海航班)</option>
-            <option value="transit">🚝 大眾運輸優先</option>
+          <select id="map-travel-mode" onchange="handleGlobalModeChange()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none shrink-0" title="切換當日預設交通策略">
+            <option value="hybrid">🔀 智慧混搭</option>
+            <option value="transit">🚝 大眾運輸</option>
             <option value="driving">🚗 全程自駕</option>
-            <option value="walking">🚶 全程步行</option>
+            <option value="walking">🚶 慢活步行</option>
           </select>
         </div>
 
+        <!-- 🧭 周邊口袋雷達（一鍵找飯店附近早餐、午餐、順遊景點） -->
+        <div class="bg-amber-50/90 border border-amber-200/90 rounded-lg p-2 space-y-1.5">
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-[11px] font-bold text-amber-950 flex items-center gap-1 shrink-0">
+              <span>🧭 周邊口袋雷達</span>
+            </span>
+            <select id="radar-filter-mode" onchange="updateMapMarkers()"
+              class="flex-1 min-w-0 text-[11px] bg-white border border-amber-300 rounded px-1.5 py-0.5 font-bold text-amber-900 focus:outline-none">
+              <option value="off">關閉（僅看排定路線）</option>
+              <option value="breakfast">🍳 附近早餐（配合營業時間）</option>
+              <option value="lunch">🍜 附近午餐 / 午間美食</option>
+              <option value="sightseeing">🏞️ 附近順遊景點 / 購物</option>
+              <option value="all_nearby">✨ 全部周邊口袋地點</option>
+            </select>
+          </div>
+
+          <div id="radar-sub-controls" class="hidden grid-cols-2 gap-1.5 pt-0.5">
+            <select id="radar-anchor-select" onchange="updateMapMarkers()"
+              class="text-[10px] bg-white border border-amber-200 rounded px-1.5 py-1 text-slate-700 truncate focus:outline-none"
+              title="選擇要以哪個地點為搜尋圓心">
+              <option value="auto">📍 自動以當日住宿為中心</option>
+            </select>
+            <select id="radar-radius-select" onchange="updateMapMarkers()"
+              class="text-[10px] bg-white border border-amber-200 rounded px-1.5 py-1 text-slate-700 focus:outline-none">
+              <option value="500">半徑 500m (慢步約8分)</option>
+              <option value="1000" selected>半徑 1km (慢步約17分)</option>
+              <option value="2000">半徑 2km (車程約6分)</option>
+            </select>
+          </div>
+          <div id="radar-status-text" class="hidden text-[10px] text-amber-900/90 leading-tight"></div>
+        </div>
+
+        <!-- 當日移動時間與分段明細（與中間看板 100% 同步） -->
         <div id="map-route-summary" class="hidden flex-col bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-[11px] space-y-1.5 shadow-2xs">
           <div class="flex items-center justify-between gap-2">
             <span id="map-route-metrics" class="text-slate-800 font-bold truncate">計算多層次路網中...</span>
@@ -254,16 +291,16 @@
               重設分段
             </button>
           </div>
-          <div id="map-segment-breakdown" class="max-h-40 overflow-y-auto space-y-1.5 pt-1 border-t border-slate-100 text-[10px] text-slate-700"></div>
+          <div id="map-segment-breakdown" class="max-h-36 overflow-y-auto space-y-1.5 pt-1 border-t border-slate-100 text-[10px] text-slate-700"></div>
         </div>
       </div>
 
-      <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
+      <div class="px-3 py-1 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10B981;"></span>景點</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#F59E0B;"></span>美食</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#6366F1;"></span>購物</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#7E22CE;"></span>住宿</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#0284C7;"></span>交通/機場</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#0284C7;"></span>交通</span>
       </div>
 
       <div id="world-map" class="flex-1 w-full z-10"></div>
@@ -351,9 +388,7 @@
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">行程區域 / 城市</label>
-            <select id="field-area" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
-              <!-- 由 config.js 動態填入自訂區域 -->
-            </select>
+            <select id="field-area" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white"></select>
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1" id="label-duration-field">預計停留(分)</label>
@@ -426,13 +461,13 @@
 
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌 / 證件與票券重點</label>
-          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：護照, 機票憑證, Yui Rail 一日券" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：早餐飯糰, 護照, Yui Rail 一日券" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 航班時刻紀錄</label>
-            <input type="text" id="field-hours" oninput="populateFlightInputsFromHoursField()" placeholder="例如：✈️ 16:45-19:20 (+1h)" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <input type="text" id="field-hours" oninput="populateFlightInputsFromHoursField()" placeholder="例如：07:00-14:00 或 ✈️ 16:45-19:20 (+1h)" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">🚗 地址 / 航廈 / 出口 / MapCode</label>
