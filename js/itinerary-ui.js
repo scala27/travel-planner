@@ -126,23 +126,271 @@ function handleCategoryFieldChange() {
   }
 }
 
-// 掛鉤編輯與新增視窗，開啟時自動同步航班時刻 UI
-(function hookCardModalsForFlightUI() {
-  if (typeof window.openEditCardModal === 'function') {
-    const origEdit = window.openEditCardModal;
-    window.openEditCardModal = function(id) {
-      origEdit(id);
-      handleCategoryFieldChange();
-    };
+// ==================== 卡片新增、編修、儲存與刪除視窗控制 ====================
+let latestPlaceAddress = '';
+
+function updateGoogleMapsPlaceLink() {
+  const name = document.getElementById('field-name')?.value.trim() || '';
+  const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
+  const linkEl = document.getElementById('btn-open-gmaps-place');
+  if (!linkEl) return;
+
+  if (srcUrl && (srcUrl.includes('google.com/maps') || srcUrl.includes('maps.app.goo.gl'))) {
+    linkEl.href = srcUrl;
+  } else if (name) {
+    linkEl.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
+  } else {
+    linkEl.href = 'https://www.google.com/maps';
   }
-  if (typeof window.openNewCardModal === 'function') {
-    const origNew = window.openNewCardModal;
-    window.openNewCardModal = function(prefill) {
-      origNew(prefill);
-      handleCategoryFieldChange();
-    };
+}
+
+async function handleLookupPlaceAddress() {
+  const name = document.getElementById('field-name')?.value.trim();
+  if (!name) {
+    showToast('請先輸入地點名稱再查詢地址');
+    return;
   }
-})();
+  const btn = document.getElementById('btn-lookup-address');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span>查詢中...</span>`;
+
+  try {
+    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW,ja,en&q=${encodeURIComponent(name)}`);
+    const data = await resp.json();
+    if (data && data.length > 0) {
+      const hit = data[0];
+      latestPlaceAddress = hit.display_name || '';
+      document.getElementById('place-address-text').textContent = latestPlaceAddress;
+      document.getElementById('place-coords-text').textContent = `座標：${parseFloat(hit.lat).toFixed(5)}, ${parseFloat(hit.lon).toFixed(5)}`;
+      document.getElementById('place-address-result').classList.remove('hidden');
+
+      if (!document.getElementById('field-lat').value) document.getElementById('field-lat').value = hit.lat;
+      if (!document.getElementById('field-lng').value) document.getElementById('field-lng').value = hit.lon;
+    } else {
+      showToast('找不到精準地址，建議直接點擊右側「開啟 Google 地圖」複製');
+    }
+  } catch (e) {
+    showToast('地址查詢暫時無法連線，請稍後再試');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+    lucide.createIcons();
+  }
+}
+
+function applyAddressToParking() {
+  if (!latestPlaceAddress) return;
+  const parkingInput = document.getElementById('field-parking');
+  parkingInput.value = parkingInput.value ? `${latestPlaceAddress} (${parkingInput.value})` : latestPlaceAddress;
+  showToast('已將地址填入下方欄位！');
+}
+
+function openNewCardModal(prefill = {}) {
+  const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+  populateDaySelectors(daysList);
+
+  document.getElementById('card-form').reset();
+  document.getElementById('modal-card-title').textContent = '新增資料庫卡片';
+  document.getElementById('field-id').value = '';
+  document.getElementById('field-name').value = prefill.name || '';
+  document.getElementById('field-category').value = prefill.category || document.getElementById('quick-category')?.value || '景點';
+
+  const areaSel = document.getElementById('field-area');
+  const defaultArea = prefill.area || document.getElementById('quick-area')?.value || (appConfig.areas && appConfig.areas[0]) || '未分類';
+  if ([...areaSel.options].some(o => o.value === defaultArea)) {
+    areaSel.value = defaultArea;
+  }
+
+  document.getElementById('field-duration').value = prefill.estimated_duration !== undefined ? prefill.estimated_duration : 60;
+  document.getElementById('field-day').value = prefill.assigned_day || 'pocket';
+  document.getElementById('field-revisit').checked = false;
+  document.getElementById('btn-delete-card').classList.add('hidden');
+  document.getElementById('btn-google-nav').href = 'https://www.google.com/maps';
+
+  document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = false; });
+
+  resetAddressLookupUI();
+  updateGoogleMapsPlaceLink();
+  handleCategoryFieldChange();
+  openModal('modal-card-detail');
+  lucide.createIcons();
+}
+
+function openEditCardModal(id) {
+  const spot = spots.find(s => String(s.id) === String(id));
+  if (!spot) return;
+
+  const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+  populateDaySelectors(daysList);
+
+  document.getElementById('modal-card-title').textContent = '編輯資料庫卡片';
+  document.getElementById('field-id').value = spot.id;
+  document.getElementById('field-name').value = spot.name || '';
+  document.getElementById('field-category').value = spot.category || '景點';
+
+  const areaSel = document.getElementById('field-area');
+  if (spot.area && ![...areaSel.options].some(o => o.value === spot.area)) {
+    const opt = document.createElement('option');
+    opt.value = spot.area;
+    opt.textContent = spot.area;
+    areaSel.appendChild(opt);
+  }
+  areaSel.value = spot.area || (areaSel.options[0] ? areaSel.options[0].value : '');
+
+  document.getElementById('field-duration').value = spot.estimated_duration !== undefined ? spot.estimated_duration : 60;
+  document.getElementById('field-revisit').checked = isSpotRevisit(spot);
+  document.getElementById('field-description').value = spot.description || '';
+  document.getElementById('field-must-buy').value = spot.must_buy || '';
+  document.getElementById('field-hours').value = spot.business_hours || '';
+  document.getElementById('field-parking').value = spot.parking_info || '';
+  document.getElementById('field-source-url').value = spot.source_url || '';
+  document.getElementById('field-photo-url').value = spot.photo_url || '';
+  document.getElementById('field-lat').value = spot.lat || '';
+  document.getElementById('field-lng').value = spot.lng || '';
+
+  const assignedDays = getSpotAssignedDays(spot);
+  document.getElementById('field-day').value = assignedDays[0] || 'pocket';
+
+  document.querySelectorAll('input[name="stay_days"]').forEach(cb => {
+    cb.checked = assignedDays.includes(cb.value);
+  });
+
+  const navBtn = document.getElementById('btn-google-nav');
+  if (spot.lat && spot.lng) {
+    navBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`;
+  } else {
+    navBtn.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(spot.name || '')}`;
+  }
+
+  document.getElementById('btn-delete-card').classList.remove('hidden');
+
+  resetAddressLookupUI();
+  updateGoogleMapsPlaceLink();
+  handleCategoryFieldChange();
+  openModal('modal-card-detail');
+  lucide.createIcons();
+}
+
+async function handleSaveCard(event) {
+  event.preventDefault();
+
+  const existingId = document.getElementById('field-id').value.trim();
+  const name = document.getElementById('field-name').value.trim();
+  if (!name) return;
+
+  const category = document.getElementById('field-category').value;
+  const area = document.getElementById('field-area').value;
+  const estimated_duration = Number(document.getElementById('field-duration').value) || 0;
+  const isRevisit = document.getElementById('field-revisit').checked;
+
+  let lat = document.getElementById('field-lat').value.trim();
+  let lng = document.getElementById('field-lng').value.trim();
+
+  // 若座標留空，自動透過 Nominatim 地理編碼補齊
+  if (!lat || !lng) {
+    try {
+      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name)}`);
+      const geo = await resp.json();
+      if (geo && geo.length > 0) {
+        lat = geo[0].lat;
+        lng = geo[0].lon;
+      }
+    } catch (e) {}
+  }
+
+  let assigned_day = 'pocket';
+  let sort_order = '99';
+
+  if (category === '住宿') {
+    const checkedDays = [...document.querySelectorAll('input[name="stay_days"]:checked')].map(cb => cb.value);
+    if (checkedDays.length > 0) {
+      assigned_day = checkedDays.join(',');
+      sort_order = checkedDays.map(() => '1').join(',');
+    }
+  } else {
+    const selectedDay = document.getElementById('field-day').value;
+    if (selectedDay && selectedDay !== 'pocket') {
+      const existingSpot = existingId ? spots.find(s => String(s.id) === existingId) : null;
+      const prevOccs = existingSpot ? getSpotOccurrences(existingSpot) : [];
+      if (prevOccs.length > 0 && prevOccs[0].dateStr === selectedDay) {
+        assigned_day = existingSpot.assigned_day;
+        sort_order = existingSpot.sort_order;
+      } else {
+        const targetDayItems = getDayItems(selectedDay);
+        const nextOrder = targetDayItems.reduce((m, it) => Math.max(m, it.order), 0) + 1;
+        assigned_day = selectedDay;
+        sort_order = String(nextOrder);
+      }
+    }
+  }
+
+  const baseStatus = assigned_day === 'pocket' ? 'pocket' : 'scheduled';
+  const status = isRevisit ? `${baseStatus}|revisit` : baseStatus;
+
+  const spotData = {
+    id: existingId || `spot_${Date.now()}`,
+    name,
+    category,
+    area,
+    estimated_duration,
+    assigned_day,
+    sort_order,
+    status,
+    description: document.getElementById('field-description').value.trim(),
+    must_buy: document.getElementById('field-must-buy').value.trim(),
+    business_hours: document.getElementById('field-hours').value.trim(),
+    parking_info: document.getElementById('field-parking').value.trim(),
+    source_url: document.getElementById('field-source-url').value.trim(),
+    photo_url: document.getElementById('field-photo-url').value.trim(),
+    lat,
+    lng
+  };
+
+  const idx = spots.findIndex(s => String(s.id) === String(spotData.id));
+  if (idx > -1) {
+    spots[idx] = { ...spots[idx], ...spotData };
+  } else {
+    spots.unshift(spotData);
+  }
+
+  saveLocalState();
+  renderAll();
+  closeModal('modal-card-detail');
+  showToast(idx > -1 ? `✅ 已更新「${name}」` : `✅ 已新增「${name}」至資料庫`);
+
+  if (appConfig.gasUrl) {
+    fetch(appConfig.gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: idx > -1 ? 'update_spot' : 'add_spot',
+        spot: spotData
+      })
+    }).catch(err => console.error('雲端同步失敗', err));
+  }
+}
+
+function handleDeleteCard() {
+  const id = document.getElementById('field-id').value.trim();
+  if (!id) return;
+  const spot = spots.find(s => String(s.id) === id);
+  if (!spot) return;
+
+  if (!confirm(`確定要從資料庫永久刪除「${spot.name}」嗎？`)) return;
+
+  spots = spots.filter(s => String(s.id) !== id);
+  saveLocalState();
+  renderAll();
+  closeModal('modal-card-detail');
+  showToast(`🗑️ 已刪除「${spot.name}」`);
+
+  if (appConfig.gasUrl) {
+    fetch(appConfig.gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'delete_spot', id })
+    }).catch(err => console.error('雲端刪除失敗', err));
+  }
+}
 
 // ==================== 版面空間與檢視模式控制 ====================
 function toggleLeftPanel() {
