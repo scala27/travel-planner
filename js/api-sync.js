@@ -11,7 +11,7 @@ function extractCoordsFromGoogleMapsUrl(urlStr) {
     }
   } catch (e) {}
 
-  // 1. 優先匹配精準地點座標 !3d緯度!4d經度
+  // 1. 優先匹配精準地點圖釘座標 !3d緯度!4d經度
   const exactPinMatch = raw.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (exactPinMatch) {
     return {
@@ -44,7 +44,7 @@ function extractCoordsFromGoogleMapsUrl(urlStr) {
   return extractedName ? { lat: '', lng: '', placeName: extractedName } : null;
 }
 
-// ==================== 全球座標反查標準行政區（國家 · 縣市 · 鄉鎮區） ====================
+// ==================== 全球座標反查標準行政區（國內/國外統一格式化） ====================
 const reverseGeoCache = {};
 
 function normalizeTraditionalTai(str) {
@@ -57,6 +57,7 @@ function formatAdminAreaFromNominatim(addr) {
   const countryCode = String(addr.country_code || '').toLowerCase();
   let country = addr.country || '';
 
+  // 國內（台灣）：輸出「台灣 · 縣市 · 鄉鎮市區」，統一使用「臺」字
   if (countryCode === 'tw' || /台灣|臺灣|Taiwan/i.test(country)) {
     const county = normalizeTraditionalTai(addr.city || addr.county || addr.state || '');
     const district = normalizeTraditionalTai(addr.town || addr.suburb || addr.city_district || addr.village || '');
@@ -67,12 +68,15 @@ function formatAdminAreaFromNominatim(addr) {
     return '台灣';
   }
 
+  // 國外：輸出「國家 · 都道府縣/州 · 城市/町村」
   if (countryCode === 'jp' || /日本|Japan/i.test(country)) {
     country = '日本';
   } else if (countryCode === 'kr') {
     country = '韓國';
   } else if (countryCode === 'th') {
     country = '泰國';
+  } else if (countryCode === 'us') {
+    country = '美國';
   }
 
   const pref = addr.province || addr.state || addr.region || '';
@@ -114,7 +118,7 @@ async function reverseGeocodeAdminArea(lat, lng) {
   return null;
 }
 
-// ==================== 視野權重地理編碼（避免同名地點跑到其他國家） ====================
+// ==================== 地理編碼輔助查詢 ====================
 function getSearchBiasCenter() {
   if (mapInstance) {
     const c = mapInstance.getCenter();
@@ -122,18 +126,11 @@ function getSearchBiasCenter() {
       return { lat: c.lat, lng: c.lng };
     }
   }
-  const validSpots = spots.filter(s => s.lat && s.lng && !isNaN(parseFloat(s.lat)));
-  if (validSpots.length > 0) {
-    const sumLat = validSpots.reduce((acc, s) => acc + parseFloat(s.lat), 0);
-    const sumLng = validSpots.reduce((acc, s) => acc + parseFloat(s.lng), 0);
-    return { lat: sumLat / validSpots.length, lng: sumLng / validSpots.length };
-  }
   return { lat: 26.215, lng: 127.685 };
 }
 
 async function smartGeocodePlace(queryText) {
   const bias = getSearchBiasCenter();
-  // 建立約 +-1.2 度的優先搜尋視窗（優先命中當前地圖區域，但允許跨區搜尋）
   const viewbox = `${(bias.lng - 1.2).toFixed(4)},${(bias.lat + 1.2).toFixed(4)},${(bias.lng + 1.2).toFixed(4)},${(bias.lat - 1.2).toFixed(4)}`;
 
   try {
@@ -142,7 +139,6 @@ async function smartGeocodePlace(queryText) {
     const candidates = await resp.json();
 
     if (Array.isArray(candidates) && candidates.length > 0) {
-      // 依距離目前地圖視野中心最近者排序，徹底解決同名地名跳去別國的問題
       candidates.sort((a, b) => {
         const dA = Math.hypot(parseFloat(a.lat) - bias.lat, parseFloat(a.lon) - bias.lng);
         const dB = Math.hypot(parseFloat(b.lat) - bias.lat, parseFloat(b.lon) - bias.lng);
@@ -163,7 +159,7 @@ async function smartGeocodePlace(queryText) {
   return null;
 }
 
-// ==================== 批次智慧匯入與一鍵批次行政區分類 ====================
+// ==================== 批次智慧匯入與一鍵清理舊行政區標籤 ====================
 async function handleQuickBatchAdd() {
   const inputEl = document.getElementById('quick-batch-input');
   const rawText = inputEl.value.trim();
@@ -278,14 +274,14 @@ async function batchAutoClassifyAllSpots() {
 
   for (let i = 0; i < validSpots.length; i++) {
     const s = validSpots[i];
-    btn.innerHTML = `<span>🧭 辨識行政區中 (${i + 1}/${validSpots.length})...</span>`;
+    btn.innerHTML = `<span>🧭 依座標校準行政區 (${i + 1}/${validSpots.length})...</span>`;
 
     const rev = await reverseGeocodeAdminArea(s.lat, s.lng);
     if (rev && rev.adminArea && rev.adminArea !== '未分類' && s.area !== rev.adminArea) {
       s.area = rev.adminArea;
       updatedCount++;
       if (appConfig.gasUrl) {
-        fetch(appConfig.gasUrl, {
+        await fetch(appConfig.gasUrl, {
           method: 'POST',
           body: JSON.stringify({ action: 'update_spot', spot: s })
         }).catch(() => {});
@@ -300,7 +296,7 @@ async function batchAutoClassifyAllSpots() {
   renderDynamicAreaControls();
   renderAll();
   lucide.createIcons();
-  showToast(`✅ 已依座標自動歸類完成（更新了 ${updatedCount} 筆行政區標籤）！`);
+  showToast(`✅ 已依座標將 ${updatedCount} 筆舊標籤更新為標準 國內/國外行政區！`);
 }
 
 // ==================== Google Apps Script 雙向同步 ====================
