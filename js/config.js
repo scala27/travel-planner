@@ -125,7 +125,7 @@ const DEFAULT_DEMO_SPOTS = [
     business_hours: 'Check-in 15:00 / Check-out 11:00',
     parking_info: '鄰近單軌美榮橋站步行約3分鐘 / 縣廳前站步行約6分鐘',
     must_buy: '訂房確認單, 護照(全員辦理入住)',
-    description: '連住2晚：鄰近國際通與美榮橋站，首日抵達與第2天出發、返回樞紐。',
+    description: '連住2晚：鄰近國際通與美榮橋站，首日抵達與第2天出發、返回樞紐，第3天退房換飯店。',
     assigned_day: '2027-02-17,2027-02-18',
     sort_order: '3,1',
     status: 'scheduled'
@@ -175,7 +175,7 @@ const DEFAULT_DEMO_SPOTS = [
     must_buy: '本館與別館入住櫃檯確認',
     description: '連住3晚：第3天至第5天住宿據點，房間寬敞且鄰近波上宮與超市。',
     assigned_day: '2027-02-19,2027-02-20,2027-02-21',
-    sort_order: '1,1,1',
+    sort_order: '90,1,1',
     status: 'scheduled'
   },
   {
@@ -217,7 +217,6 @@ function isSpotInTaiwanCoords(spot) {
   const lat = parseFloat(spot.lat);
   const lng = parseFloat(spot.lng);
   if (isNaN(lat) || isNaN(lng)) return null;
-  // 台灣本島及澎金馬離島地理範圍
   return lat >= 21.8 && lat <= 26.5 && lng >= 118.0 && lng <= 122.2;
 }
 
@@ -231,15 +230,17 @@ function parseAreaHierarchy(spotOrArea) {
     return { scope, l1: '未分類', l2: '未分類', full: '未分類', shortBadge: '未分類' };
   }
 
-  const parts = raw.split(/\s*[·・\/|-]\s*/).map(p => p.trim()).filter(Boolean);
+  const rawParts = raw.split(/\s*[·・\/|-]\s*/).map(p => p.trim()).filter(Boolean);
+  // 去除連續重複的行政區名稱（例如「沖繩縣 · 沖繩縣」自動去重為「沖繩縣」）
+  const parts = rawParts.filter((item, idx) => idx === 0 || item !== rawParts[idx - 1]);
+
   const isDomesticText = /^(台灣|臺灣|台灣出發)/.test(parts[0]) ||
     /^(臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(parts[0]);
 
   const scope = isDomesticText ? 'domestic' : (coordTaiwan === true ? 'domestic' : 'international');
 
   if (scope === 'domestic') {
-    // 去掉「台灣」前綴，第二層直接顯示縣市（如 臺中市），第三層顯示鄉鎮市區（如 沙鹿區）
-    const cleanParts = parts[0] === '台灣' || parts[0] === '臺灣' ? parts.slice(1) : parts;
+    const cleanParts = (parts[0] === '台灣' || parts[0] === '臺灣') ? parts.slice(1) : parts;
     const l1 = cleanParts[0] || '台灣其他';
     const l2 = cleanParts[1] || '其他區';
     const full = cleanParts.length >= 2 ? `台灣 · ${l1} · ${l2}` : `台灣 · ${l1}`;
@@ -247,7 +248,6 @@ function parseAreaHierarchy(spotOrArea) {
     return { scope: 'domestic', l1, l2, full, shortBadge };
   }
 
-  // 國外：L1 為「國家 · 都道府縣/州」（如 日本 · 沖繩縣），L2 為「城市/町村」（如 那霸市、浦添市）
   if (parts.length >= 3) {
     const l1 = `${parts[0]} · ${parts[1]}`;
     const l2 = parts[2];
