@@ -1,599 +1,1995 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#2B4C7E" />
-  <title>旅圖規劃｜全球卡片式旅遊規劃 PWA</title>
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>沖繩卡片式旅遊規劃系統</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- SortableJS -->
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <!-- Leaflet CSS & JS -->
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- Leaflet Map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            'washi-bg': '#F6F7F9',
-            'washi-card': '#FFFFFF',
-            'ai-indigo': '#2B4C7E',
-            'ai-slate': '#567EBB',
-            'moss-green': '#4A7C59',
-            'sand-ochre': '#D98A3C',
-            'ink-dark': '#1E293B',
-            'ink-muted': '#64748B'
-          }
-        }
-      }
-    }
-  </script>
-
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-      background-color: #F6F7F9;
-      color: #1E293B;
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f3f6fa;
+      color: #1e293b;
+      overflow: hidden;
     }
-    ::-webkit-scrollbar { width: 6px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #E2E8F0; border-radius: 999px; }
-    ::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 999px; }
-    ::-webkit-scrollbar-thumb:hover { background: #64748B; }
-    
-    .sortable-ghost { opacity: 0.45; background: #E2E8F0 !important; border: 2px dashed #567EBB !important; }
-    .sortable-drag { transform: rotate(2deg); box-shadow: 0 12px 24px rgba(0,0,0,0.15); }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .resizer-active { background-color: #2B4C7E !important; }
+    /* 自訂捲軸 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* 新增卡片高亮動畫 */
+    @keyframes pulseBorder {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.55), 0 8px 20px -4px rgba(245, 158, 11, 0.25); }
+      50% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25), 0 8px 20px -4px rgba(245, 158, 11, 0.15); }
+    }
+    .card-is-new {
+      border-color: #f59e0b !important;
+      animation: pulseBorder 2.5s infinite;
+    }
+    .card-is-highlighted {
+      border-color: #2563eb !important;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35) !important;
+      transform: translateY(-2px);
+    }
+    .dragging {
+      opacity: 0.45;
+      transform: scale(0.98);
+    }
+    .drop-zone-active {
+      background-color: #eff6ff !important;
+      border: 2px dashed #3b82f6 !important;
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 12px;
+      padding: 2px;
+    }
   </style>
 </head>
-<body class="h-screen w-screen flex flex-col overflow-hidden select-none sm:select-auto">
+<body class="h-screen flex flex-col select-none">
 
-  <!-- 頂部導覽列 -->
-  <header class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 z-20 shadow-xs gap-2 w-full">
-    <div class="flex items-center gap-2.5 min-w-0">
-      <div class="w-9 h-9 rounded-xl bg-ai-indigo text-white flex items-center justify-center shadow-xs shrink-0">
-        <i data-lucide="globe" class="w-5 h-5"></i>
+  <!-- ==================== 頂部導覽列 ==================== -->
+  <header class="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 z-30 shadow-xs">
+    <!-- 左側：標題與行程日期 -->
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+        <i class="fa-solid fa-globe text-base"></i>
       </div>
-      <div class="min-w-0">
-        <h1 id="header-trip-title" class="font-bold text-sm sm:text-base text-ink-dark leading-tight truncate">2027沖繩首發自由行</h1>
-        <p id="header-trip-dates" class="text-[11px] text-ink-muted truncate">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
+      <div class="truncate">
+        <div class="flex items-center gap-2">
+          <h1 id="tripTitleDisplay" class="font-bold text-base text-slate-800 truncate">2027沖繩首發自由行</h1>
+        </div>
+        <p id="tripDateDisplay" class="text-[11px] text-slate-500">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
       </div>
     </div>
 
-    <!-- 版面檢視控制列 -->
-    <div class="hidden lg:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0">
-      <button onclick="toggleLeftPanel()" id="btn-toggle-left"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition"
-        title="顯示或隱藏左側口袋資料庫">
-        <i data-lucide="panel-left-close" class="w-3.5 h-3.5"></i>
-        <span>隱藏資料庫</span>
+    <!-- 中央：雙模式切換頁籤 -->
+    <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+      <button id="tabModeCollect" onclick="switchWorkspaceMode('collect')"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs">
+        <i class="fa-solid fa-layer-group"></i>
+        <span>景點蒐集與資料庫</span>
+        <span id="badgeTotalCount" class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white">0</span>
       </button>
-      <button onclick="toggleRightPanel()" id="btn-toggle-right"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-ai-indigo shadow-2xs transition"
-        title="顯示或隱藏右側地圖">
-        <i data-lucide="panel-right-close" class="w-3.5 h-3.5"></i>
-        <span>隱藏地圖</span>
+      <button id="tabModePlan" onclick="switchWorkspaceMode('plan')"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span>旅遊行程規劃</span>
+        <span id="badgeScheduledCount" class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">0</span>
       </button>
     </div>
 
+    <!-- 右側：連線狀態、設定、同步 -->
     <div class="flex items-center gap-2 shrink-0">
-      <span id="sync-status-badge" class="hidden xl:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-        <span class="w-2 h-2 rounded-full bg-amber-500" id="sync-dot"></span>
-        <span id="sync-text">本機模式</span>
-      </span>
-      <button onclick="openModal('modal-settings')" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition" title="行程與後端設定">
-        <i data-lucide="settings" class="w-5 h-5"></i>
+      <div id="syncStatusPill" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <span id="syncStatusText">Google 試算表已連線</span>
+      </div>
+      <button onclick="openSettingsModal()" title="系統與試算表設定"
+        class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
+        <i class="fa-solid fa-gear text-sm"></i>
       </button>
-      <button onclick="syncFromCloud()" id="btn-sync-cloud" class="flex items-center gap-1.5 bg-ai-indigo hover:bg-slate-800 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition shadow-xs">
-        <span id="sync-icon-wrap" class="inline-flex items-center">
-          <i data-lucide="cloud" class="w-4 h-4"></i>
-        </span>
-        <span class="hidden sm:inline" id="sync-btn-label">同步資料</span>
+      <button id="btnManualSync" onclick="syncWithGoogleSheets()"
+        class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
+        <i id="syncIcon" class="fa-solid fa-rotate"></i>
+        <span>已同步</span>
       </button>
     </div>
   </header>
 
-  <!-- 手機版分頁切換器 -->
-  <div class="flex lg:hidden bg-white border-b border-slate-200 text-sm font-medium shrink-0">
-    <button onclick="switchMobileTab('pocket')" id="tab-pocket" class="flex-1 py-2.5 text-center border-b-2 border-ai-indigo text-ai-indigo">
-      景點資料庫 (<span id="mobile-pocket-count">0</span>)
-    </button>
-    <button onclick="switchMobileTab('itinerary')" id="tab-itinerary" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-500">
-      每日行程看板
-    </button>
-    <button onclick="switchMobileTab('map')" id="tab-map" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-500">
-      互動地圖
-    </button>
-  </div>
+  <!-- ==================== 主工作區容器 ==================== -->
+  <main class="flex-1 flex overflow-hidden relative">
 
-  <!-- 主工作區：三欄式防溢位自適應佈局 -->
-  <main class="flex-1 flex w-full min-w-0 overflow-hidden relative" id="main-workspace">
-
-    <!-- ==================== 左欄：全球永久口袋資料庫 ==================== -->
-    <section id="panel-pocket" class="w-full lg:w-[310px] xl:w-[340px] min-w-0 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
-      <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
-        <div class="flex items-center justify-between gap-1">
-          <span class="text-xs font-bold text-ai-indigo flex items-center gap-1 truncate">
-            <i data-lucide="database" class="w-3.5 h-3.5 shrink-0"></i>
-            <span>全球口袋資料庫</span>
-          </span>
-          <div class="flex items-center gap-1 shrink-0">
-            <button onclick="openNewCardModal()" class="text-[11px] bg-ai-indigo hover:bg-slate-800 text-white font-medium flex items-center gap-0.5 px-2 py-1 rounded-md shadow-2xs transition">
-              <i data-lucide="plus" class="w-3 h-3"></i> 新增卡片
-            </button>
-            <button onclick="toggleInboxDrawer()" id="btn-toggle-inbox"
-              class="text-[11px] bg-white border border-slate-300 text-slate-700 hover:border-ai-indigo hover:text-ai-indigo font-medium flex items-center gap-0.5 px-2 py-1 rounded-md shadow-2xs transition"
-              title="展開或收合批次建卡與自動行政區整理工具">
-              <i data-lucide="wand-2" class="w-3 h-3"></i>
-              <span>智慧入庫</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="inbox-collapsible-body" class="hidden space-y-2 pt-1.5 border-t border-slate-200/80">
-          <div class="flex items-center justify-between gap-1.5">
-            <select id="quick-category" class="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700 min-w-0">
-              <option value="景點">🏞️ 預設類別：景點</option>
-              <option value="美食">🍜 預設類別：美食</option>
-              <option value="購物">🛍️ 預設類別：購物</option>
-              <option value="住宿">🏨 預設類別：住宿</option>
-              <option value="交通">🚉 預設類別：交通</option>
-            </select>
-            <span class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg font-medium shrink-0">
-              ✨ 自動抓座標與行政區
+    <!-- ==================== 區塊 A：全球口袋資料庫（模式1為65%多欄網格；模式2為可收合側邊欄） ==================== -->
+    <section id="databasePanel" class="w-[65%] bg-white border-r border-slate-200 flex flex-col transition-all duration-200 shrink-0 z-20">
+      <!-- 資料庫頂部工具列 -->
+      <div class="p-3 border-b border-slate-100 space-y-2.5 bg-slate-50/70 shrink-0">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+              <i class="fa-solid fa-database text-blue-600"></i>
+              全球口袋資料庫
             </span>
+            <button onclick="openCardModal()"
+              class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
+              <i class="fa-solid fa-plus"></i> 新增卡片
+            </button>
+            <button id="btnToggleBatchBox" onclick="toggleBatchImportBox()"
+              class="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium flex items-center gap-1 transition">
+              <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+              <span>批次匯入</span>
+            </button>
           </div>
 
-          <textarea id="quick-batch-input" rows="2"
-            placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，自動定位並歸類國內/國外行政區）..." 
-            class="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-ai-indigo resize-none leading-relaxed"></textarea>
+          <!-- 模式2專用的收合資料庫按鈕 -->
+          <div class="flex items-center gap-2">
+            <span id="collectModeHint" class="text-[11px] text-slate-500 hidden lg:inline">
+              <i class="fa-solid fa-circle-info text-blue-500"></i> 點擊卡片可於右側地圖檢核座標
+            </span>
+            <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
+              class="hidden px-2 py-1 rounded-md text-xs text-slate-500 hover:bg-slate-200/70 items-center gap-1">
+              <i class="fa-solid fa-angles-left"></i> 收合口袋
+            </button>
+          </div>
+        </div>
 
-          <button onclick="handleQuickBatchAdd()" id="btn-quick-add"
-            class="w-full bg-ai-indigo hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition shadow-2xs">
-            <i data-lucide="map-pin-plus" class="w-3.5 h-3.5"></i>
-            <span>批次自動定位並分類入庫</span>
-          </button>
+        <!-- 批次自動定位並分類入庫面板（可收合，模式1預設展開） -->
+        <div id="batchImportBox" class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <div class="flex items-center gap-2">
+              <select id="batchDefaultCategory" class="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:border-blue-500">
+                <option value="美食">🍜 預設類別：美食</option>
+                <option value="景點">🏞️ 預設類別：景點</option>
+                <option value="購物">🛍️ 預設類別：購物</option>
+                <option value="住宿">🏨 預設類別：住宿</option>
+                <option value="交通">🚆 預設類別：交通</option>
+              </select>
+              <label class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 cursor-pointer">
+                <input type="checkbox" id="batchAutoGeocode" checked class="accent-emerald-600 rounded" />
+                <span>✨ 自動抓座標與行政區</span>
+              </label>
+            </div>
+            <button onclick="batchUpdateAllDistricts()"
+              class="text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1 transition">
+              <i class="fa-solid fa-compass"></i> 依座標補齊空白行政區
+            </button>
+          </div>
 
-          <button onclick="batchAutoClassifyAllSpots()" id="btn-batch-classify-areas"
-            class="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-medium px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition"
-            title="依照每張卡片的經緯度座標，將舊標籤統一更新為標準 國內/國外行政區 並同步回試算表">
-            <i data-lucide="compass" class="w-3.5 h-3.5 text-amber-700"></i>
-            <span>🧭 依座標自動更新所有卡片行政區</span>
-          </button>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <textarea id="batchInputText" rows="2"
+              placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，例如：泊港漁市場、PARCO CITY，自動置頂並標示 NEW）..."
+              class="flex-1 text-xs p-2 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-500 resize-none bg-slate-50/50"></textarea>
+            <button id="btnBatchImport" onclick="handleBatchImport()"
+              class="sm:w-44 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 transition shadow-xs">
+              <i class="fa-solid fa-magnifying-glass-location"></i>
+              <span>批次定位並置頂入庫</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 關鍵字搜尋 ＋ 明確排序切換器 -->
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="relative flex-1 min-w-[200px]">
+            <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input type="text" id="searchInput" oninput="renderDatabaseCards()"
+              placeholder="搜尋地點、備註、食物、行政區..."
+              class="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            <button onclick="clearSearch()" title="清除搜尋"
+              class="text-slate-400 hover:text-slate-600 text-xs absolute right-2.5 top-1/2 -translate-y-1/2">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <!-- 明確排序選單 -->
+          <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
+            <i class="fa-solid fa-arrow-down-wide-short text-blue-600 text-xs"></i>
+            <select id="sortSelect" onchange="renderDatabaseCards()"
+              class="text-xs font-semibold text-slate-700 bg-transparent focus:outline-none cursor-pointer">
+              <option value="newest">排序：最新加入優先</option>
+              <option value="unscheduled">排序：未排入行程優先</option>
+              <option value="district">排序：依行政區／城市</option>
+              <option value="original">排序：試算表原始順序</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 多層級篩選膠囊 -->
+        <div class="space-y-1.5">
+          <!-- 第一排：國內外範圍 + 地區下拉 -->
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button onclick="setFilter('scope', 'all')" data-filter-scope="all"
+              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-800 text-white">全部 (0)</button>
+            <button onclick="setFilter('scope', 'domestic')" data-filter-scope="domestic"
+              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">TW 國內 (0)</button>
+            <button onclick="setFilter('scope', 'international')" data-filter-scope="international"
+              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">✈️ 國外 (0)</button>
+
+            <select id="countryFilter" onchange="onCountryFilterChange()"
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none">
+              <option value="all">全部國家 / 地區</option>
+            </select>
+            <select id="cityFilter" onchange="renderDatabaseCards()"
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none">
+              <option value="all">全部城市 / 町村</option>
+            </select>
+          </div>
+
+          <!-- 第二排：類別 + 排程狀態 -->
+          <div class="flex flex-wrap items-center justify-between gap-1.5">
+            <div class="flex flex-wrap items-center gap-1">
+              <button onclick="setFilter('category', 'all')" data-filter-cat="all"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">全部</button>
+              <button onclick="setFilter('category', '景點')" data-filter-cat="景點"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
+              <button onclick="setFilter('category', '美食')" data-filter-cat="美食"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
+              <button onclick="setFilter('category', '購物')" data-filter-cat="購物"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
+              <button onclick="setFilter('category', '住宿')" data-filter-cat="住宿"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+              <button onclick="setFilter('category', '交通')" data-filter-cat="交通"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+            </div>
+
+            <div class="flex items-center gap-1">
+              <button onclick="setFilter('status', 'all')" data-filter-status="all"
+                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-700 text-white">全部</button>
+              <button onclick="setFilter('status', 'unscheduled')" data-filter-status="unscheduled"
+                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">未排入</button>
+              <button onclick="setFilter('status', 'scheduled')" data-filter-status="scheduled"
+                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✅ 已納入</button>
+              <button onclick="setFilter('status', 'starred')" data-filter-status="starred"
+                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">⭐ 二訪</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 篩選列：關鍵字 ＋ 國內/國外階層篩選 ＋ 類別 ＋ 狀態 -->
-      <div class="px-2.5 py-2 border-b border-slate-100 space-y-1.5 shrink-0 bg-white">
-        <div class="relative">
-          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
-          <input type="text" id="search-input" oninput="renderAll()" placeholder="搜尋地點、早餐、餐廳、行政區..." 
-            class="w-full text-xs bg-slate-100 rounded-lg pl-8 pr-7 py-1.5 focus:outline-none focus:bg-white focus:ring-1 focus:ring-ai-indigo" />
-          <button type="button" onclick="document.getElementById('search-input').value=''; renderAll();"
-            class="text-slate-400 hover:text-slate-600 absolute right-2 top-1.5 text-xs" title="清除搜尋">✕</button>
-        </div>
-
-        <!-- 第一層：全部 / 國內 / 國外 切換鈕 -->
-        <div class="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-lg" id="region-scope-tabs">
-          <button type="button" onclick="setFilterRegionScope('all')" class="scope-btn py-1 rounded-md text-[11px] font-bold bg-white text-ai-indigo shadow-2xs transition">
-            🌍 全部 (<span id="scope-count-all">0</span>)
-          </button>
-          <button type="button" onclick="setFilterRegionScope('domestic')" class="scope-btn py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-ink-dark transition">
-            🇹🇼 國內 (<span id="scope-count-domestic">0</span>)
-          </button>
-          <button type="button" onclick="setFilterRegionScope('international')" class="scope-btn py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-ink-dark transition">
-            ✈️ 國外 (<span id="scope-count-international">0</span>)
-          </button>
-        </div>
-
-        <!-- 第二、三層：縣市/國家都道府縣 ＋ 鄉鎮市區/城市 聯動篩選 -->
-        <div class="grid grid-cols-2 gap-1.5">
-          <select id="filter-region-l1" onchange="handleRegionL1Change(this.value)"
-            class="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-none focus:border-ai-indigo truncate"
-            title="依縣市或國家/都道府縣篩選">
-            <option value="全部">全部縣市 / 地區</option>
-          </select>
-          <select id="filter-region-l2" onchange="handleRegionL2Change(this.value)"
-            class="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-none focus:border-ai-indigo truncate"
-            title="依鄉鎮市區或城市篩選">
-            <option value="全部">全部鄉鎮市區 / 城市</option>
-          </select>
-        </div>
-
-        <div class="flex flex-wrap gap-1" id="category-filters">
-          <button onclick="setFilterCategory('全部')" class="cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white">全部</button>
-          <button onclick="setFilterCategory('景點')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏞️ 景點</button>
-          <button onclick="setFilterCategory('美食')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🍜 美食</button>
-          <button onclick="setFilterCategory('購物')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🛍️ 購物</button>
-          <button onclick="setFilterCategory('住宿')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🏨 住宿</button>
-          <button onclick="setFilterCategory('交通')" class="cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">🚉 交通</button>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-1 text-[11px]" id="status-filters">
-          <button onclick="setFilterDbStatus('all')" class="db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium">全部</button>
-          <button onclick="setFilterDbStatus('unscheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">未排入</button>
-          <button onclick="setFilterDbStatus('scheduled')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">✅ 已納入</button>
-          <button onclick="setFilterDbStatus('revisit')" class="db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100">⭐ 二訪</button>
-        </div>
+      <!-- 卡片列表網格容器（模式1為多欄網格 grid-cols-1 md:grid-cols-2 xl:grid-cols-3；模式2為單欄列表） -->
+      <div id="databaseCardsContainer" class="flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40">
+        <!-- 動態渲染卡片 -->
       </div>
-
-      <!-- 永久資料庫卡片列表區 -->
-      <div class="flex-1 overflow-y-auto p-2.5 space-y-2 bg-slate-50/60" id="pocket-dropzone" data-day="pocket"></div>
     </section>
 
-    <!-- ==================== 中欄：每日行程看板 ==================== -->
-    <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[280px] flex-col bg-washi-bg overflow-hidden h-full">
-      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 min-w-0">
-        <div class="flex items-center gap-1 overflow-x-auto py-0.5 min-w-0" id="kanban-day-nav-bar"></div>
+    <!-- 模式2收合口袋後的展開浮動按鈕 -->
+    <button id="btnExpandPocket" onclick="togglePocketCollapse()"
+      class="hidden absolute left-2 top-3 z-30 bg-white border border-slate-300 shadow-md rounded-lg px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700 items-center gap-1.5">
+      <i class="fa-solid fa-angles-right text-blue-600"></i>
+      <span>展開口袋</span>
+    </button>
 
+    <!-- ==================== 區塊 B：多日行程規劃看板（僅模式2顯示） ==================== -->
+    <section id="itineraryBoardSection" class="hidden flex-1 flex-col bg-slate-100/70 overflow-hidden min-w-0">
+      <!-- 看板頂部天數快速導航與儲存按鈕 -->
+      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 flex-wrap">
+        <div id="dayNavPills" class="flex items-center gap-1.5 overflow-x-auto py-0.5">
+          <!-- 動態渲染 Day 1 ~ Day N 膠囊 -->
+        </div>
         <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="toggleBoardCompactMode()" id="btn-board-density"
-            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg font-medium flex items-center gap-1 transition"
-            title="切換行程卡片為精簡列表或完整圖文模式">
-            <i data-lucide="list" class="w-3.5 h-3.5 text-ai-indigo"></i>
-            <span class="hidden xl:inline">精簡檢視</span>
+          <button id="btnCompactView" onclick="toggleCompactView()"
+            class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-list"></i> <span>精簡檢視</span>
           </button>
-
-          <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
-            <button onclick="scrollKanbanBy(-300)" class="p-1.5 text-slate-600 hover:bg-slate-200 transition" title="向左捲動檢視前幾天">
-              <i data-lucide="chevron-left" class="w-4 h-4"></i>
-            </button>
-            <button onclick="scrollKanbanBy(300)" class="p-1.5 text-slate-600 hover:bg-slate-200 border-l border-slate-200 transition" title="向右捲動檢視後面幾天">
-              <i data-lucide="chevron-right" class="w-4 h-4"></i>
-            </button>
-          </div>
-          <button onclick="saveBoardOrderToCloud()" class="text-xs bg-moss-green hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition shadow-xs">
-            <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i>
-            <span class="hidden sm:inline">儲存排程</span>
+          <button onclick="scrollBoard(-340)" class="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs flex items-center justify-center">
+            <i class="fa-solid fa-chevron-left"></i>
+          </button>
+          <button onclick="scrollBoard(340)" class="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs flex items-center justify-center">
+            <i class="fa-solid fa-chevron-right"></i>
+          </button>
+          <button onclick="saveAndSyncAll()"
+            class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition">
+            <i class="fa-solid fa-floppy-disk"></i> 儲存排程
           </button>
         </div>
       </div>
 
-      <div id="days-kanban-container" class="flex-1 flex gap-3 p-3 overflow-x-auto overflow-y-hidden items-start scroll-smooth"></div>
+      <!-- 多日橫向捲動看板區 -->
+      <div id="kanbanColumnsContainer" class="flex-1 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch">
+        <!-- 動態渲染每日行程欄位 -->
+      </div>
     </section>
 
-    <!-- ==================== 可拖曳寬度調整分隔線 (中欄 <-> 右欄) ==================== -->
-    <div id="mid-right-resizer"
-      class="hidden lg:flex w-2 bg-slate-200/80 hover:bg-ai-slate cursor-col-resize items-center justify-center shrink-0 transition-colors z-20 group"
-      title="左右拖曳調整行程看板與地圖寬度比例">
-      <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
-    </div>
-
-    <!-- ==================== 右欄：多層次路網 ＋ 周邊口袋雷達互動地圖 ==================== -->
-    <section id="panel-map" style="width: 385px; max-width: 46vw;" class="hidden lg:flex w-full min-w-0 bg-white flex-col shrink-0 h-full">
-      <div class="p-2.5 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2">
-        <div class="flex items-center justify-between gap-1.5">
-          <select id="map-day-selector" onchange="handleMapDayChange()" class="flex-1 min-w-0 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ink-dark focus:outline-none">
-            <option value="all">顯示全部資料庫地點（可直接點圖排程）</option>
-            <option value="scheduled_all">僅顯示已納入行程地點</option>
-          </select>
-
-          <select id="map-travel-mode" onchange="handleGlobalModeChange()" class="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-medium text-ai-indigo focus:outline-none shrink-0" title="切換當日預設交通策略">
-            <option value="hybrid">🔀 智慧混搭</option>
-            <option value="transit">🚝 大眾運輸</option>
-            <option value="driving">🚗 全程自駕</option>
-            <option value="walking">🚶 慢活步行</option>
-          </select>
+    <!-- ==================== 區塊 C：地圖與當日交通路線面板（模式1佔35%檢核座標；模式2佔320px顯示當日路線） ==================== -->
+    <aside id="mapPanel" class="w-[35%] bg-white border-l border-slate-200 flex flex-col shrink-0 transition-all duration-200 z-10">
+      <!-- 模式 1 專用頂部列：座標檢核提示 -->
+      <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+          <span class="text-xs font-bold text-slate-800">景點座標檢核地圖</span>
         </div>
-
-        <!-- 🧭 周邊口袋雷達 -->
-        <div class="bg-amber-50/90 border border-amber-200/90 rounded-lg p-2 space-y-1.5">
-          <div class="flex items-center justify-between gap-1">
-            <span class="text-[11px] font-bold text-amber-950 flex items-center gap-1 shrink-0">
-              <span>🧭 周邊口袋雷達</span>
-            </span>
-            <select id="radar-filter-mode" onchange="updateMapMarkers()"
-              class="flex-1 min-w-0 text-[11px] bg-white border border-amber-300 rounded px-1.5 py-0.5 font-bold text-amber-900 focus:outline-none">
-              <option value="off">關閉（或直接點地圖上全部圖釘排程）</option>
-              <option value="breakfast">🍳 附近早餐（配合營業時間）</option>
-              <option value="lunch">🍜 附近午餐 / 午間美食</option>
-              <option value="sightseeing">🏞️ 附近順遊景點 / 購物</option>
-              <option value="all_nearby">✨ 全部周邊口袋地點</option>
-            </select>
-          </div>
-
-          <div id="radar-sub-controls" class="hidden grid-cols-2 gap-1.5 pt-0.5">
-            <select id="radar-anchor-select" onchange="updateMapMarkers()"
-              class="text-[10px] bg-white border border-amber-200 rounded px-1.5 py-1 text-slate-700 truncate focus:outline-none"
-              title="選擇要以哪個地點為搜尋圓心">
-              <option value="auto">📍 自動以當日住宿為中心</option>
-            </select>
-            <select id="radar-radius-select" onchange="updateMapMarkers()"
-              class="text-[10px] bg-white border border-amber-200 rounded px-1.5 py-1 text-slate-700 focus:outline-none">
-              <option value="500">半徑 500m (慢步約8分)</option>
-              <option value="1000" selected>半徑 1km (慢步約17分)</option>
-              <option value="2000">半徑 2km (車程約6分)</option>
-            </select>
-          </div>
-          <div id="radar-status-text" class="hidden text-[10px] text-amber-900/90 leading-tight"></div>
-        </div>
-
-        <!-- 當日移動時間與分段明細 -->
-        <div id="map-route-summary" class="hidden flex-col bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-[11px] space-y-1.5 shadow-2xs">
-          <div class="flex items-center justify-between gap-2">
-            <span id="map-route-metrics" class="text-slate-800 font-bold truncate">計算多層次路網中...</span>
-            <button type="button" onclick="resetDaySegmentOverrides()" id="btn-reset-leg-modes" class="hidden text-[10px] text-slate-500 hover:text-ai-indigo underline shrink-0">
-              重設分段
-            </button>
-          </div>
-          <div id="map-segment-breakdown" class="max-h-36 overflow-y-auto space-y-1.5 pt-1 border-t border-slate-100 text-[10px] text-slate-700"></div>
+        <div class="flex items-center gap-1.5">
+          <button onclick="fitMapToFilteredCards()"
+            class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-expand text-blue-600"></i> 顯示全部篩選圖釘
+          </button>
         </div>
       </div>
 
-      <div class="px-3 py-1 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10B981;"></span>景點</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#F59E0B;"></span>美食</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#6366F1;"></span>購物</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#7E22CE;"></span>住宿</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#0284C7;"></span>交通</span>
+      <!-- 模式 2 專用頂部列：當日交通總計、智慧混搭、周邊口袋雷達 -->
+      <div id="mapHeaderPlanMode" class="hidden p-2.5 border-b border-slate-200 bg-slate-50 space-y-2 shrink-0">
+        <div class="flex items-center gap-1.5">
+          <select id="mapDaySelect" onchange="onMapDayChange()"
+            class="flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-none">
+          </select>
+          <select id="transitProfileSelect" onchange="recalculateAllDayTimes()"
+            class="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:outline-none">
+            <option value="smart">🔀 智慧混搭</option>
+            <option value="transit">🚆 大眾運輸</option>
+            <option value="drive">🚗 自駕開車</option>
+            <option value="walk">🚶 步行優先</option>
+          </select>
+        </div>
+
+        <!-- 周邊口袋雷達開關 -->
+        <button id="btnRadarToggle" onclick="toggleRadarMode()"
+          class="w-full py-1.5 px-2.5 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100/80 text-amber-800 text-[11px] font-semibold flex items-center justify-between transition">
+          <span>🎯 周邊口袋雷達：<strong id="radarStatusText">關閉</strong>（點擊地圖搜尋半徑1.5km口袋）</span>
+          <i class="fa-solid fa-satellite-dish"></i>
+        </button>
+
+        <!-- 當日移動總計與段次明細 -->
+        <div class="bg-white rounded-xl border border-slate-200 p-2 space-y-1.5 max-h-36 overflow-y-auto">
+          <div class="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-100 pb-1">
+            <span><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日移動總計：</span>
+            <span id="dailyTransitSummary" class="text-blue-700">約 0 分 (0.0 km)</span>
+          </div>
+          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600">
+            <!-- 動態渲染各段移動 -->
+          </div>
+        </div>
       </div>
 
-      <div id="world-map" class="flex-1 w-full z-10"></div>
-    </section>
+      <!-- 圖例列 -->
+      <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></i>景點</span>
+          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></i>美食</span>
+          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></i>購物</span>
+          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></i>住宿</span>
+          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></i>交通</span>
+        </div>
+        <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium">0 個圖釘</span>
+      </div>
 
+      <!-- Leaflet 地圖本體 -->
+      <div id="mapContainer" class="flex-1 w-full relative z-0"></div>
+    </aside>
   </main>
 
-  <!-- ==================== 視窗 1：卡片詳細資訊 Modal ==================== -->
-  <div id="modal-card-detail" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-xl overflow-hidden">
-      <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-        <h3 class="font-bold text-base text-ink-dark" id="modal-card-title">資料庫卡片詳情</h3>
-        <button onclick="closeModal('modal-card-detail')" class="text-slate-400 hover:text-slate-700">
-          <i data-lucide="x" class="w-5 h-5"></i>
+  <!-- ==================== 彈窗 1：新增 / 編輯卡片視窗 ==================== -->
+  <div id="cardModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <h3 id="cardModalTitle" class="font-bold text-base text-slate-800">新增口袋卡片</h3>
+        <button onclick="closeCardModal()" class="text-slate-400 hover:text-slate-700 text-lg">
+          <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      
-      <form id="card-form" onsubmit="handleSaveCard(event)" class="p-5 overflow-y-auto space-y-3.5 text-sm">
-        <input type="hidden" id="field-id" />
-        
+
+      <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
+        <input type="hidden" id="editCardId" />
+
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block text-xs font-medium text-slate-600 mb-1">地點 / 機場 / 車站 / 店家名稱 *</label>
-            <input type="text" id="field-name" oninput="updateGoogleMapsPlaceLink()" required class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none" />
+            <label class="block font-bold text-slate-700 mb-1">地點名稱 *</label>
+            <input type="text" id="fieldTitle" placeholder="例如：那霸西酒店 (Naha-West Inn)"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">分類</label>
-            <select id="field-category" onchange="handleCategoryFieldChange()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
+            <label class="block font-bold text-slate-700 mb-1">類別</label>
+            <select id="fieldCategory" class="w-full px-2.5 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500">
               <option value="景點">🏞️ 景點</option>
               <option value="美食">🍜 美食</option>
               <option value="購物">🛍️ 購物</option>
               <option value="住宿">🏨 住宿</option>
-              <option value="交通">🚉 交通</option>
+              <option value="交通">🚆 交通</option>
             </select>
           </div>
         </div>
-
-        <!-- Google 地圖點位驗證與自動剪貼簿同步區塊 -->
-        <div class="bg-sky-50/70 border border-sky-200/90 rounded-xl p-3 space-y-2">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
-              <i data-lucide="map-pin" class="w-4 h-4 text-sky-600"></i>
-              <span>Google 地圖位置驗證與自動同步</span>
-            </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-              <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
-                onclick="markWaitingForGoogleMapsClipboard()"
-                class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs">
-                <span>1. 開啟 Google 地圖</span>
-                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-              </a>
-              <button type="button" onclick="pasteGoogleMapsLinkFromClipboard(true)"
-                class="bg-white hover:bg-sky-100 text-sky-800 border border-sky-300 text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs"
-                title="一鍵讀取剛複製的 Google 地圖網址並自動抓座標與行政區">
-                <i data-lucide="clipboard-paste" class="w-3.5 h-3.5"></i>
-                <span>2. 一鍵貼入連結</span>
-              </button>
-            </div>
-          </div>
-
-          <div id="place-sync-feedback" class="hidden bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 text-xs text-emerald-900 font-medium"></div>
-
-          <p class="text-[11px] text-sky-800/85 leading-snug">
-            💡 在 Google 地圖點選正確地標並複製網址後，<strong>切回本分頁即會自動讀取並抓出座標與行政區</strong>（若瀏覽器攔截自動讀取，點「2. 一鍵貼入連結」即可）。
-          </p>
-        </div>
-
-        <label class="flex items-center justify-between bg-amber-50/80 border border-amber-200 rounded-xl px-3.5 py-2.5 cursor-pointer select-none">
-          <div class="flex items-center gap-2">
-            <span class="text-base">⭐</span>
-            <div>
-              <div class="text-xs font-bold text-amber-950">標記為「值得二訪 / 精選推薦」</div>
-              <div class="text-[11px] text-amber-800/80">玩過覺得很棒或下次旅遊想再次安排的口袋愛店</div>
-            </div>
-          </div>
-          <input type="checkbox" id="field-revisit" class="w-4 h-4 accent-amber-500 rounded" />
-        </label>
 
         <div class="grid grid-cols-3 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">行政區分類 (自動辨識)</label>
-            <input type="text" id="field-area" list="area-suggestions-list" placeholder="例如：日本 · 沖繩縣 · 那霸市"
-              class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-xs focus:border-ai-indigo focus:outline-none" />
-            <datalist id="area-suggestions-list"></datalist>
+            <label class="block font-bold text-slate-700 mb-1">國家 / 地區</label>
+            <input type="text" id="fieldCountry" value="日本" placeholder="日本 / 台灣"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1" id="label-duration-field">預計停留(分)</label>
-            <input type="number" id="field-duration" value="60" min="0" step="5" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <label class="block font-bold text-slate-700 mb-1">城市 / 行政區</label>
+            <input type="text" id="fieldDistrict" placeholder="例如：沖繩縣・那霸市"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
-          <div id="single-day-select-wrap">
-            <label class="block text-xs font-medium text-slate-600 mb-1">納入本次行程</label>
-            <select id="field-day" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
-              <option value="pocket">📌 僅存於資料庫</option>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">預設停留 (分鐘)</label>
+            <input type="number" id="fieldDuration" value="60" min="0" step="15"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">緯度 (Latitude)</label>
+            <input type="number" step="any" id="fieldLat" placeholder="26.2124"
+              class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">經度 (Longitude)</label>
+            <div class="flex gap-1.5">
+              <input type="number" step="any" id="fieldLng" placeholder="127.6792"
+                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+              <button type="button" onclick="autoGeocodeModalFields()" title="依名稱自動抓取座標"
+                class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shrink-0">
+                <i class="fa-solid fa-location-crosshairs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Google Maps 網址（選填，留空將自動產生搜尋連結）</label>
+          <input type="url" id="fieldMapUrl" placeholder="https://maps.google.com/..."
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">封面圖片網址（選填）</label>
+          <input type="url" id="fieldImage" placeholder="https://..."
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">備註 / 必吃必買 / 營業資訊</label>
+          <textarea id="fieldNotes" rows="2" placeholder="例如：季節限定水果塔、單軌旭橋站步行5分..."
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <label class="inline-flex items-center gap-2 cursor-pointer font-semibold text-slate-700">
+            <input type="checkbox" id="fieldStarred" class="accent-amber-500 w-4 h-4 rounded" />
+            <span>⭐ 標記為必去 / 二訪口袋</span>
+          </label>
+          <div id="quickAssignOnSaveBox" class="flex items-center gap-1.5">
+            <span class="text-slate-500">儲存並排入：</span>
+            <select id="fieldAssignDay" class="border border-slate-200 rounded-lg px-2 py-1 text-slate-700">
+              <option value="">僅存入口袋資料庫</option>
             </select>
           </div>
         </div>
+      </div>
 
-        <!-- 機票真實起迄時刻與時差錨定設定（僅在分類為「交通」時顯示） -->
-        <div id="flight-schedule-box" class="hidden bg-indigo-50/80 border border-indigo-200 rounded-xl p-3 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-              <i data-lucide="plane-takeoff" class="w-4 h-4 text-indigo-600"></i>
-              <span>機票起迄時刻與時差設定（設定於出發機場）</span>
-            </span>
-            <button type="button" onclick="clearFlightScheduleInputs()" class="text-[11px] text-slate-500 hover:text-red-600 underline">
-              清除航班時刻
-            </button>
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            <div>
-              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">出發地起飛時間</label>
-              <input type="time" id="flight-dep-time" onchange="syncFlightInputsToHoursField()"
-                class="w-full border border-indigo-200 bg-white rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-900 focus:outline-none focus:border-indigo-500" />
-            </div>
-            <div>
-              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">目的地當地抵達</label>
-              <input type="time" id="flight-arr-time" onchange="syncFlightInputsToHoursField()"
-                class="w-full border border-indigo-200 bg-white rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-900 focus:outline-none focus:border-indigo-500" />
-            </div>
-            <div>
-              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">兩地時區差</label>
-              <select id="flight-tz-diff" onchange="syncFlightInputsToHoursField()"
-                class="w-full border border-indigo-200 bg-white rounded-lg px-1.5 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-indigo-500">
-                <option value="1">+1 小時 (台→日/韓)</option>
-                <option value="-1">-1 小時 (日/韓→台)</option>
-                <option value="0">0 小時 (同區/國內線)</option>
-                <option value="2">+2 小時</option>
-                <option value="-2">-2 小時</option>
-                <option value="-7">-7 小時 (台→歐陸)</option>
-                <option value="7">+7 小時 (歐陸→台)</option>
-              </select>
-            </div>
-          </div>
-          <p id="flight-calc-preview" class="text-[11px] text-indigo-800/90 leading-snug">
-            輸入機票上的起飛與當地抵達時間後，看板將自動以此時刻為基準計算報到、實際飛行分鐘數與後續轉乘時間。
-          </p>
-        </div>
-
-        <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3 space-y-1.5">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
-              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住夜晚安排（僅勾選實際過夜日期）
-            </label>
-            <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
-          </div>
-          <p class="text-[11px] text-purple-800/85">
-            💡 換飯店時，例如前兩晚住 A 飯店、第 3 天換住 B 飯店，A 飯店只需勾選 <strong>Day 1、Day 2（2 晚）</strong>，系統會自動在 <strong>Day 3 早上帶出 A 飯店「退房出發」</strong> 並接續前往 B 飯店。
-          </p>
-          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5 pt-1"></div>
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">說明 / 航班班次 / 轉乘備註</label>
-          <textarea id="field-description" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none"></textarea>
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">🛍️ 必買商品 / 必吃招牌 / 證件與票券重點</label>
-          <input type="text" id="field-must-buy" placeholder="以逗號分隔，例如：早餐飯糰, 護照, Yui Rail 一日券" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 航班時刻紀錄</label>
-            <input type="text" id="field-hours" oninput="populateFlightInputsFromHoursField()" placeholder="例如：07:00-14:00" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🚗 地址 / 航廈 / 出口 / MapCode</label>
-            <input type="text" id="field-parking" placeholder="第一航廈 / 2號出口 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖連結 (自動或手動貼入)</label>
-            <input type="url" id="field-source-url" oninput="handleSourceUrlInputChange()" placeholder="https://www.google.com/maps/..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🖼️ 照片連結 (可貼地圖照片網址)</label>
-            <input type="url" id="field-photo-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3 pt-1 border-t border-slate-100">
-          <div>
-            <label class="block text-[11px] text-slate-400">緯度 (修改後自動更新行政區)</label>
-            <input type="text" id="field-lat" onchange="handleLatLngManualChange()" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
-          </div>
-          <div>
-            <label class="block text-[11px] text-slate-400">經度 (修改後自動更新行政區)</label>
-            <input type="text" id="field-lng" onchange="handleLatLngManualChange()" placeholder="自動地理編碼" class="w-full text-xs border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50" />
-          </div>
-        </div>
-
-        <div class="pt-3 flex items-center justify-between border-t border-slate-200">
-          <button type="button" id="btn-delete-card" onclick="handleDeleteCard()" class="text-xs text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg font-medium">
-            從資料庫刪除
-          </button>
-          <div class="flex gap-2">
-            <a id="btn-google-nav" href="#" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium flex items-center gap-1">
-              <i data-lucide="navigation" class="w-3.5 h-3.5"></i> Google 導航
-            </a>
-            <button type="submit" class="bg-ai-indigo hover:bg-slate-800 text-white text-xs font-medium px-4 py-2 rounded-lg">
-              儲存卡片
-            </button>
-          </div>
-        </div>
-      </form>
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button onclick="closeCardModal()" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-100">取消</button>
+        <button onclick="saveCardFromModal()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs">
+          儲存卡片（自動置頂）
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- ==================== 視窗 2：系統與 Google Sheets 設定 Modal ==================== -->
-  <div id="modal-settings" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl">
-      <div class="flex items-center justify-between border-b border-slate-200 pb-3">
-        <h3 class="font-bold text-base text-ink-dark">行程天數與 Google 試算表後端設定</h3>
-        <button onclick="closeModal('modal-settings')" class="text-slate-400 hover:text-slate-700">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+  <!-- ==================== 彈窗 2：系統與 Google 試算表設定 ==================== -->
+  <div id="settingsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
+      <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <h3 class="font-bold text-base text-slate-800"><i class="fa-solid fa-gear text-blue-600 mr-1.5"></i>行程與試算表同步設定</h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-700 text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
-
-      <div class="space-y-3 text-sm">
+      <div class="p-5 space-y-3.5 text-xs">
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">Google Apps Script 網頁應用程式網址 (Web App URL)</label>
-          <input type="url" id="setting-gas-url" placeholder="https://script.google.com/macros/s/.../exec" 
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:border-ai-indigo focus:outline-none" />
-          <p class="text-[11px] text-slate-500 mt-1">請確認 GAS 部署時「誰可以存取」已設為<strong>所有人 (Anyone)</strong>。</p>
+          <label class="block font-bold text-slate-700 mb-1">行程專案名稱</label>
+          <input type="text" id="setTripTitle" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
         </div>
-
-        <div class="pt-2 border-t border-slate-100">
-          <label class="block text-xs font-bold text-slate-700 mb-1">行程標題</label>
-          <input type="text" id="setting-trip-title" value="2027沖繩首發自由行" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
-        </div>
-
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">出發日期</label>
-            <input type="date" id="setting-start-date" value="2027-02-17" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <label class="block font-bold text-slate-700 mb-1">出發日期</label>
+            <input type="date" id="setStartDate" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">回程日期</label>
-            <input type="date" id="setting-end-date" value="2027-02-22" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+            <label class="block font-bold text-slate-700 mb-1">總天數</label>
+            <input type="number" id="setTotalDays" min="1" max="15" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
           </div>
         </div>
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Google Apps Script Web App 網址</label>
+          <input type="url" id="setGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-[11px]" />
+          <p class="text-[11px] text-slate-400 mt-1">填入後點擊「已同步」即可與您的 Google 試算表雙向存取資料。</p>
+        </div>
       </div>
-
-      <div class="pt-3 flex justify-end gap-2 border-t border-slate-200">
-        <button onclick="closeModal('modal-settings')" class="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
-        <button onclick="saveSettings()" class="px-4 py-2 text-xs bg-ai-indigo text-white rounded-lg font-medium">儲存設定並套用</button>
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between">
+        <button onclick="exportJsonBackup()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-100">
+          <i class="fa-solid fa-download mr-1"></i>匯出 JSON 備份
+        </button>
+        <div class="flex gap-2">
+          <button onclick="closeSettingsModal()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
+          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">套用設定</button>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- Toast 提示訊息 -->
-  <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 text-white text-xs px-4 py-3 rounded-xl shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center gap-2 max-w-sm">
-    <span id="toast-msg">訊息提示</span>
-  </div>
+  <div id="toastContainer" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
-  <!-- 模組化 JavaScript 載入 -->
-  <script src="js/config.js"></script>
-  <script src="js/api-sync.js"></script>
-  <script src="js/itinerary-ui.js"></script>
-  <script src="js/map-engine.js"></script>
+  <!-- ==================== 核心應用程式邏輯 ==================== -->
+  <script>
+    // 1. 狀態與預設資料結構
+    const STORAGE_KEY = 'okinawa_card_planner_v2';
+    const DEFAULT_SETTINGS = {
+      tripTitle: '2027沖繩首發自由行',
+      startDate: '2027-02-17',
+      totalDays: 6,
+      gasUrl: ''
+    };
+
+    const CATEGORY_META = {
+      '景點': { color: '#10b981', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'fa-camera-retro' },
+      '美食': { color: '#f59e0b', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200', icon: 'fa-utensils' },
+      '購物': { color: '#2563eb', badgeBg: 'bg-blue-50 text-blue-700 border-blue-200', icon: 'fa-bag-shopping' },
+      '住宿': { color: '#9333ea', badgeBg: 'bg-purple-50 text-purple-700 border-purple-200', icon: 'fa-bed' },
+      '交通': { color: '#475569', badgeBg: 'bg-slate-100 text-slate-700 border-slate-300', icon: 'fa-plane-departure' }
+    };
+
+    // 內建示範資料（首次開啟且 localStorage 無資料時載入）
+    const SEED_CARDS = [
+      { id: 'c1', title: '臺中國際機場', category: '交通', country: '台灣', district: '臺中市・清水區', duration: 120, lat: 24.2647, lng: 120.6206, notes: '起飛前 120 分報到・星宇航空直飛那霸', starred: false, createdAt: 1700000001, isNew: false },
+      { id: 'c2', title: '那霸空港', category: '交通', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2048, lng: 127.6458, notes: '入境通關與單軌電車轉乘', starred: false, createdAt: 1700000002, isNew: false },
+      { id: 'c3', title: '那霸久茂地巢穴酒店 (Nest Hotel Naha Kumoji)', category: '住宿', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2165, lng: 127.6815, notes: '近縣廳前站，前兩晚住宿據點', starred: true, createdAt: 1700000003, isNew: false },
+      { id: 'c4', title: '港川外人住宅區', category: '景點', country: '日本', district: '沖繩縣・浦添市', duration: 60, lat: 26.2654, lng: 127.7163, notes: '文青白屋聚落拍照散步', starred: false, createdAt: 1700000004, isNew: false },
+      { id: 'c5', title: 'oHacorté 港川店', category: '美食', country: '日本', district: '沖繩縣・浦添市', duration: 60, lat: 26.2659, lng: 127.7169, notes: '季節限定水果塔、伴手禮餅乾', starred: true, createdAt: 1700000005, isNew: false },
+      { id: 'c6', title: '美國村 商店街區', category: '景點', country: '日本', district: '沖繩縣・北谷町', duration: 90, lat: 26.3165, lng: 127.7577, notes: '海濱日落與美式商場逛街', starred: false, createdAt: 1700000006, isNew: false },
+      { id: 'c7', title: '那霸西酒店 (Naha-West Inn)', category: '住宿', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2121, lng: 127.6738, notes: '連住 3 晚據點，房間寬敞', starred: true, createdAt: 1700000007, isNew: false },
+      { id: 'c8', title: 'JEF Sunrise Naha (那霸國際通店)', category: '美食', country: '日本', district: '沖繩縣・那霸市', duration: 45, lat: 26.2148, lng: 127.6881, notes: '沖繩限定苦瓜漢堡早餐', starred: false, createdAt: 1700000008, isNew: false },
+      { id: 'c9', title: '第一牧志公設市場 2 樓「道頓堀」', category: '美食', country: '日本', district: '沖繩縣・那霸市', duration: 60, lat: 26.2144, lng: 127.6889, notes: '海鮮代客料理與沖繩家庭料理', starred: true, createdAt: 1700000009, isNew: false },
+      { id: 'c10', title: 'San-A 浦添西海岸 PARCO CITY', category: '購物', country: '日本', district: '沖繩縣・浦添市', duration: 150, lat: 26.2633, lng: 127.6987, notes: '大型海景購物中心、免稅退稅一站購足', starred: true, createdAt: 1700000010, isNew: false }
+    ];
+
+    const SEED_ITINERARY = {
+      1: {
+        startTime: '15:00',
+        items: [
+          { uid: 'i1', cardId: 'c1', customNote: '15:00 報到 ~ 17:00 起飛', transitMode: 'flight', transitMin: 90 },
+          { uid: 'i2', cardId: 'c2', customNote: '19:30 ~ 20:00 入境轉乘', transitMode: 'transit', transitMin: 30 },
+          { uid: 'i3', cardId: 'c3', customNote: '連住 2 晚入住', transitMode: 'walk', transitMin: 0 }
+        ]
+      },
+      2: {
+        startTime: '09:00',
+        items: [
+          { uid: 'i4', cardId: 'c3', customNote: '連住第 2 晚出發', transitMode: 'transit', transitMin: 27 },
+          { uid: 'i5', cardId: 'c4', customNote: '', transitMode: 'walk', transitMin: 9 },
+          { uid: 'i6', cardId: 'c5', customNote: '季節限定水果塔', transitMode: 'transit', transitMin: 32 },
+          { uid: 'i7', cardId: 'c6', customNote: '', transitMode: 'transit', transitMin: 35 }
+        ]
+      },
+      3: {
+        startTime: '09:00',
+        items: [
+          { uid: 'i8', cardId: 'c3', customNote: '前晚住宿退房出發（共連住 2 晚）', isCheckout: true, transitMode: 'transit', transitMin: 28 },
+          { uid: 'i9', cardId: 'c7', customNote: '連住 3 晚先寄放行李', transitMode: 'transit', transitMin: 29 },
+          { uid: 'i10', cardId: 'c8', customNote: '', transitMode: 'walk', transitMin: 5 },
+          { uid: 'i11', cardId: 'c9', customNote: '', transitMode: 'walk', transitMin: 0 }
+        ]
+      },
+      4: { startTime: '09:30', items: [{ uid: 'i12', cardId: 'c7', customNote: '連住第 2 晚', transitMode: 'transit', transitMin: 0 }] },
+      5: { startTime: '09:30', items: [{ uid: 'i13', cardId: 'c7', customNote: '連住第 3 晚', transitMode: 'transit', transitMin: 0 }] },
+      6: { startTime: '09:00', items: [{ uid: 'i14', cardId: 'c7', customNote: '退房前往機場', isCheckout: true, transitMode: 'transit', transitMin: 0 }] }
+    };
+
+    let state = {
+      mode: 'collect', // 'collect' (模式1: 景點蒐集+地圖) | 'plan' (模式2: 行程規劃+地圖)
+      pocketCollapsed: false,
+      compactView: false,
+      radarActive: false,
+      selectedMapDay: 1,
+      highlightedCardId: null,
+      filters: {
+        scope: 'all',
+        category: 'all',
+        status: 'all'
+      },
+      settings: { ...DEFAULT_SETTINGS },
+      cards: [],
+      itinerary: {}
+    };
+
+    let mapInstance = null;
+    let mapMarkersLayer = null;
+    let mapRouteLayer = null;
+    let radarCircleLayer = null;
+    let markerLookup = {};
+
+    // 2. 初始化載入
+    function initApp() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
+          state.cards = Array.isArray(parsed.cards) ? parsed.cards : SEED_CARDS;
+          state.itinerary = parsed.itinerary || SEED_ITINERARY;
+        } catch (e) {
+          state.cards = SEED_CARDS;
+          state.itinerary = SEED_ITINERARY;
+        }
+      } else {
+        state.cards = SEED_CARDS;
+        state.itinerary = SEED_ITINERARY;
+        persistState();
+      }
+
+      ensureItineraryDays();
+      initLeafletMap();
+      updateTripHeaderDisplay();
+      populateRegionDropdowns();
+      populateDaySelectors();
+      switchWorkspaceMode('collect'); // 預設進入模式1方便檢查卡片，隨時一鍵切模式2
+    }
+
+    function persistState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        settings: state.settings,
+        cards: state.cards,
+        itinerary: state.itinerary
+      }));
+    }
+
+    function ensureItineraryDays() {
+      const total = Number(state.settings.totalDays) || 6;
+      for (let d = 1; d <= total; d++) {
+        if (!state.itinerary[d]) {
+          state.itinerary[d] = { startTime: '09:00', items: [] };
+        }
+      }
+    }
+
+    // 3. 雙模式切換核心控制
+    function switchWorkspaceMode(targetMode) {
+      state.mode = targetMode;
+      const tabCollect = document.getElementById('tabModeCollect');
+      const tabPlan = document.getElementById('tabModePlan');
+      const dbPanel = document.getElementById('databasePanel');
+      const boardSection = document.getElementById('itineraryBoardSection');
+      const mapPanel = document.getElementById('mapPanel');
+      const cardsGrid = document.getElementById('databaseCardsContainer');
+      const btnCollapsePocket = document.getElementById('btnCollapsePocket');
+      const btnExpandPocket = document.getElementById('btnExpandPocket');
+      const collectHint = document.getElementById('collectModeHint');
+      const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
+      const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
+      const batchBox = document.getElementById('batchImportBox');
+
+      if (targetMode === 'collect') {
+        // 頁籤樣式
+        tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
+        tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
+
+        // 佈局：左側 65% 資料庫多欄網格 + 右側 35% 檢核地圖
+        dbPanel.classList.remove('hidden', 'w-[300px]');
+        dbPanel.classList.add('w-[65%]');
+        cardsGrid.className = 'flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40';
+        boardSection.classList.add('hidden');
+        boardSection.classList.remove('flex');
+
+        mapPanel.classList.remove('w-[320px]');
+        mapPanel.classList.add('w-[35%]');
+        mapHeaderCollect.classList.remove('hidden');
+        mapHeaderPlan.classList.add('hidden');
+
+        btnCollapsePocket.classList.add('hidden');
+        btnCollapsePocket.classList.remove('flex');
+        btnExpandPocket.classList.add('hidden');
+        collectHint.classList.remove('hidden');
+        batchBox.classList.remove('hidden');
+
+        // 切回蒐集模式時預設顯示全部狀態，方便檢核所有卡片
+        setFilter('status', 'all', false);
+      } else {
+        // 頁籤樣式
+        tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
+        tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
+
+        // 佈局：左側 300px 精簡口袋 + 中間多日看板 + 右側 320px 地圖與交通
+        dbPanel.classList.remove('w-[65%]');
+        if (state.pocketCollapsed) {
+          dbPanel.classList.add('hidden');
+          btnExpandPocket.classList.remove('hidden');
+          btnExpandPocket.classList.add('flex');
+        } else {
+          dbPanel.classList.remove('hidden');
+          dbPanel.classList.add('w-[300px]');
+          btnExpandPocket.classList.add('hidden');
+        }
+        cardsGrid.className = 'flex-1 overflow-y-auto p-2.5 grid grid-cols-1 gap-2.5 content-start bg-slate-50/40';
+
+        boardSection.classList.remove('hidden');
+        boardSection.classList.add('flex');
+
+        mapPanel.classList.remove('w-[35%]');
+        mapPanel.classList.add('w-[320px]');
+        mapHeaderCollect.classList.add('hidden');
+        mapHeaderPlan.classList.remove('hidden');
+
+        btnCollapsePocket.classList.remove('hidden');
+        btnCollapsePocket.classList.add('flex');
+        collectHint.classList.add('hidden');
+        batchBox.classList.add('hidden'); // 規劃模式預設收合批次框，留空間給口袋卡片
+      }
+
+      renderAll();
+      setTimeout(() => {
+        if (mapInstance) mapInstance.invalidateSize();
+      }, 220);
+    }
+
+    function togglePocketCollapse() {
+      state.pocketCollapsed = !state.pocketCollapsed;
+      switchWorkspaceMode('plan');
+    }
+
+    function toggleBatchImportBox() {
+      document.getElementById('batchImportBox').classList.toggle('hidden');
+    }
+
+    function toggleCompactView() {
+      state.compactView = !state.compactView;
+      const btn = document.getElementById('btnCompactView');
+      btn.classList.toggle('bg-blue-50', state.compactView);
+      btn.classList.toggle('text-blue-700', state.compactView);
+      btn.classList.toggle('border-blue-300', state.compactView);
+      renderKanbanBoard();
+    }
+
+    // 4. 篩選與排序邏輯
+    function setFilter(type, value, shouldRender = true) {
+      state.filters[type] = value;
+
+      if (type === 'scope') {
+        document.querySelectorAll('.scope-btn').forEach(btn => {
+          const active = btn.dataset.filterScope === value;
+          btn.className = active
+            ? 'scope-btn px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-800 text-white'
+            : 'scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50';
+        });
+      } else if (type === 'category') {
+        document.querySelectorAll('.cat-btn').forEach(btn => {
+          const active = btn.dataset.filterCat === value;
+          btn.className = active
+            ? 'cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white'
+            : 'cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600';
+        });
+      } else if (type === 'status') {
+        document.querySelectorAll('.status-btn').forEach(btn => {
+          const active = btn.dataset.filterStatus === value;
+          btn.className = active
+            ? 'status-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-700 text-white'
+            : 'status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600';
+        });
+      }
+
+      if (shouldRender) {
+        renderDatabaseCards();
+        if (state.mode === 'collect') renderMapMarkers();
+      }
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      renderDatabaseCards();
+      if (state.mode === 'collect') renderMapMarkers();
+    }
+
+    function getCardScheduledDays(cardId) {
+      const days = [];
+      const total = Number(state.settings.totalDays) || 6;
+      for (let d = 1; d <= total; d++) {
+        const items = state.itinerary[d]?.items || [];
+        if (items.some(it => it.cardId === cardId)) {
+          days.push(d);
+        }
+      }
+      return days;
+    }
+
+    function getFilteredAndSortedCards() {
+      const kw = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+      const countryVal = document.getElementById('countryFilter')?.value || 'all';
+      const cityVal = document.getElementById('cityFilter')?.value || 'all';
+      const sortBy = document.getElementById('sortSelect')?.value || 'newest';
+
+      let list = state.cards.filter(card => {
+        const isDomestic = (card.country || '').includes('台') || (card.country || '').includes('臺');
+        if (state.filters.scope === 'domestic' && !isDomestic) return false;
+        if (state.filters.scope === 'international' && isDomestic) return false;
+
+        if (countryVal !== 'all' && (card.country || '未分類') !== countryVal) return false;
+        if (cityVal !== 'all' && (card.district || '未分類') !== cityVal) return false;
+        if (state.filters.category !== 'all' && card.category !== state.filters.category) return false;
+
+        const scheduledDays = getCardScheduledDays(card.id);
+        if (state.filters.status === 'unscheduled' && scheduledDays.length > 0) return false;
+        if (state.filters.status === 'scheduled' && scheduledDays.length === 0) return false;
+        if (state.filters.status === 'starred' && !card.starred) return false;
+
+        if (kw) {
+          const hay = `${card.title} ${card.district} ${card.country} ${card.notes} ${card.category}`.toLowerCase();
+          if (!hay.includes(kw)) return false;
+        }
+        return true;
+      });
+
+      // 排序邏輯
+      list = [...list];
+      if (sortBy === 'newest') {
+        list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      } else if (sortBy === 'unscheduled') {
+        list.sort((a, b) => {
+          const sa = getCardScheduledDays(a.id).length;
+          const sb = getCardScheduledDays(b.id).length;
+          if (sa !== sb) return sa - sb;
+          return (b.createdAt || 0) - (a.createdAt || 0);
+        });
+      } else if (sortBy === 'district') {
+        list.sort((a, b) => (a.district || 'zzz').localeCompare(b.district || 'zzz', 'zh-Hant'));
+      }
+      // 'original' 維持試算表寫入順序
+
+      return list;
+    }
+
+    // 5. 渲染資料庫卡片（模式1顯示完整核對資訊與一鍵刪改按鈕；模式2顯示精簡排程卡片）
+    function renderDatabaseCards() {
+      const container = document.getElementById('databaseCardsContainer');
+      const cards = getFilteredAndSortedCards();
+      updateCountersAndDropdowns();
+
+      if (cards.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full py-12 text-center text-slate-400">
+            <i class="fa-solid fa-folder-open text-3xl mb-2"></i>
+            <p class="text-xs font-medium">找不到符合條件的景點卡片，請調整篩選或新增資料。</p>
+          </div>`;
+        return;
+      }
+
+      const totalDays = Number(state.settings.totalDays) || 6;
+      const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">排入 Day ${i + 1}</option>`).join('');
+
+      container.innerHTML = cards.map(card => {
+        const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+        const scheduledDays = getCardScheduledDays(card.id);
+        const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+        const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + (card.district || ''))}`;
+
+        // 排程狀態徽章
+        let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">未排入</span>`;
+        if (scheduledDays.length > 0) {
+          const dayLabel = scheduledDays.map(d => `Day ${d}`).join(', ');
+          const stayTag = card.category === '住宿' && scheduledDays.length > 1 ? ` (連住${scheduledDays.length}晚)` : '';
+          statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-600 text-white shadow-2xs"><i class="fa-solid fa-check mr-0.5"></i>${dayLabel}${stayTag}</span>`;
+        }
+
+        const newBadge = card.isNew
+          ? `<span class="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-extrabold tracking-wide shadow-2xs">NEW</span>`
+          : '';
+
+        const coordBadge = hasCoords
+          ? `<span class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded flex items-center gap-1" title="${card.lat}, ${card.lng}"><i class="fa-solid fa-location-dot"></i>已定位</span>`
+          : `<span class="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation"></i>待補座標</span>`;
+
+        const isHighlighted = state.highlightedCardId === card.id;
+
+        return `
+          <div id="db-card-${card.id}"
+            draggable="true"
+            ondragstart="onDragStartCard(event, '${card.id}')"
+            onclick="focusCardOnMap('${card.id}')"
+            class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-2xs flex flex-col justify-between overflow-hidden cursor-pointer ${card.isNew ? 'card-is-new' : ''} ${isHighlighted ? 'card-is-highlighted' : ''}">
+            
+            <!-- 頂部封面與狀態列 -->
+            <div>
+              ${card.image && state.mode === 'collect' ? `
+                <div class="h-28 w-full bg-slate-100 relative overflow-hidden">
+                  <img src="${card.image}" alt="${card.title}" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'" />
+                  <div class="absolute top-2 left-2 flex items-center gap-1 flex-wrap">
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-900/75 text-white backdrop-blur-2xs">${card.district || card.country || '未分類區域'}</span>
+                    ${newBadge}
+                  </div>
+                  <div class="absolute bottom-2 left-2">${statusBadge}</div>
+                </div>
+              ` : `
+                <div class="px-3 pt-2.5 pb-1 flex items-center justify-between gap-1 flex-wrap">
+                  <div class="flex items-center gap-1 flex-wrap">
+                    ${newBadge}
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600">${card.district || card.country || '未分類區域'}</span>
+                  </div>
+                  ${statusBadge}
+                </div>
+              `}
+
+              <!-- 標題與類別 -->
+              <div class="px-3 pt-2 pb-1.5">
+                <div class="flex items-start justify-between gap-1.5">
+                  <h4 class="font-bold text-[13px] text-slate-800 leading-snug line-clamp-2">${card.title}</h4>
+                  <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
+                    <button onclick="toggleStarCard('${card.id}')" title="標記星號二訪"
+                      class="text-sm ${card.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}">
+                      <i class="fa-${card.starred ? 'solid' : 'regular'} fa-star"></i>
+                    </button>
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
+                  </div>
+                </div>
+
+                <!-- 核對關鍵資訊：座標狀態 + 停留時間 -->
+                <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                  ${coordBadge}
+                  <span class="text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                    <i class="fa-regular fa-clock mr-0.5"></i>停留 ${card.duration || 60} 分
+                  </span>
+                </div>
+
+                <!-- 備註完整預覽 -->
+                ${card.notes ? `
+                  <p class="mt-1.5 text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1 leading-relaxed line-clamp-2">
+                    ${card.notes}
+                  </p>
+                ` : ''}
+              </div>
+            </div>
+
+            <!-- 底部快捷操作列 -->
+            <div class="px-2.5 py-2 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-1" onclick="event.stopPropagation()">
+              <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
+                class="text-[11px] font-bold bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-slate-700 cursor-pointer focus:outline-none">
+                <option value="">+ 排入 ▾</option>
+                ${dayOptionsHtml}
+              </select>
+
+              <div class="flex items-center gap-1">
+                <button onclick="focusCardOnMap('${card.id}')" title="在地圖上檢核位置"
+                  class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-blue-50 hover:text-blue-600 text-slate-600 text-xs flex items-center justify-center transition">
+                  <i class="fa-solid fa-location-dot"></i>
+                </button>
+                <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps 核對"
+                  class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 text-slate-600 text-xs flex items-center justify-center transition">
+                  <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                </a>
+                <button onclick="openCardModal('${card.id}')" title="編輯卡片資料"
+                  class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-amber-50 hover:text-amber-600 text-slate-600 text-xs flex items-center justify-center transition">
+                  <i class="fa-solid fa-pen"></i>
+                </button>
+                <button onclick="deleteCard('${card.id}')" title="刪除卡片"
+                  class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-600 text-xs flex items-center justify-center transition">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateCountersAndDropdowns() {
+      const total = state.cards.length;
+      const domestic = state.cards.filter(c => (c.country || '').includes('台') || (c.country || '').includes('臺')).length;
+      const intl = total - domestic;
+
+      document.getElementById('badgeTotalCount').textContent = total;
+      const scheduledUnique = new Set();
+      Object.values(state.itinerary).forEach(day => (day.items || []).forEach(it => scheduledUnique.add(it.cardId)));
+      document.getElementById('badgeScheduledCount').textContent = scheduledUnique.size;
+
+      document.querySelector('[data-filter-scope="all"]').textContent = `全部 (${total})`;
+      document.querySelector('[data-filter-scope="domestic"]').textContent = `TW 國內 (${domestic})`;
+      document.querySelector('[data-filter-scope="international"]').textContent = `✈️ 國外 (${intl})`;
+    }
+
+    function populateRegionDropdowns() {
+      const countrySel = document.getElementById('countryFilter');
+      const citySel = document.getElementById('cityFilter');
+      const prevCountry = countrySel.value;
+      const prevCity = citySel.value;
+
+      const countries = [...new Set(state.cards.map(c => c.country || '未分類'))];
+      countrySel.innerHTML = `<option value="all">全部國家 / 地區</option>` +
+        countries.map(c => `<option value="${c}">${c}</option>`).join('');
+      if (countries.includes(prevCountry)) countrySel.value = prevCountry;
+
+      const filteredForCities = countrySel.value === 'all'
+        ? state.cards
+        : state.cards.filter(c => (c.country || '未分類') === countrySel.value);
+      const cities = [...new Set(filteredForCities.map(c => c.district || '未分類'))];
+      citySel.innerHTML = `<option value="all">全部城市 / 町村</option>` +
+        cities.map(d => `<option value="${d}">${d}</option>`).join('');
+      if (cities.includes(prevCity)) citySel.value = prevCity;
+    }
+
+    function onCountryFilterChange() {
+      populateRegionDropdowns();
+      renderDatabaseCards();
+      if (state.mode === 'collect') renderMapMarkers();
+    }
+
+    // 6. 新增、批次匯入與自動定位（含自動置頂 + NEW 標示）
+    async function geocodePlaceName(query) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const item = data[0];
+          const addr = item.address || {};
+          const country = addr.country || '日本';
+          const pref = addr.state || addr.province || addr.county || '';
+          const city = addr.city || addr.town || addr.village || addr.suburb || '';
+          const district = [pref, city].filter(Boolean).join('・') || country;
+          return {
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon),
+            country,
+            district
+          };
+        }
+      } catch (e) {
+        console.warn('Geocode error:', e);
+      }
+      return null;
+    }
+
+    function extractTitleFromInputLine(line) {
+      let clean = line.trim();
+      if (!clean) return '';
+      // 若貼上 Google Maps 網址，嘗試解析 /place/名稱/ 或 query 參數
+      if (clean.startsWith('http')) {
+        try {
+          const u = new URL(clean);
+          const q = u.searchParams.get('q') || u.searchParams.get('query');
+          if (q) return decodeURIComponent(q).replace(/\+/g, ' ');
+          const placeMatch = u.pathname.match(/\/place\/([^/]+)/);
+          if (placeMatch && placeMatch[1]) {
+            return decodeURIComponent(placeMatch[1]).replace(/\+/g, ' ');
+          }
+        } catch (e) {}
+      }
+      return clean;
+    }
+
+    async function handleBatchImport() {
+      const raw = document.getElementById('batchInputText').value;
+      const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        showToast('請先輸入地點名稱或貼上 Google Maps 網址（一行一筆）', 'amber');
+        return;
+      }
+
+      const btn = document.getElementById('btnBatchImport');
+      const defaultCat = document.getElementById('batchDefaultCategory').value;
+      const autoGeo = document.getElementById('batchAutoGeocode').checked;
+
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>定位入庫中 (${lines.length})...</span>`;
+
+      let addedCount = 0;
+      const nowBase = Date.now();
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isUrl = line.startsWith('http');
+        const title = extractTitleFromInputLine(line);
+        let geo = null;
+
+        if (autoGeo && title && !title.startsWith('http')) {
+          geo = await geocodePlaceName(title);
+        }
+
+        const newCard = {
+          id: 'card_' + nowBase + '_' + i,
+          title: title,
+          category: defaultCat,
+          country: geo ? geo.country : '日本',
+          district: geo ? geo.district : '沖繩縣・待確認行政區',
+          duration: defaultCat === '購物' ? 90 : 60,
+          lat: geo ? geo.lat : null,
+          lng: geo ? geo.lng : null,
+          mapUrl: isUrl ? line : '',
+          notes: '',
+          starred: false,
+          createdAt: nowBase + (lines.length - i), // 確保第一筆在最上方
+          isNew: true
+        };
+
+        state.cards.unshift(newCard);
+        addedCount++;
+      }
+
+      document.getElementById('batchInputText').value = '';
+      document.getElementById('sortSelect').value = 'newest'; // 自動切回最新加入優先
+      persistState();
+      populateRegionDropdowns();
+      renderAll();
+
+      // 捲動資料庫頂部讓使用者立刻看到剛新增的 NEW 卡片
+      document.getElementById('databaseCardsContainer').scrollTop = 0;
+
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-magnifying-glass-location"></i> <span>批次定位並置頂入庫</span>`;
+      showToast(`已成功新增 ${addedCount} 筆卡片並自動置頂標示 NEW！`, 'emerald');
+    }
+
+    async function batchUpdateAllDistricts() {
+      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認')) && c.title);
+      if (targets.length === 0) {
+        showToast('所有卡片皆已有行政區資訊！', 'blue');
+        return;
+      }
+      showToast(`正在為 ${targets.length} 筆卡片補齊行政區與座標...`, 'blue');
+      for (const card of targets) {
+        const geo = await geocodePlaceName(card.title);
+        if (geo) {
+          card.lat = card.lat || geo.lat;
+          card.lng = card.lng || geo.lng;
+          card.country = geo.country;
+          card.district = geo.district;
+        }
+      }
+      persistState();
+      populateRegionDropdowns();
+      renderAll();
+      showToast('行政區與座標補齊完成！', 'emerald');
+    }
+
+    // 7. 單筆新增 / 編輯 / 刪除 / 星號
+    function openCardModal(cardId = null) {
+      const modal = document.getElementById('cardModal');
+      const titleEl = document.getElementById('cardModalTitle');
+      const assignSel = document.getElementById('fieldAssignDay');
+      const assignBox = document.getElementById('quickAssignOnSaveBox');
+
+      const totalDays = Number(state.settings.totalDays) || 6;
+      assignSel.innerHTML = `<option value="">僅存入口袋資料庫</option>` +
+        Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">直接排入 Day ${i + 1}</option>`).join('');
+
+      if (cardId) {
+        const card = state.cards.find(c => c.id === cardId);
+        if (!card) return;
+        titleEl.textContent = '編輯卡片資料';
+        document.getElementById('editCardId').value = card.id;
+        document.getElementById('fieldTitle').value = card.title || '';
+        document.getElementById('fieldCategory').value = card.category || '景點';
+        document.getElementById('fieldCountry').value = card.country || '日本';
+        document.getElementById('fieldDistrict').value = card.district || '';
+        document.getElementById('fieldDuration').value = card.duration || 60;
+        document.getElementById('fieldLat').value = card.lat || '';
+        document.getElementById('fieldLng').value = card.lng || '';
+        document.getElementById('fieldMapUrl').value = card.mapUrl || '';
+        document.getElementById('fieldImage').value = card.image || '';
+        document.getElementById('fieldNotes').value = card.notes || '';
+        document.getElementById('fieldStarred').checked = !!card.starred;
+        assignBox.classList.add('hidden');
+      } else {
+        titleEl.textContent = '新增口袋卡片（儲存後自動置頂）';
+        document.getElementById('editCardId').value = '';
+        document.getElementById('fieldTitle').value = '';
+        document.getElementById('fieldCategory').value = '美食';
+        document.getElementById('fieldCountry').value = '日本';
+        document.getElementById('fieldDistrict').value = '沖繩縣・那霸市';
+        document.getElementById('fieldDuration').value = 60;
+        document.getElementById('fieldLat').value = '';
+        document.getElementById('fieldLng').value = '';
+        document.getElementById('fieldMapUrl').value = '';
+        document.getElementById('fieldImage').value = '';
+        document.getElementById('fieldNotes').value = '';
+        document.getElementById('fieldStarred').checked = false;
+        assignBox.classList.remove('hidden');
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeCardModal() {
+      document.getElementById('cardModal').classList.add('hidden');
+    }
+
+    async function autoGeocodeModalFields() {
+      const name = document.getElementById('fieldTitle').value.trim();
+      if (!name) {
+        showToast('請先輸入地點名稱', 'amber');
+        return;
+      }
+      showToast('正在抓取座標與行政區...', 'blue');
+      const geo = await geocodePlaceName(name);
+      if (geo) {
+        document.getElementById('fieldLat').value = geo.lat;
+        document.getElementById('fieldLng').value = geo.lng;
+        document.getElementById('fieldCountry').value = geo.country;
+        document.getElementById('fieldDistrict').value = geo.district;
+        showToast(`已取得座標 (${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)})`, 'emerald');
+      } else {
+        showToast('查無精確座標，請手動輸入或貼上地圖座標', 'amber');
+      }
+    }
+
+    async function saveCardFromModal() {
+      const id = document.getElementById('editCardId').value;
+      const title = document.getElementById('fieldTitle').value.trim();
+      if (!title) {
+        showToast('地點名稱為必填項目', 'amber');
+        return;
+      }
+
+      let lat = parseFloat(document.getElementById('fieldLat').value);
+      let lng = parseFloat(document.getElementById('fieldLng').value);
+      let country = document.getElementById('fieldCountry').value.trim() || '日本';
+      let district = document.getElementById('fieldDistrict').value.trim();
+
+      // 若未填座標，儲存時自動嘗試抓取一次
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        const geo = await geocodePlaceName(title);
+        if (geo) {
+          lat = geo.lat;
+          lng = geo.lng;
+          if (!district) district = geo.district;
+        }
+      }
+
+      const payload = {
+        title,
+        category: document.getElementById('fieldCategory').value,
+        country,
+        district: district || '沖繩縣',
+        duration: parseInt(document.getElementById('fieldDuration').value, 10) || 60,
+        lat: Number.isFinite(lat) ? lat : null,
+        lng: Number.isFinite(lng) ? lng : null,
+        mapUrl: document.getElementById('fieldMapUrl').value.trim(),
+        image: document.getElementById('fieldImage').value.trim(),
+        notes: document.getElementById('fieldNotes').value.trim(),
+        starred: document.getElementById('fieldStarred').checked
+      };
+
+      if (id) {
+        const idx = state.cards.findIndex(c => c.id === id);
+        if (idx !== -1) {
+          state.cards[idx] = { ...state.cards[idx], ...payload };
+        }
+        showToast('卡片資料已更新', 'emerald');
+      } else {
+        const newCard = {
+          id: 'card_' + Date.now(),
+          ...payload,
+          createdAt: Date.now(),
+          isNew: true
+        };
+        state.cards.unshift(newCard);
+        document.getElementById('sortSelect').value = 'newest';
+
+        const assignDay = parseInt(document.getElementById('fieldAssignDay').value, 10);
+        if (assignDay) {
+          addCardToDay(newCard.id, assignDay);
+        }
+        showToast('已新增卡片並自動置頂！', 'emerald');
+      }
+
+      closeCardModal();
+      persistState();
+      populateRegionDropdowns();
+      renderAll();
+      if (!id) {
+        document.getElementById('databaseCardsContainer').scrollTop = 0;
+        focusCardOnMap(state.cards[0].id);
+      }
+    }
+
+    function deleteCard(cardId) {
+      const card = state.cards.find(c => c.id === cardId);
+      if (!card) return;
+      if (!confirm(`確定要刪除「${card.title}」嗎？（若已排入行程也會一併移除）`)) return;
+
+      state.cards = state.cards.filter(c => c.id !== cardId);
+      Object.values(state.itinerary).forEach(day => {
+        day.items = (day.items || []).filter(it => it.cardId !== cardId);
+      });
+
+      persistState();
+      populateRegionDropdowns();
+      renderAll();
+      showToast('已刪除卡片', 'slate');
+    }
+
+    function toggleStarCard(cardId) {
+      const card = state.cards.find(c => c.id === cardId);
+      if (!card) return;
+      card.starred = !card.starred;
+      persistState();
+      renderDatabaseCards();
+    }
+
+    // 8. 多日行程看板與時間自動推算
+    function getFormattedDateInfo(dayNum) {
+      const start = new Date(state.settings.startDate + 'T00:00:00');
+      if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
+      const target = new Date(start.getTime() + (dayNum - 1) * 86400000);
+      const mm = String(target.getMonth() + 1).padStart(2, '0');
+      const dd = String(target.getDate()).padStart(2, '0');
+      const weeks = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+      return { md: `${mm}/${dd}`, week: weeks[target.getDay()] };
+    }
+
+    function timeToMinutes(hhmm) {
+      const [h, m] = (hhmm || '09:00').split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    }
+
+    function minutesToTime(totalMins) {
+      const mins = ((totalMins % 1440) + 1440) % 1440;
+      const h = String(Math.floor(mins / 60)).padStart(2, '0');
+      const m = String(mins % 60).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+
+    function haversineKm(lat1, lng1, lat2, lng2) {
+      if (![lat1, lng1, lat2, lng2].every(v => Number.isFinite(Number(v)) && Number(v) !== 0)) return 0;
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function estimateTransit(cardA, cardB) {
+      if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0 };
+      const km = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+      const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
+      if (km === 0) return { mode: 'transit', min: 20, km: 0 };
+
+      if (profile === 'walk' || (profile === 'smart' && km <= 1.1)) {
+        return { mode: 'walk', min: Math.max(5, Math.round(km * 14)), km };
+      }
+      if (profile === 'drive') {
+        return { mode: 'drive', min: Math.max(8, Math.round(km * 2.2 + 5)), km };
+      }
+      return { mode: 'transit', min: Math.max(10, Math.round(km * 3.5 + 10)), km };
+    }
+
+    function renderKanbanBoard() {
+      const totalDays = Number(state.settings.totalDays) || 6;
+      const navPills = document.getElementById('dayNavPills');
+      const board = document.getElementById('kanbanColumnsContainer');
+
+      // 頂部天數膠囊
+      navPills.innerHTML = Array.from({ length: totalDays }, (_, i) => {
+        const d = i + 1;
+        const info = getFormattedDateInfo(d);
+        const count = (state.itinerary[d]?.items || []).length;
+        const active = state.selectedMapDay === d;
+        return `
+          <button onclick="selectDayFocus(${d})"
+            class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 transition ${active ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}">
+            <span>Day ${d}</span>
+            <span class="font-normal opacity-80">${info.md}</span>
+            <span class="px-1.5 rounded-full text-[10px] ${active ? 'bg-white/25 text-white' : 'bg-white text-slate-600'}">${count}</span>
+          </button>`;
+      }).join('');
+
+      // 每日欄位
+      board.innerHTML = Array.from({ length: totalDays }, (_, i) => {
+        const d = i + 1;
+        const info = getFormattedDateInfo(d);
+        const dayData = state.itinerary[d] || { startTime: '09:00', items: [] };
+        const items = dayData.items || [];
+
+        let cursorMin = timeToMinutes(dayData.startTime);
+        let totalActMin = 0;
+        let totalTransitMin = 0;
+        let pinCounter = 0;
+
+        const cardsHtml = items.map((item, idx) => {
+          const card = state.cards.find(c => c.id === item.cardId);
+          if (!card) return '';
+          const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const dur = Number(card.duration) || 60;
+          const startStr = minutesToTime(cursorMin);
+          const endStr = minutesToTime(cursorMin + dur);
+          cursorMin += dur;
+          if (card.category !== '住宿' && card.category !== '交通') totalActMin += dur;
+
+          const nextItem = items[idx + 1];
+          const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
+          let transitMin = Number(item.transitMin) || 0;
+          if (nextCard && transitMin === 0) {
+            transitMin = estimateTransit(card, nextCard).min;
+          }
+          if (nextCard) {
+            totalTransitMin += transitMin;
+            cursorMin += transitMin;
+          }
+
+          if (card.category !== '住宿' && card.category !== '交通') pinCounter++;
+          const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '交通' ? '行' : pinCounter);
+
+          const transitLabelMap = {
+            walk: '🚶 慢活步行',
+            transit: '🚆 單軌+步行 / 客運',
+            drive: '🚗 自駕移動',
+            flight: '✈️ 航空飛航'
+          };
+
+          return `
+            <div draggable="true"
+              ondragstart="onDragStartItineraryItem(event, ${d}, ${idx})"
+              class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 p-2.5 shadow-2xs transition group">
+              <div class="flex items-center justify-between gap-1 mb-1">
+                <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700">
+                  ${item.customNote && item.customNote.includes('~') ? item.customNote : `${startStr} ~ ${endStr}`}
+                </span>
+                <div class="flex items-center gap-1">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
+                  <button onclick="removeItineraryItem(${d}, ${idx})" class="text-slate-300 hover:text-rose-600 text-xs px-1">
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="flex items-start gap-2 cursor-pointer" onclick="focusCardOnMap('${card.id}')">
+                <span class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5"
+                  style="background-color:${meta.color}">${badgeNum}</span>
+                <div class="min-w-0 flex-1">
+                  <h5 class="font-bold text-xs text-slate-800 truncate">${card.title}</h5>
+                  ${!state.compactView ? `
+                    <p class="text-[11px] text-slate-500 truncate mt-0.5">
+                      ${card.district || ''}・停留${dur}分${card.notes ? '・' + card.notes : ''}
+                    </p>
+                  ` : ''}
+                </div>
+              </div>
+
+              ${!state.compactView ? `
+                <div class="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
+                  <button onclick="addReturnToHotel(${d})"
+                    class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-medium">
+                    ↩ 加入當日回程
+                  </button>
+                  ${card.category === '住宿' && d < totalDays ? `
+                    <button onclick="extendHotelToNextDay(${d}, '${card.id}')"
+                      class="px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold">
+                      🏨 延續至 Day ${d + 1}
+                    </button>
+                  ` : ''}
+                </div>
+              ` : ''}
+            </div>
+
+            ${nextCard ? `
+              <div class="my-1.5 flex justify-center">
+                <button onclick="cycleTransitMode(${d}, ${idx})"
+                  class="px-2.5 py-0.5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-[10px] font-semibold text-slate-600 shadow-2xs flex items-center gap-1">
+                  <span>↓ ${transitLabelMap[item.transitMode] || '🚆 大眾運輸'} 約 ${transitMin} 分</span>
+                </button>
+              </div>
+            ` : ''}
+          `;
+        }).join('');
+
+        const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : dayData.startTime;
+
+        return `
+          <div id="day-col-${d}"
+            ondragover="onDragOverColumn(event)"
+            ondragleave="onDragLeaveColumn(event)"
+            ondrop="onDropOnDay(event, ${d})"
+            class="w-[310px] shrink-0 bg-slate-50/90 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
+            
+            <!-- 欄位標頭 -->
+            <div class="p-3 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
+              <div class="flex items-center justify-between">
+                <div class="flex items-baseline gap-1.5">
+                  <span class="font-extrabold text-sm text-blue-700">Day ${d}</span>
+                  <span class="text-xs font-semibold text-slate-500">${info.md} (${info.week})</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <span>出發</span>
+                    <input type="time" value="${dayData.startTime}" onchange="updateDayStartTime(${d}, this.value)"
+                      class="bg-transparent font-bold text-slate-700 focus:outline-none w-14" />
+                  </label>
+                  <button onclick="selectDayFocus(${d})" title="在地圖檢視當日路線"
+                    class="w-6 h-6 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs flex items-center justify-center">
+                    <i class="fa-regular fa-map"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500">
+                <span>共 ${items.length} 項・活動 ${(totalActMin / 60).toFixed(1).replace('.0', '')}h</span>
+                <span class="text-blue-600 font-semibold">移動${totalTransitMin}分・約${endTimeStr}結束</span>
+              </div>
+            </div>
+
+            <!-- 行程卡片清單 -->
+            <div class="flex-1 overflow-y-auto p-2.5 space-y-1">
+              ${items.length > 0 ? cardsHtml : `
+                <div class="h-32 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-4 text-center">
+                  <i class="fa-solid fa-hand-pointer mb-1 text-base"></i>
+                  <span>從左側口袋拖曳卡片至此，或點擊卡片「+ 排入 Day ${d}」</span>
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 9. 看板互動與拖曳操作
+    let dragPayload = null;
+
+    function onDragStartCard(e, cardId) {
+      dragPayload = { type: 'pocket', cardId };
+      e.dataTransfer.effectAllowed = 'copyMove';
+    }
+
+    function onDragStartItineraryItem(e, fromDay, fromIndex) {
+      dragPayload = { type: 'itinerary', fromDay, fromIndex };
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function onDragOverColumn(e) {
+      e.preventDefault();
+      e.currentTarget.classList.add('drop-zone-active');
+    }
+
+    function onDragLeaveColumn(e) {
+      e.currentTarget.classList.remove('drop-zone-active');
+    }
+
+    function onDropOnDay(e, targetDay) {
+      e.preventDefault();
+      e.currentTarget.classList.remove('drop-zone-active');
+      if (!dragPayload) return;
+
+      if (dragPayload.type === 'pocket') {
+        addCardToDay(dragPayload.cardId, targetDay);
+      } else if (dragPayload.type === 'itinerary') {
+        const { fromDay, fromIndex } = dragPayload;
+        const [moved] = state.itinerary[fromDay].items.splice(fromIndex, 1);
+        if (moved) {
+          state.itinerary[targetDay].items.push(moved);
+        }
+        persistState();
+        renderAll();
+      }
+      dragPayload = null;
+    }
+
+    function quickAssignCardToDay(cardId, dayStr) {
+      const day = parseInt(dayStr, 10);
+      if (!day) return;
+      addCardToDay(cardId, day);
+    }
+
+    function addCardToDay(cardId, dayNum) {
+      ensureItineraryDays();
+      const card = state.cards.find(c => c.id === cardId);
+      if (!card) return;
+      state.itinerary[dayNum].items.push({
+        uid: 'it_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        cardId,
+        customNote: '',
+        transitMode: 'transit',
+        transitMin: 0
+      });
+      state.selectedMapDay = dayNum;
+      persistState();
+      renderAll();
+      showToast(`已將「${card.title}」排入 Day ${dayNum}`, 'emerald');
+    }
+
+    function removeItineraryItem(dayNum, idx) {
+      state.itinerary[dayNum].items.splice(idx, 1);
+      persistState();
+      renderAll();
+    }
+
+    function updateDayStartTime(dayNum, val) {
+      state.itinerary[dayNum].startTime = val || '09:00';
+      persistState();
+      renderKanbanBoard();
+    }
+
+    function cycleTransitMode(dayNum, idx) {
+      const item = state.itinerary[dayNum]?.items[idx];
+      if (!item) return;
+      const modes = ['transit', 'walk', 'drive'];
+      const next = modes[(modes.indexOf(item.transitMode) + 1) % modes.length];
+      item.transitMode = next;
+      const cardA = state.cards.find(c => c.id === item.cardId);
+      const nextItem = state.itinerary[dayNum].items[idx + 1];
+      const cardB = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
+      const km = cardA && cardB ? haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng) : 2;
+      item.transitMin = next === 'walk' ? Math.max(5, Math.round(km * 14)) : (next === 'drive' ? Math.max(8, Math.round(km * 2.2 + 5)) : Math.max(10, Math.round(km * 3.5 + 10)));
+      persistState();
+      renderAll();
+    }
+
+    function extendHotelToNextDay(dayNum, cardId) {
+      const nextDay = dayNum + 1;
+      const totalDays = Number(state.settings.totalDays) || 6;
+      if (nextDay > totalDays) return;
+      ensureItineraryDays();
+      const exists = state.itinerary[nextDay].items.some(it => it.cardId === cardId);
+      if (exists) {
+        showToast(`Day ${nextDay} 已有此住宿紀錄`, 'amber');
+        return;
+      }
+      state.itinerary[nextDay].items.unshift({
+        uid: 'hotel_' + Date.now(),
+        cardId,
+        customNote: '連住出發 / 退房',
+        isCheckout: true,
+        transitMode: 'transit',
+        transitMin: 0
+      });
+      persistState();
+      renderAll();
+      showToast(`已將住宿延續至 Day ${nextDay}`, 'emerald');
+    }
+
+    function addReturnToHotel(dayNum) {
+      const items = state.itinerary[dayNum]?.items || [];
+      const hotelItem = items.find(it => {
+        const c = state.cards.find(card => card.id === it.cardId);
+        return c && c.category === '住宿';
+      });
+      if (!hotelItem) {
+        showToast('當日尚未設定住宿卡片，請先排入住宿', 'amber');
+        return;
+      }
+      addCardToDay(hotelItem.cardId, dayNum);
+    }
+
+    function scrollBoard(offset) {
+      document.getElementById('kanbanColumnsContainer').scrollBy({ left: offset, behavior: 'smooth' });
+    }
+
+    function selectDayFocus(dayNum) {
+      state.selectedMapDay = dayNum;
+      document.getElementById('mapDaySelect').value = dayNum;
+      renderKanbanBoard();
+      renderMapMarkers();
+      const col = document.getElementById(`day-col-${dayNum}`);
+      if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'nearest' });
+    }
+
+    function onMapDayChange() {
+      state.selectedMapDay = parseInt(document.getElementById('mapDaySelect').value, 10) || 1;
+      renderKanbanBoard();
+      renderMapMarkers();
+    }
+
+    function recalculateAllDayTimes() {
+      renderKanbanBoard();
+      renderMapMarkers();
+    }
+
+    // 10. Leaflet 地圖與雙向連動檢核
+    function initLeafletMap() {
+      mapInstance = L.map('mapContainer', { zoomControl: true }).setView([26.2124, 127.6809], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(mapInstance);
+
+      mapMarkersLayer = L.layerGroup().addTo(mapInstance);
+      mapRouteLayer = L.layerGroup().addTo(mapInstance);
+
+      mapInstance.on('click', (e) => {
+        if (state.radarActive && state.mode === 'plan') {
+          runPocketRadar(e.latlng.lat, e.latlng.lng);
+        }
+      });
+    }
+
+    function createColoredPinIcon(color, labelText) {
+      return L.divIcon({
+        className: 'custom-map-pin',
+        html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:9999px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">${labelText}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        popupAnchor: [0, -14]
+      });
+    }
+
+    function renderMapMarkers() {
+      if (!mapInstance) return;
+      mapMarkersLayer.clearLayers();
+      mapRouteLayer.clearLayers();
+      markerLookup = {};
+
+      if (state.mode === 'collect') {
+        // 模式 1：顯示所有目前篩選條件下的口袋卡片圖釘，方便檢核座標
+        const cards = getFilteredAndSortedCards().filter(c => Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) && Number(c.lat) !== 0);
+        document.getElementById('mapPinCounter').textContent = `${cards.length} 個已定位圖釘`;
+
+        const bounds = [];
+        cards.forEach(card => {
+          const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
+          const marker = L.marker([card.lat, card.lng], {
+            icon: createColoredPinIcon(meta.color, card.category[0])
+          });
+
+          marker.bindPopup(`
+            <div class="text-xs space-y-1 min-w-[180px]">
+              <div class="font-bold text-slate-800">${card.title}</div>
+              <div class="text-[11px] text-slate-500">${card.district || ''}・${card.category}</div>
+              <div class="text-[10px] font-mono text-slate-400">(${Number(card.lat).toFixed(4)}, ${Number(card.lng).toFixed(4)})</div>
+              <div class="pt-1 flex gap-1.5">
+                <a href="${gmapsUrl}" target="_blank" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">Google Maps 核對</a>
+                <button onclick="openCardModal('${card.id}')" class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">編輯</button>
+              </div>
+            </div>
+          `);
+
+          marker.on('click', () => {
+            highlightDatabaseCard(card.id);
+          });
+
+          marker.addTo(mapMarkersLayer);
+          markerLookup[card.id] = marker;
+          bounds.push([card.lat, card.lng]);
+        });
+
+        if (bounds.length > 0 && !state.highlightedCardId) {
+          mapInstance.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+        }
+      } else {
+        // 模式 2：顯示當日行程路線、序號圖釘與移動總計
+        const d = state.selectedMapDay;
+        const items = state.itinerary[d]?.items || [];
+        const coords = [];
+        const legsHtml = [];
+        let totalMin = 0;
+        let totalKm = 0;
+        let stopIndex = 0;
+
+        items.forEach((item, idx) => {
+          const card = state.cards.find(c => c.id === item.cardId);
+          if (!card) return;
+          const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+          const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+
+          if (card.category !== '住宿' && card.category !== '交通') stopIndex++;
+          const label = card.category === '住宿' ? '宿' : (card.category === '交通' ? '行' : stopIndex);
+
+          if (hasCoords) {
+            const marker = L.marker([card.lat, card.lng], {
+              icon: createColoredPinIcon(meta.color, label)
+            }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${card.district || ''}</div>`);
+            marker.addTo(mapMarkersLayer);
+            markerLookup[card.id] = marker;
+            coords.push([card.lat, card.lng]);
+          }
+
+          const nextItem = items[idx + 1];
+          const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
+          if (nextCard) {
+            const est = estimateTransit(card, nextCard);
+            const legMin = Number(item.transitMin) || est.min;
+            totalMin += legMin;
+            totalKm += est.km;
+            const gdir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(card.title)}&destination=${encodeURIComponent(nextCard.title)}`;
+            legsHtml.push(`
+              <div class="flex items-center justify-between bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                <span class="truncate flex-1 pr-1">${idx + 1}→${idx + 2} ${nextCard.title}</span>
+                <span class="font-bold text-blue-700 shrink-0 mr-1.5">約 ${legMin} 分</span>
+                <a href="${gdir}" target="_blank" class="text-blue-600 underline shrink-0">Google</a>
+              </div>
+            `);
+          }
+        });
+
+        if (coords.length > 1) {
+          L.polyline(coords, { color: '#2563eb', weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(mapRouteLayer);
+        }
+        if (coords.length > 0) {
+          mapInstance.fitBounds(coords, { padding: [40, 40], maxZoom: 14 });
+        }
+
+        document.getElementById('mapPinCounter').textContent = `Day ${d} 共 ${coords.length} 點`;
+        document.getElementById('dailyTransitSummary').textContent = `約 ${totalMin} 分 (${totalKm.toFixed(1)} km)`;
+        document.getElementById('dailyTransitLegsList').innerHTML = legsHtml.length > 0
+          ? legsHtml.join('')
+          : `<div class="text-slate-400 text-center py-1">當日尚無跨點移動段次</div>`;
+      }
+    }
+
+    function fitMapToFilteredCards() {
+      state.highlightedCardId = null;
+      renderDatabaseCards();
+      renderMapMarkers();
+    }
+
+    function focusCardOnMap(cardId) {
+      const card = state.cards.find(c => c.id === cardId);
+      if (!card) return;
+      state.highlightedCardId = cardId;
+      if (card.isNew) {
+        card.isNew = false; // 點擊檢核後移除 NEW 閃爍
+        persistState();
+      }
+      renderDatabaseCards();
+
+      if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0 && mapInstance) {
+        mapInstance.setView([card.lat, card.lng], 15, { animate: true });
+        const marker = markerLookup[cardId];
+        if (marker) marker.openPopup();
+      } else {
+        showToast('此卡片尚未設定座標，可點擊編輯按鈕自動抓取', 'amber');
+      }
+    }
+
+    function highlightDatabaseCard(cardId) {
+      state.highlightedCardId = cardId;
+      renderDatabaseCards();
+      const el = document.getElementById(`db-card-${cardId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function toggleRadarMode() {
+      state.radarActive = !state.radarActive;
+      document.getElementById('radarStatusText').textContent = state.radarActive ? '開啟中（請點地圖）' : '關閉';
+      if (!state.radarActive && radarCircleLayer) {
+        mapRouteLayer.removeLayer(radarCircleLayer);
+        radarCircleLayer = null;
+      }
+    }
+
+    function runPocketRadar(lat, lng) {
+      if (radarCircleLayer) mapRouteLayer.removeLayer(radarCircleLayer);
+      radarCircleLayer = L.circle([lat, lng], { radius: 1500, color: '#f59e0b', fillOpacity: 0.12 }).addTo(mapRouteLayer);
+
+      const nearby = state.cards.filter(c => haversineKm(lat, lng, c.lat, c.lng) > 0 && haversineKm(lat, lng, c.lat, c.lng) <= 1.5);
+      showToast(`周邊 1.5km 內找到 ${nearby.length} 個口袋地點`, 'amber');
+      nearby.forEach(c => {
+        const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
+        L.marker([c.lat, c.lng], { icon: createColoredPinIcon(meta.color, '★') })
+          .bindPopup(`<div class="text-xs font-bold">🎯 ${c.title}</div><div class="text-[11px]">${c.district || ''}</div>`)
+          .addTo(mapRouteLayer);
+      });
+    }
+
+    // 11. Google Apps Script 試算表雙向同步與設定
+    function updateTripHeaderDisplay() {
+      document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle;
+      const days = Number(state.settings.totalDays) || 6;
+      const start = new Date(state.settings.startDate + 'T00:00:00');
+      let endStr = '';
+      if (!isNaN(start.getTime())) {
+        const end = new Date(start.getTime() + (days - 1) * 86400000);
+        endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+      }
+      document.getElementById('tripDateDisplay').textContent = `${state.settings.startDate} ~ ${endStr} (${days}天${Math.max(0, days - 1)}夜)`;
+
+      const pill = document.getElementById('syncStatusPill');
+      const statusText = document.getElementById('syncStatusText');
+      if (state.settings.gasUrl) {
+        pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200';
+        statusText.textContent = 'Google 試算表已連線';
+      } else {
+        pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200';
+        statusText.textContent = '本機暫存模式（未綁定 GAS）';
+      }
+    }
+
+    function populateDaySelectors() {
+      const totalDays = Number(state.settings.totalDays) || 6;
+      const sel = document.getElementById('mapDaySelect');
+      sel.innerHTML = Array.from({ length: totalDays }, (_, i) => {
+        const d = i + 1;
+        const info = getFormattedDateInfo(d);
+        return `<option value="${d}">Day ${d} (${info.md} (${info.week}))</option>`;
+      }).join('');
+      sel.value = state.selectedMapDay;
+    }
+
+    function openSettingsModal() {
+      document.getElementById('setTripTitle').value = state.settings.tripTitle;
+      document.getElementById('setStartDate').value = state.settings.startDate;
+      document.getElementById('setTotalDays').value = state.settings.totalDays;
+      document.getElementById('setGasUrl').value = state.settings.gasUrl || '';
+      document.getElementById('settingsModal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    function saveSettings() {
+      state.settings.tripTitle = document.getElementById('setTripTitle').value.trim() || DEFAULT_SETTINGS.tripTitle;
+      state.settings.startDate = document.getElementById('setStartDate').value || DEFAULT_SETTINGS.startDate;
+      state.settings.totalDays = Math.max(1, parseInt(document.getElementById('setTotalDays').value, 10) || 6);
+      state.settings.gasUrl = document.getElementById('setGasUrl').value.trim();
+
+      ensureItineraryDays();
+      persistState();
+      updateTripHeaderDisplay();
+      populateDaySelectors();
+      renderAll();
+      closeSettingsModal();
+      showToast('設定已儲存並套用', 'emerald');
+    }
+
+    async function syncWithGoogleSheets() {
+      persistState();
+      if (!state.settings.gasUrl) {
+        showToast('已儲存至本機；如需雲端同步請點齒輪填入 GAS 網址', 'blue');
+        return;
+      }
+      const icon = document.getElementById('syncIcon');
+      icon.classList.add('fa-spin');
+      try {
+        const res = await fetch(state.settings.gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'sync',
+            settings: state.settings,
+            cards: state.cards,
+            itinerary: state.itinerary
+          })
+        });
+        const data = await res.json();
+        if (data && Array.isArray(data.cards)) {
+          state.cards = data.cards;
+          if (data.itinerary) state.itinerary = data.itinerary;
+          persistState();
+          renderAll();
+        }
+        showToast('已與 Google 試算表完成雙向同步！', 'emerald');
+      } catch (err) {
+        showToast('雲端同步連線失敗，資料已安全保留於本機', 'amber');
+      } finally {
+        icon.classList.remove('fa-spin');
+      }
+    }
+
+    function saveAndSyncAll() {
+      syncWithGoogleSheets();
+    }
+
+    function exportJsonBackup() {
+      const blob = new Blob([JSON.stringify({ settings: state.settings, cards: state.cards, itinerary: state.itinerary }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${state.settings.tripTitle}_備份.json`;
+      a.click();
+    }
+
+    function showToast(msg, color = 'slate') {
+      const container = document.getElementById('toastContainer');
+      const colorMap = {
+        emerald: 'bg-emerald-600 text-white',
+        blue: 'bg-blue-600 text-white',
+        amber: 'bg-amber-500 text-white',
+        slate: 'bg-slate-800 text-white'
+      };
+      const el = document.createElement('div');
+      el.className = `px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-2 transition-all ${colorMap[color] || colorMap.slate}`;
+      el.innerHTML = `<i class="fa-solid fa-circle-check"></i><span>${msg}</span>`;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+
+    function renderAll() {
+      renderDatabaseCards();
+      if (state.mode === 'plan') {
+        renderKanbanBoard();
+      }
+      renderMapMarkers();
+    }
+
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
 </body>
 </html>
