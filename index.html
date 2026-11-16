@@ -192,7 +192,7 @@
       <div class="flex-1 overflow-y-auto p-2.5 space-y-2.5 bg-slate-50/50" id="pocket-dropzone" data-day="pocket"></div>
     </section>
 
-    <!-- ==================== 中欄：每日行程看板 (Kanban + 跨國時間軸) ==================== -->
+    <!-- ==================== 中欄：每日行程看板 (Kanban + 跨國機票時間軸) ==================== -->
     <section id="panel-itinerary" class="hidden lg:flex flex-1 min-w-[320px] flex-col bg-washi-bg overflow-hidden h-full">
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center gap-1 overflow-x-auto py-0.5" id="kanban-day-nav-bar"></div>
@@ -291,7 +291,7 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">分類</label>
-            <select id="field-category" onchange="toggleMultiDayStayUI()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
+            <select id="field-category" onchange="handleCategoryFieldChange()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white">
               <option value="景點">🏞️ 景點</option>
               <option value="美食">🍜 美食</option>
               <option value="購物">🛍️ 購物</option>
@@ -356,7 +356,7 @@
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">預計停留(分)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1" id="label-duration-field">預計停留(分)</label>
             <input type="number" id="field-duration" value="60" min="0" step="5" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div id="single-day-select-wrap">
@@ -365,6 +365,47 @@
               <option value="pocket">📌 僅存於資料庫</option>
             </select>
           </div>
+        </div>
+
+        <!-- 機票真實起迄時刻與時差錨定設定（僅在分類為「交通」時顯示） -->
+        <div id="flight-schedule-box" class="hidden bg-indigo-50/80 border border-indigo-200 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+              <i data-lucide="plane-takeoff" class="w-4 h-4 text-indigo-600"></i>
+              <span>機票起迄時刻與時差設定（設定於出發機場）</span>
+            </span>
+            <button type="button" onclick="clearFlightScheduleInputs()" class="text-[11px] text-slate-500 hover:text-red-600 underline">
+              清除航班時刻
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">出發地起飛時間</label>
+              <input type="time" id="flight-dep-time" onchange="syncFlightInputsToHoursField()"
+                class="w-full border border-indigo-200 bg-white rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-900 focus:outline-none focus:border-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">目的地當地抵達</label>
+              <input type="time" id="flight-arr-time" onchange="syncFlightInputsToHoursField()"
+                class="w-full border border-indigo-200 bg-white rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-900 focus:outline-none focus:border-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">兩地時區差</label>
+              <select id="flight-tz-diff" onchange="syncFlightInputsToHoursField()"
+                class="w-full border border-indigo-200 bg-white rounded-lg px-1.5 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-indigo-500">
+                <option value="1">+1 小時 (台→日/韓)</option>
+                <option value="-1">-1 小時 (日/韓→台)</option>
+                <option value="0">0 小時 (同區/國內線)</option>
+                <option value="2">+2 小時</option>
+                <option value="-2">-2 小時</option>
+                <option value="-7">-7 小時 (台→歐陸)</option>
+                <option value="7">+7 小時 (歐陸→台)</option>
+              </select>
+            </div>
+          </div>
+          <p id="flight-calc-preview" class="text-[11px] text-indigo-800/90 leading-snug">
+            輸入機票上的起飛與當地抵達時間後，看板將自動以此時刻為基準計算報到、實際飛行分鐘數與後續轉乘時間。
+          </p>
         </div>
 
         <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
@@ -390,8 +431,8 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 航班時間</label>
-            <input type="text" id="field-hours" placeholder="例如：08:30起飛 / 15:00入住" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <label class="block text-xs font-medium text-slate-600 mb-1">⏰ 營業時間 / 航班時刻紀錄</label>
+            <input type="text" id="field-hours" oninput="populateFlightInputsFromHoursField()" placeholder="例如：✈️ 16:45-19:20 (+1h)" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">🚗 地址 / 航廈 / 出口 / MapCode</label>
