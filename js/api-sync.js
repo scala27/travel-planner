@@ -5,7 +5,8 @@ function extractCoordsFromGoogleMapsUrl(urlStr) {
 
   let extractedName = '';
   try {
-    const placeMatch = raw.match(/\/maps\/place\/([^\/\@\?]+)/);
+    // 支援 /maps/place/地點名稱 與 /maps/search/地點名稱
+    const placeMatch = raw.match(/\/maps\/(?:place|search)\/([^\/\@\?]+)/);
     if (placeMatch && placeMatch[1]) {
       extractedName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim();
     }
@@ -80,7 +81,9 @@ function formatAdminAreaFromNominatim(addr) {
   }
 
   const pref = addr.province || addr.state || addr.region || '';
-  const city = addr.city || addr.town || addr.village || addr.county || addr.suburb || '';
+  // 日本或海外城市層級優先取市、町、村、特別區（避免取到與都道府縣重複的名稱）
+  const cityCandidates = [addr.city, addr.town, addr.village, addr.city_district, addr.suburb, addr.county];
+  const city = cityCandidates.find(c => c && c.trim() !== pref.trim()) || '';
 
   if (country && pref && city && pref !== city) {
     return `${country} · ${pref} · ${city}`;
@@ -100,7 +103,7 @@ async function reverseGeocodeAdminArea(lat, lng) {
   if (reverseGeoCache[cacheKey]) return reverseGeoCache[cacheKey];
 
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${numLat}&lon=${numLng}&zoom=12&accept-language=zh-TW,ja,en`;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${numLat}&lon=${numLng}&zoom=14&accept-language=zh-TW,ja,en`;
     const resp = await fetch(url);
     const data = await resp.json();
     if (data && data.address) {
