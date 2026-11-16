@@ -239,10 +239,8 @@
         </div>
       </div>
 
-      <!-- 卡片列表容器（自然高度展開，完整顯示每張卡片所有資訊） -->
-      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start content-start bg-slate-50/40">
-        <!-- 動態渲染卡片 -->
-      </div>
+      <!-- 卡片列表容器 -->
+      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start content-start bg-slate-50/40"></div>
     </section>
 
     <!-- 模式2收合口袋後的展開浮動按鈕 -->
@@ -347,7 +345,6 @@
       <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
         <input type="hidden" id="editCardId" />
 
-        <!-- 基本資料列 -->
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
@@ -385,19 +382,14 @@
           </div>
         </div>
 
-        <!-- ★ 依類別動態切換的專屬資訊區塊 ★ -->
-        <div id="dynamicCategoryFieldsBox" class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/35 space-y-3">
-          <!-- 動態注入 -->
-        </div>
+        <div id="dynamicCategoryFieldsBox" class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/35 space-y-3"></div>
 
-        <!-- 詳細備註（不截斷完整顯示） -->
         <div>
           <label class="block font-bold text-slate-700 mb-1">詳細介紹 / 注意事項 (description)</label>
           <textarea id="fieldNotes" rows="3" placeholder="輸入完整備註、報到提醒、交通方式或必玩重點..."
             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 leading-relaxed"></textarea>
         </div>
 
-        <!-- 座標核對 -->
         <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
           <div>
             <label class="block font-bold text-slate-700 mb-1">緯度 (lat)</label>
@@ -417,7 +409,6 @@
           </div>
         </div>
 
-        <!-- 網址 -->
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block font-bold text-slate-700 mb-1">Google Maps 網址</label>
@@ -445,7 +436,6 @@
         </div>
       </div>
 
-      <!-- 底部操作列：左側提供明顯的「刪除此卡片」按鈕 -->
       <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
         <button id="btnModalDeleteCard" type="button" onclick="deleteCardFromModal()"
           class="px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition">
@@ -606,7 +596,7 @@
       }
     }
 
-    // 2. Google 試算表雙向轉譯器（相容交通/住宿/美食等專屬欄位）
+    // 2. Google 試算表雙向轉譯器
     function normalizeSheetRowToCard(row, index) {
       const id = String(row.id || `spot_${Date.now()}_${index}`);
       const title = String(row.name || row.title || '未命名地點').trim();
@@ -632,7 +622,6 @@
       const rawMustBuy = String(row.must_buy || row.mustBuy || '').trim();
       const rawParking = String(row.parking_info || row.parkingInfo || '').trim();
 
-      // 若為交通類，嘗試從 business_hours 解析起飛與抵達時間（如 "✈️ 17:00-19:30"）
       let departTime = String(row.departTime || '').trim();
       let arriveTime = String(row.arriveTime || '').trim();
       let flightNo = String(row.flightNo || '').trim();
@@ -1047,7 +1036,7 @@
       return list;
     }
 
-    // 5. 渲染資料庫卡片（完整顯示所有資訊、點擊直接編輯、提供明確刪除按鈕）
+    // 5. 渲染資料庫卡片
     function renderCategorySummaryHtml(card) {
       const blocks = [];
 
@@ -1115,7 +1104,6 @@
       const totalDays = Number(state.settings.totalDays) || 6;
       const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
-      // 模式 2（旅遊行程規劃左側口袋）：精簡防壓扁版型
       if (state.mode === 'plan') {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
@@ -1169,7 +1157,6 @@
         return;
       }
 
-      // 模式 1（景點蒐集與資料庫）：自然高度展開，完整呈現所有文字與操作按鈕
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
@@ -1202,7 +1189,6 @@
             class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-2xs flex flex-col justify-between cursor-pointer ${card.isNew ? 'card-is-new' : ''} ${isHighlighted ? 'card-is-highlighted' : ''}">
             
             <div class="p-3 space-y-2">
-              <!-- 頂部：行政區 + 納入狀態 -->
               <div class="flex items-center justify-between gap-1.5 flex-wrap">
                 <div class="flex items-center gap-1 flex-wrap">
                   ${newBadge}
@@ -1211,7 +1197,6 @@
                 ${statusBadge}
               </div>
 
-              <!-- 標題 + 星號 + 類別標籤 -->
               <div class="flex items-start justify-between gap-2">
                 <h4 class="font-bold text-[14px] text-slate-800 leading-snug break-words">${card.title}</h4>
                 <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
@@ -1223,7 +1208,6 @@
                 </div>
               </div>
 
-              <!-- 定位狀態與停留時間 -->
               <div class="flex items-center gap-1.5 flex-wrap">
                 ${coordBadge}
                 <span class="text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
@@ -1231,11 +1215,9 @@
                 </span>
               </div>
 
-              <!-- 類別專屬資訊與完整備註（全部展開顯示） -->
               ${detailsHtml ? `<div class="space-y-1.5 pt-0.5">${detailsHtml}</div>` : ''}
             </div>
 
-            <!-- 底部操作列：完整呈現不被切掉 -->
             <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 rounded-b-xl flex items-center justify-between gap-1.5 flex-wrap" onclick="event.stopPropagation()">
               <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
                 class="text-[11px] font-bold bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-slate-700 cursor-pointer focus:outline-none">
@@ -1267,7 +1249,6 @@
       }).join('');
     }
 
-    // 點擊卡片：同時於地圖定位並直接開啟編輯視窗
     function handleCardClick(cardId) {
       focusCardOnMap(cardId, false);
       openCardModal(cardId);
@@ -1458,7 +1439,7 @@
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">抵達時間</label>
-              <input type="text" id="dynArriveTime" value="${card.arriveTime || ''}" placeholder="例如：19:30 抵達那霸機場"
+              <input type="text" id="dynArriveTime" value="${card.arriveTime || ''}" placeholder="例如：19:30"
                 class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
           </div>
@@ -1640,7 +1621,6 @@
         }
       }
 
-      // 讀取依類別動態產生的專屬欄位
       let businessHours = '';
       let mustBuy = '';
       let parkingInfo = document.getElementById('dynParking')?.value.trim() || '';
@@ -1741,7 +1721,7 @@
       renderDatabaseCards();
     }
 
-    // 8. 多日行程看板與時間自動推算
+    // 8. 多日行程看板與時間自動推算（支援航班時刻對齊與跨海航段）
     function getFormattedDateInfo(dayNum) {
       const start = new Date(state.settings.startDate + 'T00:00:00');
       if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
@@ -1753,7 +1733,8 @@
     }
 
     function timeToMinutes(hhmm) {
-      const [h, m] = (hhmm || '09:00').split(':').map(Number);
+      const normalized = String(hhmm || '09:00').replace(/：/g, ':');
+      const [h, m] = normalized.split(':').map(Number);
       return (h || 0) * 60 + (m || 0);
     }
 
@@ -1762,6 +1743,14 @@
       const h = String(Math.floor(mins / 60)).padStart(2, '0');
       const m = String(mins % 60).padStart(2, '0');
       return `${h}:${m}`;
+    }
+
+    // 從文字中擷取所有 HH:MM（支援全形 ： 與半形 :）
+    function extractClockTimes(text) {
+      if (!text) return [];
+      const normalized = String(text).replace(/：/g, ':');
+      const matches = normalized.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/g);
+      return matches ? matches.map(t => t.padStart(5, '0')) : [];
     }
 
     function haversineKm(lat1, lng1, lat2, lng2) {
@@ -1773,9 +1762,25 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
+    // 判斷兩點之間是否為航空飛航（雙機場、跨國或距離 > 150km）
+    function isFlightLeg(cardA, cardB, km) {
+      if (!cardA || !cardB) return false;
+      const isBothTransport = cardA.category === '交通' && cardB.category === '交通';
+      const hasAirportKeyword = /機場|空港|Airport/i.test(cardA.title) && /機場|空港|Airport/i.test(cardB.title);
+      const isCrossCountry = cardA.country && cardB.country && cardA.country !== cardB.country;
+      return isBothTransport || hasAirportKeyword || isCrossCountry || km > 150;
+    }
+
     function estimateTransit(cardA, cardB) {
       if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0 };
       const km = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+
+      // 優先判斷航空飛航（如臺中機場 -> 那霸空港約 90 分鐘）
+      if (isFlightLeg(cardA, cardB, km)) {
+        const airMin = km > 0 ? Math.max(60, Math.round(km / 8.2)) : 90;
+        return { mode: 'flight', min: airMin, km };
+      }
+
       const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
       if (km === 0) return { mode: 'transit', min: 20, km: 0 };
 
@@ -1813,7 +1818,19 @@
         const dayData = state.itinerary[d] || { startTime: '09:00', items: [] };
         const items = dayData.items || [];
 
-        let cursorMin = timeToMinutes(dayData.startTime);
+        // 若當日第一張是交通卡片且有明確出發/報到時間（例如 15:00），自動對齊起始時間
+        let initialStart = dayData.startTime;
+        if (items.length > 0) {
+          const firstCard = state.cards.find(c => c.id === items[0].cardId);
+          if (firstCard && firstCard.category === '交通' && firstCard.departTime) {
+            const depTimes = extractClockTimes(firstCard.departTime);
+            if (depTimes.length > 0 && dayData.startTime === '09:00') {
+              initialStart = depTimes[0];
+            }
+          }
+        }
+
+        let cursorMin = timeToMinutes(initialStart);
         let totalActMin = 0;
         let totalTransitMin = 0;
         let pinCounter = 0;
@@ -1823,6 +1840,13 @@
           if (!card) return '';
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const dur = Number(card.duration) || 60;
+
+          // 若為交通卡片且有填寫出發時間，對齊出發時刻
+          const depTimes = card.category === '交通' ? extractClockTimes(card.departTime) : [];
+          if (depTimes.length > 0 && idx === 0) {
+            cursorMin = timeToMinutes(depTimes[0]);
+          }
+
           const startStr = minutesToTime(cursorMin);
           const endStr = minutesToTime(cursorMin + dur);
           cursorMin += dur;
@@ -1830,13 +1854,19 @@
 
           const nextItem = items[idx + 1];
           const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
-          let transitMin = Number(item.transitMin) || 0;
-          if (nextCard && transitMin === 0) {
-            transitMin = estimateTransit(card, nextCard).min;
-          }
+          const est = nextCard ? estimateTransit(card, nextCard) : null;
+          const activeMode = est?.mode === 'flight' ? 'flight' : (item.transitMode || est?.mode || 'transit');
+          let transitMin = est?.mode === 'flight' ? est.min : (Number(item.transitMin) || est?.min || 0);
+
+          // 若本張交通卡片有明確「抵達時間」（例如 19:30），下一站直接對齊 19:30！
+          const arrTimes = card.category === '交通' ? extractClockTimes(card.arriveTime) : [];
           if (nextCard) {
             totalTransitMin += transitMin;
-            cursorMin += transitMin;
+            if (arrTimes.length > 0) {
+              cursorMin = timeToMinutes(arrTimes[arrTimes.length - 1]);
+            } else {
+              cursorMin += transitMin;
+            }
           }
 
           if (card.category !== '住宿' && card.category !== '交通') pinCounter++;
@@ -1849,9 +1879,21 @@
             flight: '✈️ 航空飛航'
           };
 
-          const timePillText = card.category === '交通' && (card.departTime || card.arriveTime)
-            ? `${card.departTime || startStr}${card.arriveTime ? ' → ' + card.arriveTime : ''}`
-            : `${startStr} ~ ${endStr}`;
+          // 交通卡片時間膠囊：若有報到/起飛時間，清楚顯示報到與起飛，抵達時間交給航段與下一站機場
+          let timePillText = `${startStr} ~ ${endStr}`;
+          if (card.category === '交通' && (card.departTime || card.arriveTime)) {
+            if (depTimes.length >= 2) {
+              timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
+            } else if (card.departTime) {
+              timePillText = card.departTime.replace(/：/g, ':');
+            } else if (arrTimes.length > 0) {
+              timePillText = `${arrTimes[0]} 抵達 ~ ${minutesToTime(timeToMinutes(arrTimes[0]) + dur)}`;
+            }
+          }
+
+          const legSubText = activeMode === 'flight' && arrTimes.length > 0
+            ? `（${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達，飛航約 ${transitMin} 分）`
+            : `約 ${transitMin} 分`;
 
           return `
             <div draggable="true"
@@ -1904,15 +1946,15 @@
             ${nextCard ? `
               <div class="my-1.5 flex justify-center">
                 <button onclick="cycleTransitMode(${d}, ${idx})"
-                  class="px-2.5 py-0.5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-[10px] font-semibold text-slate-600 shadow-2xs flex items-center gap-1">
-                  <span>↓ ${transitLabelMap[item.transitMode] || '🚆 大眾運輸'} 約 ${transitMin} 分</span>
+                  class="px-2.5 py-1 rounded-full ${activeMode === 'flight' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
+                  <span>↓ ${transitLabelMap[activeMode]} ${legSubText}</span>
                 </button>
               </div>
             ` : ''}
           `;
         }).join('');
 
-        const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : dayData.startTime;
+        const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : initialStart;
 
         return `
           <div id="day-col-${d}"
@@ -1930,7 +1972,7 @@
                 <div class="flex items-center gap-1.5">
                   <label class="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1">
                     <span>出發</span>
-                    <input type="time" value="${dayData.startTime}" onchange="updateDayStartTime(${d}, this.value)"
+                    <input type="time" value="${initialStart}" onchange="updateDayStartTime(${d}, this.value)"
                       class="bg-transparent font-bold text-slate-700 focus:outline-none w-14" />
                   </label>
                   <button onclick="selectDayFocus(${d})" title="在地圖檢視當日路線"
@@ -2035,13 +2077,19 @@
     function cycleTransitMode(dayNum, idx) {
       const item = state.itinerary[dayNum]?.items[idx];
       if (!item) return;
-      const modes = ['transit', 'walk', 'drive'];
-      const next = modes[(modes.indexOf(item.transitMode) + 1) % modes.length];
-      item.transitMode = next;
       const cardA = state.cards.find(c => c.id === item.cardId);
       const nextItem = state.itinerary[dayNum].items[idx + 1];
       const cardB = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
       const km = cardA && cardB ? haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng) : 2;
+
+      if (isFlightLeg(cardA, cardB, km)) {
+        showToast('跨海／機場航段已自動鎖定為「✈️ 航空飛航」', 'blue');
+        return;
+      }
+
+      const modes = ['transit', 'walk', 'drive'];
+      const next = modes[(modes.indexOf(item.transitMode) + 1) % modes.length];
+      item.transitMode = next;
       item.transitMin = next === 'walk' ? Math.max(5, Math.round(km * 14)) : (next === 'drive' ? Math.max(8, Math.round(km * 2.2 + 5)) : Math.max(10, Math.round(km * 3.5 + 10)));
       persistState();
       renderAll();
@@ -2203,13 +2251,14 @@
           const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
           if (nextCard) {
             const est = estimateTransit(card, nextCard);
-            const legMin = Number(item.transitMin) || est.min;
+            const legMin = est.mode === 'flight' ? est.min : (Number(item.transitMin) || est.min);
             totalMin += legMin;
             totalKm += est.km;
+            const iconPrefix = est.mode === 'flight' ? '✈️ ' : '';
             const gdir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(card.title)}&destination=${encodeURIComponent(nextCard.title)}`;
             legsHtml.push(`
               <div class="flex items-center justify-between bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                <span class="truncate flex-1 pr-1">${idx + 1}→${idx + 2} ${nextCard.title}</span>
+                <span class="truncate flex-1 pr-1">${idx + 1}→${idx + 2} ${iconPrefix}${nextCard.title}</span>
                 <span class="font-bold text-blue-700 shrink-0 mr-1.5">約 ${legMin} 分</span>
                 <a href="${gdir}" target="_blank" class="text-blue-600 underline shrink-0">Google</a>
               </div>
