@@ -19,13 +19,11 @@
       color: #1e293b;
       overflow: hidden;
     }
-    /* 自訂捲軸 */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-    /* 新增卡片高亮動畫 */
     @keyframes pulseBorder {
       0%, 100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.55), 0 8px 20px -4px rgba(245, 158, 11, 0.25); }
       50% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25), 0 8px 20px -4px rgba(245, 158, 11, 0.15); }
@@ -37,11 +35,6 @@
     .card-is-highlighted {
       border-color: #2563eb !important;
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35) !important;
-      transform: translateY(-2px);
-    }
-    .dragging {
-      opacity: 0.45;
-      transform: scale(0.98);
     }
     .drop-zone-active {
       background-color: #eff6ff !important;
@@ -63,9 +56,7 @@
         <i class="fa-solid fa-globe text-base"></i>
       </div>
       <div class="truncate">
-        <div class="flex items-center gap-2">
-          <h1 id="tripTitleDisplay" class="font-bold text-base text-slate-800 truncate">2027沖繩首發自由行</h1>
-        </div>
+        <h1 id="tripTitleDisplay" class="font-bold text-base text-slate-800 truncate">2027沖繩首發自由行</h1>
         <p id="tripDateDisplay" class="text-[11px] text-slate-500">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
       </div>
     </div>
@@ -92,55 +83,59 @@
         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
         <span id="syncStatusText">Google 試算表已連線</span>
       </div>
-      <button onclick="openSettingsModal()" title="系統與試算表設定"
+      <button onclick="openSettingsModal()" title="設定 Google Apps Script 試算表網址"
         class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
         <i class="fa-solid fa-gear text-sm"></i>
       </button>
-      <button id="btnManualSync" onclick="syncWithGoogleSheets()"
+      <button id="btnManualSync" onclick="syncWithGoogleSheets(true)"
         class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
         <i id="syncIcon" class="fa-solid fa-rotate"></i>
-        <span>已同步</span>
+        <span id="syncBtnLabel">已同步</span>
       </button>
     </div>
   </header>
 
   <!-- ==================== 主工作區容器 ==================== -->
-  <main class="flex-1 flex overflow-hidden relative">
+  <main class="flex-1 flex overflow-hidden relative min-h-0">
 
-    <!-- ==================== 區塊 A：全球口袋資料庫（模式1為65%多欄網格；模式2為可收合側邊欄） ==================== -->
-    <section id="databasePanel" class="w-[65%] bg-white border-r border-slate-200 flex flex-col transition-all duration-200 shrink-0 z-20">
+    <!-- ==================== 區塊 A：全球口袋資料庫 ==================== -->
+    <section id="databasePanel" class="w-[65%] bg-white border-r border-slate-200 flex flex-col transition-all duration-200 shrink-0 z-20 min-h-0">
       <!-- 資料庫頂部工具列 -->
-      <div class="p-3 border-b border-slate-100 space-y-2.5 bg-slate-50/70 shrink-0">
-        <div class="flex items-center justify-between gap-2 flex-wrap">
-          <div class="flex items-center gap-2">
+      <div id="dbToolbarContainer" class="p-3 border-b border-slate-100 space-y-2 bg-slate-50/70 shrink-0">
+        <div class="flex items-center justify-between gap-1.5 flex-wrap">
+          <div class="flex items-center gap-1.5">
             <span class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
               <i class="fa-solid fa-database text-blue-600"></i>
-              全球口袋資料庫
+              <span id="dbPanelTitleText">全球口袋資料庫</span>
             </span>
             <button onclick="openCardModal()"
               class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
-              <i class="fa-solid fa-plus"></i> 新增卡片
+              <i class="fa-solid fa-plus"></i> 新增
             </button>
             <button id="btnToggleBatchBox" onclick="toggleBatchImportBox()"
-              class="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium flex items-center gap-1 transition">
+              class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium flex items-center gap-1 transition">
               <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
-              <span>批次匯入</span>
+              <span>批次</span>
             </button>
           </div>
 
-          <!-- 模式2專用的收合資料庫按鈕 -->
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
             <span id="collectModeHint" class="text-[11px] text-slate-500 hidden lg:inline">
               <i class="fa-solid fa-circle-info text-blue-500"></i> 點擊卡片可於右側地圖檢核座標
             </span>
+            <!-- 模式2專用：展開/收合進階篩選與收合口袋 -->
+            <button id="btnTogglePlanFilters" onclick="togglePlanAdvancedFilters()"
+              class="hidden px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 items-center gap-1">
+              <i class="fa-solid fa-filter text-blue-600"></i> 篩選
+            </button>
             <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
-              class="hidden px-2 py-1 rounded-md text-xs text-slate-500 hover:bg-slate-200/70 items-center gap-1">
-              <i class="fa-solid fa-angles-left"></i> 收合口袋
+              class="hidden px-2 py-1 rounded-md text-[11px] text-slate-500 hover:bg-slate-200/70 items-center gap-1">
+              <i class="fa-solid fa-angles-left"></i> 收合
             </button>
           </div>
         </div>
 
-        <!-- 批次自動定位並分類入庫面板（可收合，模式1預設展開） -->
+        <!-- 批次自動定位並分類入庫面板 -->
         <div id="batchImportBox" class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2">
@@ -164,7 +159,7 @@
 
           <div class="flex flex-col sm:flex-row gap-2">
             <textarea id="batchInputText" rows="2"
-              placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，例如：泊港漁市場、PARCO CITY，自動置頂並標示 NEW）..."
+              placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，自動置頂並標示 NEW）..."
               class="flex-1 text-xs p-2 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-500 resize-none bg-slate-50/50"></textarea>
             <button id="btnBatchImport" onclick="handleBatchImport()"
               class="sm:w-44 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 transition shadow-xs">
@@ -174,55 +169,54 @@
           </div>
         </div>
 
-        <!-- 關鍵字搜尋 ＋ 明確排序切換器 -->
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="relative flex-1 min-w-[200px]">
-            <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <!-- 關鍵字搜尋 ＋ 排序切換器 -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <div class="relative flex-1 min-w-[140px]">
+            <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2"></i>
             <input type="text" id="searchInput" oninput="renderDatabaseCards()"
-              placeholder="搜尋地點、備註、食物、行政區..."
-              class="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+              placeholder="搜尋地點、備註、行政區..."
+              class="w-full pl-7 pr-6 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             <button onclick="clearSearch()" title="清除搜尋"
-              class="text-slate-400 hover:text-slate-600 text-xs absolute right-2.5 top-1/2 -translate-y-1/2">
+              class="text-slate-400 hover:text-slate-600 text-xs absolute right-2 top-1/2 -translate-y-1/2">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
 
-          <!-- 明確排序選單 -->
           <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
             <i class="fa-solid fa-arrow-down-wide-short text-blue-600 text-xs"></i>
             <select id="sortSelect" onchange="renderDatabaseCards()"
               class="text-xs font-semibold text-slate-700 bg-transparent focus:outline-none cursor-pointer">
-              <option value="newest">排序：最新加入優先</option>
-              <option value="unscheduled">排序：未排入行程優先</option>
-              <option value="district">排序：依行政區／城市</option>
-              <option value="original">排序：試算表原始順序</option>
+              <option value="newest">最新加入優先</option>
+              <option value="unscheduled">未排入優先</option>
+              <option value="district">依行政區排列</option>
+              <option value="original">試算表順序</option>
             </select>
           </div>
         </div>
 
-        <!-- 多層級篩選膠囊 -->
-        <div class="space-y-1.5">
+        <!-- 多層級篩選膠囊（在模式2可一鍵收合，避免擠壓下方卡片清單） -->
+        <div id="advancedFilterGroup" class="space-y-1.5">
           <!-- 第一排：國內外範圍 + 地區下拉 -->
           <div class="flex flex-wrap items-center gap-1.5">
             <button onclick="setFilter('scope', 'all')" data-filter-scope="all"
-              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-800 text-white">全部 (0)</button>
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-800 text-white">全部 (0)</button>
             <button onclick="setFilter('scope', 'domestic')" data-filter-scope="domestic"
-              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">TW 國內 (0)</button>
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">TW 國內 (0)</button>
             <button onclick="setFilter('scope', 'international')" data-filter-scope="international"
-              class="scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">✈️ 國外 (0)</button>
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">✈️ 國外 (0)</button>
 
             <select id="countryFilter" onchange="onCountryFilterChange()"
-              class="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none">
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
               <option value="all">全部國家 / 地區</option>
             </select>
             <select id="cityFilter" onchange="renderDatabaseCards()"
-              class="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none">
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
               <option value="all">全部城市 / 町村</option>
             </select>
           </div>
 
           <!-- 第二排：類別 + 排程狀態 -->
-          <div class="flex flex-wrap items-center justify-between gap-1.5">
+          <div class="flex flex-wrap items-center justify-between gap-1">
             <div class="flex flex-wrap items-center gap-1">
               <button onclick="setFilter('category', 'all')" data-filter-cat="all"
                 class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">全部</button>
@@ -252,8 +246,8 @@
         </div>
       </div>
 
-      <!-- 卡片列表網格容器（模式1為多欄網格 grid-cols-1 md:grid-cols-2 xl:grid-cols-3；模式2為單欄列表） -->
-      <div id="databaseCardsContainer" class="flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40">
+      <!-- 卡片列表容器（模式1為多欄網格；模式2為防壓扁垂直捲動清單） -->
+      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40">
         <!-- 動態渲染卡片 -->
       </div>
     </section>
@@ -266,8 +260,7 @@
     </button>
 
     <!-- ==================== 區塊 B：多日行程規劃看板（僅模式2顯示） ==================== -->
-    <section id="itineraryBoardSection" class="hidden flex-1 flex-col bg-slate-100/70 overflow-hidden min-w-0">
-      <!-- 看板頂部天數快速導航與儲存按鈕 -->
+    <section id="itineraryBoardSection" class="hidden flex-1 flex-col bg-slate-100/70 overflow-hidden min-w-0 min-h-0">
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div id="dayNavPills" class="flex items-center gap-1.5 overflow-x-auto py-0.5">
           <!-- 動態渲染 Day 1 ~ Day N 膠囊 -->
@@ -290,29 +283,26 @@
         </div>
       </div>
 
-      <!-- 多日橫向捲動看板區 -->
-      <div id="kanbanColumnsContainer" class="flex-1 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch">
+      <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch">
         <!-- 動態渲染每日行程欄位 -->
       </div>
     </section>
 
-    <!-- ==================== 區塊 C：地圖與當日交通路線面板（模式1佔35%檢核座標；模式2佔320px顯示當日路線） ==================== -->
-    <aside id="mapPanel" class="w-[35%] bg-white border-l border-slate-200 flex flex-col shrink-0 transition-all duration-200 z-10">
-      <!-- 模式 1 專用頂部列：座標檢核提示 -->
+    <!-- ==================== 區塊 C：地圖與當日交通路線面板 ==================== -->
+    <aside id="mapPanel" class="w-[35%] bg-white border-l border-slate-200 flex flex-col shrink-0 transition-all duration-200 z-10 min-h-0">
+      <!-- 模式 1 專用頂部列 -->
       <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center gap-2">
           <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
           <span class="text-xs font-bold text-slate-800">景點座標檢核地圖</span>
         </div>
-        <div class="flex items-center gap-1.5">
-          <button onclick="fitMapToFilteredCards()"
-            class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-expand text-blue-600"></i> 顯示全部篩選圖釘
-          </button>
-        </div>
+        <button onclick="fitMapToFilteredCards()"
+          class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+          <i class="fa-solid fa-expand text-blue-600"></i> 顯示全部篩選圖釘
+        </button>
       </div>
 
-      <!-- 模式 2 專用頂部列：當日交通總計、智慧混搭、周邊口袋雷達 -->
+      <!-- 模式 2 專用頂部列 -->
       <div id="mapHeaderPlanMode" class="hidden p-2.5 border-b border-slate-200 bg-slate-50 space-y-2 shrink-0">
         <div class="flex items-center gap-1.5">
           <select id="mapDaySelect" onchange="onMapDayChange()"
@@ -327,28 +317,24 @@
           </select>
         </div>
 
-        <!-- 周邊口袋雷達開關 -->
         <button id="btnRadarToggle" onclick="toggleRadarMode()"
           class="w-full py-1.5 px-2.5 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100/80 text-amber-800 text-[11px] font-semibold flex items-center justify-between transition">
-          <span>🎯 周邊口袋雷達：<strong id="radarStatusText">關閉</strong>（點擊地圖搜尋半徑1.5km口袋）</span>
+          <span>🎯 周邊口袋雷達：<strong id="radarStatusText">關閉</strong>（點擊地圖搜1.5km）</span>
           <i class="fa-solid fa-satellite-dish"></i>
         </button>
 
-        <!-- 當日移動總計與段次明細 -->
         <div class="bg-white rounded-xl border border-slate-200 p-2 space-y-1.5 max-h-36 overflow-y-auto">
           <div class="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-100 pb-1">
             <span><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日移動總計：</span>
             <span id="dailyTransitSummary" class="text-blue-700">約 0 分 (0.0 km)</span>
           </div>
-          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600">
-            <!-- 動態渲染各段移動 -->
-          </div>
+          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600"></div>
         </div>
       </div>
 
       <!-- 圖例列 -->
       <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
-        <div class="flex items-center gap-2.5 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap">
           <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></i>景點</span>
           <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></i>美食</span>
           <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></i>購物</span>
@@ -358,8 +344,7 @@
         <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium">0 個圖釘</span>
       </div>
 
-      <!-- Leaflet 地圖本體 -->
-      <div id="mapContainer" class="flex-1 w-full relative z-0"></div>
+      <div id="mapContainer" class="flex-1 w-full relative z-0 min-h-0"></div>
     </aside>
   </main>
 
@@ -373,17 +358,17 @@
         </button>
       </div>
 
-      <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
+      <div class="p-5 overflow-y-auto space-y-3 text-xs">
         <input type="hidden" id="editCardId" />
 
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block font-bold text-slate-700 mb-1">地點名稱 *</label>
+            <label class="block font-bold text-slate-700 mb-1">地點名稱 (name) *</label>
             <input type="text" id="fieldTitle" placeholder="例如：那霸西酒店 (Naha-West Inn)"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block font-bold text-slate-700 mb-1">類別</label>
+            <label class="block font-bold text-slate-700 mb-1">類別 (category)</label>
             <select id="fieldCategory" class="w-full px-2.5 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500">
               <option value="景點">🏞️ 景點</option>
               <option value="美食">🍜 美食</option>
@@ -401,12 +386,12 @@
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block font-bold text-slate-700 mb-1">城市 / 行政區</label>
+            <label class="block font-bold text-slate-700 mb-1">行政區 (area)</label>
             <input type="text" id="fieldDistrict" placeholder="例如：沖繩縣・那霸市"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block font-bold text-slate-700 mb-1">預設停留 (分鐘)</label>
+            <label class="block font-bold text-slate-700 mb-1">停留 (分鐘)</label>
             <input type="number" id="fieldDuration" value="60" min="0" step="15"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
@@ -414,12 +399,12 @@
 
         <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
           <div>
-            <label class="block font-bold text-slate-700 mb-1">緯度 (Latitude)</label>
+            <label class="block font-bold text-slate-700 mb-1">緯度 (lat)</label>
             <input type="number" step="any" id="fieldLat" placeholder="26.2124"
               class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label class="block font-bold text-slate-700 mb-1">經度 (Longitude)</label>
+            <label class="block font-bold text-slate-700 mb-1">經度 (lng)</label>
             <div class="flex gap-1.5">
               <input type="number" step="any" id="fieldLng" placeholder="127.6792"
                 class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
@@ -431,22 +416,42 @@
           </div>
         </div>
 
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">營業時間 (business_hours)</label>
+            <input type="text" id="fieldHours" placeholder="例如：09:00-21:00"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">停車資訊 (parking_info)</label>
+            <input type="text" id="fieldParking" placeholder="例如：附免費停車場"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
+        </div>
+
         <div>
-          <label class="block font-bold text-slate-700 mb-1">Google Maps 網址（選填，留空將自動產生搜尋連結）</label>
-          <input type="url" id="fieldMapUrl" placeholder="https://maps.google.com/..."
+          <label class="block font-bold text-slate-700 mb-1">必買 / 必吃推薦 (must_buy)</label>
+          <input type="text" id="fieldMustBuy" placeholder="例如：季節限定水果塔、苦瓜漢堡"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
         </div>
 
         <div>
-          <label class="block font-bold text-slate-700 mb-1">封面圖片網址（選填）</label>
-          <input type="url" id="fieldImage" placeholder="https://..."
-            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
-        </div>
-
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">備註 / 必吃必買 / 營業資訊</label>
-          <textarea id="fieldNotes" rows="2" placeholder="例如：季節限定水果塔、單軌旭橋站步行5分..."
+          <label class="block font-bold text-slate-700 mb-1">詳細介紹 / 備註 (description)</label>
+          <textarea id="fieldNotes" rows="2" placeholder="輸入景點特色、交通提醒或注意事項..."
             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址 (source_url)</label>
+            <input type="url" id="fieldMapUrl" placeholder="https://maps.app.goo.gl/..."
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">封面圖片網址 (photo_url)</label>
+            <input type="url" id="fieldImage" placeholder="https://..."
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+          </div>
         </div>
 
         <div class="flex items-center justify-between pt-1">
@@ -498,7 +503,7 @@
           <label class="block font-bold text-slate-700 mb-1">Google Apps Script Web App 網址</label>
           <input type="url" id="setGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-[11px]" />
-          <p class="text-[11px] text-slate-400 mt-1">填入後點擊「已同步」即可與您的 Google 試算表雙向存取資料。</p>
+          <p class="text-[11px] text-slate-500 mt-1">已相容試算表完整欄位（id, name, category, area, description, must_buy, business_hours, estimated_duration, parking_info, source_url, photo_url, status, assigned_day, sort_order, lat, lng）。</p>
         </div>
       </div>
       <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between">
@@ -507,7 +512,7 @@
         </button>
         <div class="flex gap-2">
           <button onclick="closeSettingsModal()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
-          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">套用設定</button>
+          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">套用並同步</button>
         </div>
       </div>
     </div>
@@ -518,7 +523,6 @@
 
   <!-- ==================== 核心應用程式邏輯 ==================== -->
   <script>
-    // 1. 狀態與預設資料結構
     const STORAGE_KEY = 'okinawa_card_planner_v2';
     const DEFAULT_SETTINGS = {
       tripTitle: '2027沖繩首發自由行',
@@ -535,56 +539,11 @@
       '交通': { color: '#475569', badgeBg: 'bg-slate-100 text-slate-700 border-slate-300', icon: 'fa-plane-departure' }
     };
 
-    // 內建示範資料（首次開啟且 localStorage 無資料時載入）
-    const SEED_CARDS = [
-      { id: 'c1', title: '臺中國際機場', category: '交通', country: '台灣', district: '臺中市・清水區', duration: 120, lat: 24.2647, lng: 120.6206, notes: '起飛前 120 分報到・星宇航空直飛那霸', starred: false, createdAt: 1700000001, isNew: false },
-      { id: 'c2', title: '那霸空港', category: '交通', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2048, lng: 127.6458, notes: '入境通關與單軌電車轉乘', starred: false, createdAt: 1700000002, isNew: false },
-      { id: 'c3', title: '那霸久茂地巢穴酒店 (Nest Hotel Naha Kumoji)', category: '住宿', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2165, lng: 127.6815, notes: '近縣廳前站，前兩晚住宿據點', starred: true, createdAt: 1700000003, isNew: false },
-      { id: 'c4', title: '港川外人住宅區', category: '景點', country: '日本', district: '沖繩縣・浦添市', duration: 60, lat: 26.2654, lng: 127.7163, notes: '文青白屋聚落拍照散步', starred: false, createdAt: 1700000004, isNew: false },
-      { id: 'c5', title: 'oHacorté 港川店', category: '美食', country: '日本', district: '沖繩縣・浦添市', duration: 60, lat: 26.2659, lng: 127.7169, notes: '季節限定水果塔、伴手禮餅乾', starred: true, createdAt: 1700000005, isNew: false },
-      { id: 'c6', title: '美國村 商店街區', category: '景點', country: '日本', district: '沖繩縣・北谷町', duration: 90, lat: 26.3165, lng: 127.7577, notes: '海濱日落與美式商場逛街', starred: false, createdAt: 1700000006, isNew: false },
-      { id: 'c7', title: '那霸西酒店 (Naha-West Inn)', category: '住宿', country: '日本', district: '沖繩縣・那霸市', duration: 30, lat: 26.2121, lng: 127.6738, notes: '連住 3 晚據點，房間寬敞', starred: true, createdAt: 1700000007, isNew: false },
-      { id: 'c8', title: 'JEF Sunrise Naha (那霸國際通店)', category: '美食', country: '日本', district: '沖繩縣・那霸市', duration: 45, lat: 26.2148, lng: 127.6881, notes: '沖繩限定苦瓜漢堡早餐', starred: false, createdAt: 1700000008, isNew: false },
-      { id: 'c9', title: '第一牧志公設市場 2 樓「道頓堀」', category: '美食', country: '日本', district: '沖繩縣・那霸市', duration: 60, lat: 26.2144, lng: 127.6889, notes: '海鮮代客料理與沖繩家庭料理', starred: true, createdAt: 1700000009, isNew: false },
-      { id: 'c10', title: 'San-A 浦添西海岸 PARCO CITY', category: '購物', country: '日本', district: '沖繩縣・浦添市', duration: 150, lat: 26.2633, lng: 127.6987, notes: '大型海景購物中心、免稅退稅一站購足', starred: true, createdAt: 1700000010, isNew: false }
-    ];
-
-    const SEED_ITINERARY = {
-      1: {
-        startTime: '15:00',
-        items: [
-          { uid: 'i1', cardId: 'c1', customNote: '15:00 報到 ~ 17:00 起飛', transitMode: 'flight', transitMin: 90 },
-          { uid: 'i2', cardId: 'c2', customNote: '19:30 ~ 20:00 入境轉乘', transitMode: 'transit', transitMin: 30 },
-          { uid: 'i3', cardId: 'c3', customNote: '連住 2 晚入住', transitMode: 'walk', transitMin: 0 }
-        ]
-      },
-      2: {
-        startTime: '09:00',
-        items: [
-          { uid: 'i4', cardId: 'c3', customNote: '連住第 2 晚出發', transitMode: 'transit', transitMin: 27 },
-          { uid: 'i5', cardId: 'c4', customNote: '', transitMode: 'walk', transitMin: 9 },
-          { uid: 'i6', cardId: 'c5', customNote: '季節限定水果塔', transitMode: 'transit', transitMin: 32 },
-          { uid: 'i7', cardId: 'c6', customNote: '', transitMode: 'transit', transitMin: 35 }
-        ]
-      },
-      3: {
-        startTime: '09:00',
-        items: [
-          { uid: 'i8', cardId: 'c3', customNote: '前晚住宿退房出發（共連住 2 晚）', isCheckout: true, transitMode: 'transit', transitMin: 28 },
-          { uid: 'i9', cardId: 'c7', customNote: '連住 3 晚先寄放行李', transitMode: 'transit', transitMin: 29 },
-          { uid: 'i10', cardId: 'c8', customNote: '', transitMode: 'walk', transitMin: 5 },
-          { uid: 'i11', cardId: 'c9', customNote: '', transitMode: 'walk', transitMin: 0 }
-        ]
-      },
-      4: { startTime: '09:30', items: [{ uid: 'i12', cardId: 'c7', customNote: '連住第 2 晚', transitMode: 'transit', transitMin: 0 }] },
-      5: { startTime: '09:30', items: [{ uid: 'i13', cardId: 'c7', customNote: '連住第 3 晚', transitMode: 'transit', transitMin: 0 }] },
-      6: { startTime: '09:00', items: [{ uid: 'i14', cardId: 'c7', customNote: '退房前往機場', isCheckout: true, transitMode: 'transit', transitMin: 0 }] }
-    };
-
     let state = {
-      mode: 'collect', // 'collect' (模式1: 景點蒐集+地圖) | 'plan' (模式2: 行程規劃+地圖)
+      mode: 'collect',
       pocketCollapsed: false,
       compactView: false,
+      planFiltersOpen: false,
       radarActive: false,
       selectedMapDay: 1,
       highlightedCardId: null,
@@ -604,23 +563,36 @@
     let radarCircleLayer = null;
     let markerLookup = {};
 
-    // 2. 初始化載入
-    function initApp() {
+    // 自動偵測舊版 localStorage 中的 GAS 網址，避免升級後斷線
+    function discoverSavedGasUrl() {
+      if (state.settings.gasUrl) return state.settings.gasUrl;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const val = localStorage.getItem(k) || '';
+        const match = val.match(/https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec/);
+        if (match) return match[0];
+      }
+      return '';
+    }
+
+    // 1. 初始化載入
+    async function initApp() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
           state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
-          state.cards = Array.isArray(parsed.cards) ? parsed.cards : SEED_CARDS;
-          state.itinerary = parsed.itinerary || SEED_ITINERARY;
-        } catch (e) {
-          state.cards = SEED_CARDS;
-          state.itinerary = SEED_ITINERARY;
+          state.cards = Array.isArray(parsed.cards) ? parsed.cards : [];
+          state.itinerary = parsed.itinerary || {};
+        } catch (e) {}
+      }
+
+      if (!state.settings.gasUrl) {
+        const discovered = discoverSavedGasUrl();
+        if (discovered) {
+          state.settings.gasUrl = discovered;
+          persistState();
         }
-      } else {
-        state.cards = SEED_CARDS;
-        state.itinerary = SEED_ITINERARY;
-        persistState();
       }
 
       ensureItineraryDays();
@@ -628,7 +600,12 @@
       updateTripHeaderDisplay();
       populateRegionDropdowns();
       populateDaySelectors();
-      switchWorkspaceMode('collect'); // 預設進入模式1方便檢查卡片，隨時一鍵切模式2
+      switchWorkspaceMode('collect');
+
+      // 若已綁定 Google 試算表網址，啟動時自動拉取最新完整資料
+      if (state.settings.gasUrl) {
+        await pullFromGoogleSheets(false);
+      }
     }
 
     function persistState() {
@@ -648,6 +625,221 @@
       }
     }
 
+    // 2. Google 試算表 16 欄位雙向轉譯器
+    function normalizeSheetRowToCard(row, index) {
+      const id = String(row.id || `spot_${Date.now()}_${index}`);
+      const title = String(row.name || row.title || '未命名地點').trim();
+      const rawArea = String(row.area || row.district || '').trim();
+      let country = String(row.country || '').trim();
+      if (!country) {
+        if (rawArea.includes('台灣') || rawArea.includes('臺灣') || rawArea.includes('臺中') || rawArea.includes('台北')) {
+          country = '台灣';
+        } else if (rawArea.includes('日本') || rawArea.includes('沖繩')) {
+          country = '日本';
+        } else {
+          country = '日本';
+        }
+      }
+
+      // 清理重複前綴，例如 "日本・沖繩縣 / 沖繩縣・那霸市" -> "沖繩縣・那霸市"
+      let cleanDistrict = rawArea;
+      if (cleanDistrict.includes('/')) {
+        const parts = cleanDistrict.split('/').map(s => s.trim()).filter(Boolean);
+        cleanDistrict = parts[parts.length - 1];
+      }
+      cleanDistrict = cleanDistrict.replace(/^日本・/, '').replace(/^台灣・/, '').replace(/^臺灣・/, '');
+
+      const lat = parseFloat(row.lat);
+      const lng = parseFloat(row.lng);
+      const createdNum = parseInt(id.replace(/\D/g, '').slice(0, 13), 10);
+
+      return {
+        id,
+        title,
+        category: String(row.category || '景點').trim(),
+        country,
+        district: cleanDistrict || rawArea || '未分類',
+        rawArea,
+        duration: parseInt(row.estimated_duration || row.duration, 10) || 60,
+        lat: Number.isFinite(lat) ? lat : null,
+        lng: Number.isFinite(lng) ? lng : null,
+        mapUrl: String(row.source_url || row.mapUrl || '').trim(),
+        image: String(row.photo_url || row.image || '').trim(),
+        notes: String(row.description || row.notes || '').trim(),
+        mustBuy: String(row.must_buy || row.mustBuy || '').trim(),
+        businessHours: String(row.business_hours || row.businessHours || '').trim(),
+        parkingInfo: String(row.parking_info || row.parkingInfo || '').trim(),
+        sheetStatus: String(row.status || 'pocket').trim(),
+        assignedDayRaw: String(row.assigned_day || '').trim(),
+        sortOrder: parseInt(row.sort_order, 10) || (index + 1),
+        starred: row.starred === true || String(row.starred).toUpperCase() === 'TRUE',
+        createdAt: Number.isFinite(createdNum) && createdNum > 1000000000 ? createdNum : (1700000000 + index),
+        isNew: false
+      };
+    }
+
+    function resolveAssignedDayNumber(assignedRaw) {
+      if (!assignedRaw || assignedRaw === 'pocket' || assignedRaw === 'unscheduled') return null;
+      // 若為數字字串 '1' ~ '15'
+      if (/^\d+$/.test(assignedRaw)) {
+        const d = parseInt(assignedRaw, 10);
+        return d >= 1 && d <= (Number(state.settings.totalDays) || 6) ? d : null;
+      }
+      // 若為日期字串 '2027-02-17' ~ '2027-02-22'
+      const start = new Date(state.settings.startDate + 'T00:00:00');
+      const target = new Date(assignedRaw + 'T00:00:00');
+      if (!isNaN(start.getTime()) && !isNaN(target.getTime())) {
+        const diffDays = Math.round((target.getTime() - start.getTime()) / 86400000) + 1;
+        if (diffDays >= 1 && diffDays <= (Number(state.settings.totalDays) || 6)) {
+          return diffDays;
+        }
+      }
+      return null;
+    }
+
+    function serializeCardToSheetRow(card, index) {
+      const scheduledDays = getCardScheduledDays(card.id);
+      const isScheduled = scheduledDays.length > 0;
+      return {
+        id: card.id,
+        name: card.title,
+        category: card.category,
+        area: card.rawArea || `${card.country}・${card.district}`,
+        description: card.notes || '',
+        must_buy: card.mustBuy || '',
+        business_hours: card.businessHours || '',
+        estimated_duration: card.duration || 60,
+        parking_info: card.parkingInfo || '',
+        source_url: card.mapUrl || '',
+        photo_url: card.image || '',
+        status: isScheduled ? 'scheduled' : 'pocket',
+        assigned_day: isScheduled ? String(scheduledDays[0]) : 'pocket',
+        sort_order: index + 1,
+        lat: card.lat ?? '',
+        lng: card.lng ?? ''
+      };
+    }
+
+    async function pullFromGoogleSheets(showNotification = true) {
+      if (!state.settings.gasUrl) {
+        if (showNotification) showToast('請先點右上角齒輪填入 Google Apps Script 網址', 'amber');
+        return;
+      }
+      const icon = document.getElementById('syncIcon');
+      const label = document.getElementById('syncBtnLabel');
+      icon.classList.add('fa-spin');
+      label.textContent = '讀取中...';
+
+      try {
+        // 優先嘗試 GET 讀取試算表所有資料列
+        const res = await fetch(state.settings.gasUrl, { method: 'GET', redirect: 'follow' });
+        const rawJson = await res.json();
+
+        let rows = [];
+        if (Array.isArray(rawJson)) rows = rawJson;
+        else if (rawJson && Array.isArray(rawJson.data)) rows = rawJson.data;
+        else if (rawJson && Array.isArray(rawJson.records)) rows = rawJson.records;
+        else if (rawJson && Array.isArray(rawJson.cards)) rows = rawJson.cards;
+        else if (rawJson && Array.isArray(rawJson.rows)) rows = rawJson.rows;
+
+        if (rows.length > 0) {
+          const mappedCards = rows
+            .filter(r => r && (r.name || r.title))
+            .map((r, idx) => normalizeSheetRowToCard(r, idx));
+
+          state.cards = mappedCards;
+
+          // 依據試算表的 assigned_day 同步重建每日排程（若該日原本為空）
+          ensureItineraryDays();
+          const rebuilt = {};
+          const totalDays = Number(state.settings.totalDays) || 6;
+          for (let d = 1; d <= totalDays; d++) {
+            rebuilt[d] = { startTime: state.itinerary[d]?.startTime || '09:00', items: [] };
+          }
+
+          mappedCards
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .forEach(c => {
+              const dayNum = resolveAssignedDayNumber(c.assignedDayRaw);
+              if (dayNum && rebuilt[dayNum]) {
+                rebuilt[dayNum].items.push({
+                  uid: 'it_' + c.id + '_' + dayNum,
+                  cardId: c.id,
+                  customNote: c.businessHours || '',
+                  transitMode: 'transit',
+                  transitMin: 0
+                });
+              }
+            });
+
+          // 若試算表有排程紀錄，套用至看板
+          const hasSheetSchedule = Object.values(rebuilt).some(d => d.items.length > 0);
+          if (hasSheetSchedule) {
+            state.itinerary = rebuilt;
+          }
+
+          persistState();
+          populateRegionDropdowns();
+          renderAll();
+          if (showNotification) {
+            showToast(`已從 Google 試算表載入全部 ${mappedCards.length} 筆資料！`, 'emerald');
+          }
+        } else if (showNotification) {
+          showToast('試算表目前無資料列或回傳格式為空', 'amber');
+        }
+      } catch (err) {
+        console.error('GAS GET Error:', err);
+        if (showNotification) {
+          showToast('讀取試算表失敗，請確認 GAS 部署權限為「所有人」', 'amber');
+        }
+      } finally {
+        icon.classList.remove('fa-spin');
+        label.textContent = '已同步';
+      }
+    }
+
+    async function syncWithGoogleSheets(pullFirst = false) {
+      persistState();
+      if (!state.settings.gasUrl) {
+        showToast('已儲存至本機；如需同步試算表請點齒輪填入 GAS 網址', 'blue');
+        return;
+      }
+
+      if (pullFirst && state.cards.length === 0) {
+        await pullFromGoogleSheets(true);
+        return;
+      }
+
+      const icon = document.getElementById('syncIcon');
+      const label = document.getElementById('syncBtnLabel');
+      icon.classList.add('fa-spin');
+      label.textContent = '同步中...';
+
+      try {
+        // 先寫入最新異動至試算表
+        const sheetRows = state.cards.map((c, idx) => serializeCardToSheetRow(c, idx));
+        await fetch(state.settings.gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'syncAll',
+            data: sheetRows,
+            cards: sheetRows,
+            itinerary: state.itinerary
+          })
+        });
+        // 再從試算表拉取最新完整清單，確保 35+ 筆資料完整一致
+        await pullFromGoogleSheets(true);
+      } catch (err) {
+        // 若 POST 遇到 CORS 限制，改執行 GET 拉取試算表資料
+        await pullFromGoogleSheets(true);
+      } finally {
+        icon.classList.remove('fa-spin');
+        label.textContent = '已同步';
+      }
+    }
+
     // 3. 雙模式切換核心控制
     function switchWorkspaceMode(targetMode) {
       state.mode = targetMode;
@@ -659,20 +851,20 @@
       const cardsGrid = document.getElementById('databaseCardsContainer');
       const btnCollapsePocket = document.getElementById('btnCollapsePocket');
       const btnExpandPocket = document.getElementById('btnExpandPocket');
+      const btnTogglePlanFilters = document.getElementById('btnTogglePlanFilters');
+      const advFilters = document.getElementById('advancedFilterGroup');
       const collectHint = document.getElementById('collectModeHint');
       const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
       const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
       const batchBox = document.getElementById('batchImportBox');
 
       if (targetMode === 'collect') {
-        // 頁籤樣式
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-        // 佈局：左側 65% 資料庫多欄網格 + 右側 35% 檢核地圖
-        dbPanel.classList.remove('hidden', 'w-[300px]');
+        dbPanel.classList.remove('hidden', 'w-[290px]');
         dbPanel.classList.add('w-[65%]');
-        cardsGrid.className = 'flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40';
+        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start bg-slate-50/40';
         boardSection.classList.add('hidden');
         boardSection.classList.remove('flex');
 
@@ -683,18 +875,16 @@
 
         btnCollapsePocket.classList.add('hidden');
         btnCollapsePocket.classList.remove('flex');
+        btnTogglePlanFilters.classList.add('hidden');
+        btnTogglePlanFilters.classList.remove('flex');
         btnExpandPocket.classList.add('hidden');
         collectHint.classList.remove('hidden');
         batchBox.classList.remove('hidden');
-
-        // 切回蒐集模式時預設顯示全部狀態，方便檢核所有卡片
-        setFilter('status', 'all', false);
+        advFilters.classList.remove('hidden');
       } else {
-        // 頁籤樣式
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-        // 佈局：左側 300px 精簡口袋 + 中間多日看板 + 右側 320px 地圖與交通
         dbPanel.classList.remove('w-[65%]');
         if (state.pocketCollapsed) {
           dbPanel.classList.add('hidden');
@@ -702,10 +892,11 @@
           btnExpandPocket.classList.add('flex');
         } else {
           dbPanel.classList.remove('hidden');
-          dbPanel.classList.add('w-[300px]');
+          dbPanel.classList.add('w-[290px]');
           btnExpandPocket.classList.add('hidden');
         }
-        cardsGrid.className = 'flex-1 overflow-y-auto p-2.5 grid grid-cols-1 gap-2.5 content-start bg-slate-50/40';
+        // 模式 2 改用 flex-col + shrink-0，徹底杜絕卡片重疊壓扁
+        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2 bg-slate-50/60';
 
         boardSection.classList.remove('hidden');
         boardSection.classList.add('flex');
@@ -717,14 +908,26 @@
 
         btnCollapsePocket.classList.remove('hidden');
         btnCollapsePocket.classList.add('flex');
+        btnTogglePlanFilters.classList.remove('hidden');
+        btnTogglePlanFilters.classList.add('flex');
         collectHint.classList.add('hidden');
-        batchBox.classList.add('hidden'); // 規劃模式預設收合批次框，留空間給口袋卡片
+        batchBox.classList.add('hidden');
+
+        // 模式 2 預設收合多層篩選列，讓出空間給口袋卡片清單
+        if (!state.planFiltersOpen) {
+          advFilters.classList.add('hidden');
+        }
       }
 
       renderAll();
       setTimeout(() => {
         if (mapInstance) mapInstance.invalidateSize();
       }, 220);
+    }
+
+    function togglePlanAdvancedFilters() {
+      state.planFiltersOpen = !state.planFiltersOpen;
+      document.getElementById('advancedFilterGroup').classList.toggle('hidden', !state.planFiltersOpen);
     }
 
     function togglePocketCollapse() {
@@ -753,8 +956,8 @@
         document.querySelectorAll('.scope-btn').forEach(btn => {
           const active = btn.dataset.filterScope === value;
           btn.className = active
-            ? 'scope-btn px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-800 text-white'
-            : 'scope-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50';
+            ? 'scope-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-800 text-white'
+            : 'scope-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50';
         });
       } else if (type === 'category') {
         document.querySelectorAll('.cat-btn').forEach(btn => {
@@ -817,13 +1020,12 @@
         if (state.filters.status === 'starred' && !card.starred) return false;
 
         if (kw) {
-          const hay = `${card.title} ${card.district} ${card.country} ${card.notes} ${card.category}`.toLowerCase();
+          const hay = `${card.title} ${card.district} ${card.country} ${card.notes} ${card.mustBuy || ''} ${card.category}`.toLowerCase();
           if (!hay.includes(kw)) return false;
         }
         return true;
       });
 
-      // 排序邏輯
       list = [...list];
       if (sortBy === 'newest') {
         list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -837,12 +1039,10 @@
       } else if (sortBy === 'district') {
         list.sort((a, b) => (a.district || 'zzz').localeCompare(b.district || 'zzz', 'zh-Hant'));
       }
-      // 'original' 維持試算表寫入順序
-
       return list;
     }
 
-    // 5. 渲染資料庫卡片（模式1顯示完整核對資訊與一鍵刪改按鈕；模式2顯示精簡排程卡片）
+    // 5. 渲染資料庫卡片（模式1：完整檢核多欄卡片；模式2：清爽防重疊精簡口袋卡片）
     function renderDatabaseCards() {
       const container = document.getElementById('databaseCardsContainer');
       const cards = getFilteredAndSortedCards();
@@ -850,23 +1050,70 @@
 
       if (cards.length === 0) {
         container.innerHTML = `
-          <div class="col-span-full py-12 text-center text-slate-400">
-            <i class="fa-solid fa-folder-open text-3xl mb-2"></i>
-            <p class="text-xs font-medium">找不到符合條件的景點卡片，請調整篩選或新增資料。</p>
+          <div class="col-span-full py-10 text-center text-slate-400 px-3">
+            <i class="fa-solid fa-folder-open text-2xl mb-2"></i>
+            <p class="text-xs font-medium">目前無符合條件的卡片，請調整篩選或點擊右上角「已同步」從試算表載入。</p>
           </div>`;
         return;
       }
 
       const totalDays = Number(state.settings.totalDays) || 6;
-      const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">排入 Day ${i + 1}</option>`).join('');
+      const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
+      // 模式 2（旅遊行程規劃左側口袋）：精簡防壓扁版型
+      if (state.mode === 'plan') {
+        container.innerHTML = cards.map(card => {
+          const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const scheduledDays = getCardScheduledDays(card.id);
+          const isScheduled = scheduledDays.length > 0;
+          const statusChip = isScheduled
+            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">Day ${scheduledDays.join(',')}</span>`
+            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 shrink-0">未排</span>`;
+
+          return `
+            <div id="db-card-${card.id}"
+              draggable="true"
+              ondragstart="onDragStartCard(event, '${card.id}')"
+              onclick="focusCardOnMap('${card.id}')"
+              class="shrink-0 bg-white rounded-xl border ${isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} hover:border-blue-400 p-2.5 shadow-2xs transition cursor-grab active:cursor-grabbing space-y-1.5">
+              
+              <!-- 第一列：類別色標 + 地點名稱 + 狀態 -->
+              <div class="flex items-start justify-between gap-1.5">
+                <div class="flex items-start gap-1.5 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style="background-color:${meta.color}"></span>
+                  <h4 class="font-bold text-xs text-slate-800 leading-snug line-clamp-2">${card.title}</h4>
+                </div>
+                ${statusChip}
+              </div>
+
+              <!-- 第二列：行政區 + 停留時間 + 快速排入選單 -->
+              <div class="flex items-center justify-between gap-1 pt-0.5" onclick="event.stopPropagation()">
+                <span class="text-[10px] text-slate-500 truncate">${card.district || ''}・${card.duration || 60}分</span>
+                <div class="flex items-center gap-1 shrink-0">
+                  <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
+                    class="text-[10px] font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-1.5 py-0.5 text-blue-700 cursor-pointer focus:outline-none">
+                    <option value="">排入 ▾</option>
+                    ${dayOptionsHtml}
+                  </select>
+                  <button onclick="openCardModal('${card.id}')" title="編輯"
+                    class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 text-[10px] flex items-center justify-center">
+                    <i class="fa-solid fa-pen"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        return;
+      }
+
+      // 模式 1（景點蒐集與資料庫）：完整多欄核對版型
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
         const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
         const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + (card.district || ''))}`;
 
-        // 排程狀態徽章
         let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">未排入</span>`;
         if (scheduledDays.length > 0) {
           const dayLabel = scheduledDays.map(d => `Day ${d}`).join(', ');
@@ -891,9 +1138,8 @@
             onclick="focusCardOnMap('${card.id}')"
             class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-2xs flex flex-col justify-between overflow-hidden cursor-pointer ${card.isNew ? 'card-is-new' : ''} ${isHighlighted ? 'card-is-highlighted' : ''}">
             
-            <!-- 頂部封面與狀態列 -->
             <div>
-              ${card.image && state.mode === 'collect' ? `
+              ${card.image ? `
                 <div class="h-28 w-full bg-slate-100 relative overflow-hidden">
                   <img src="${card.image}" alt="${card.title}" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'" />
                   <div class="absolute top-2 left-2 flex items-center gap-1 flex-wrap">
@@ -912,7 +1158,6 @@
                 </div>
               `}
 
-              <!-- 標題與類別 -->
               <div class="px-3 pt-2 pb-1.5">
                 <div class="flex items-start justify-between gap-1.5">
                   <h4 class="font-bold text-[13px] text-slate-800 leading-snug line-clamp-2">${card.title}</h4>
@@ -925,15 +1170,14 @@
                   </div>
                 </div>
 
-                <!-- 核對關鍵資訊：座標狀態 + 停留時間 -->
                 <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
                   ${coordBadge}
                   <span class="text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                     <i class="fa-regular fa-clock mr-0.5"></i>停留 ${card.duration || 60} 分
                   </span>
+                  ${card.businessHours ? `<span class="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded truncate max-w-[140px]">${card.businessHours}</span>` : ''}
                 </div>
 
-                <!-- 備註完整預覽 -->
                 ${card.notes ? `
                   <p class="mt-1.5 text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1 leading-relaxed line-clamp-2">
                     ${card.notes}
@@ -942,7 +1186,6 @@
               </div>
             </div>
 
-            <!-- 底部快捷操作列 -->
             <div class="px-2.5 py-2 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-1" onclick="event.stopPropagation()">
               <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
                 class="text-[11px] font-bold bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-slate-700 cursor-pointer focus:outline-none">
@@ -1015,7 +1258,7 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // 6. 新增、批次匯入與自動定位（含自動置頂 + NEW 標示）
+    // 6. 新增、批次匯入與自動定位
     async function geocodePlaceName(query) {
       try {
         const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`;
@@ -1028,23 +1271,15 @@
           const pref = addr.state || addr.province || addr.county || '';
           const city = addr.city || addr.town || addr.village || addr.suburb || '';
           const district = [pref, city].filter(Boolean).join('・') || country;
-          return {
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-            country,
-            district
-          };
+          return { lat: parseFloat(item.lat), lng: parseFloat(item.lon), country, district };
         }
-      } catch (e) {
-        console.warn('Geocode error:', e);
-      }
+      } catch (e) {}
       return null;
     }
 
     function extractTitleFromInputLine(line) {
       let clean = line.trim();
       if (!clean) return '';
-      // 若貼上 Google Maps 網址，嘗試解析 /place/名稱/ 或 query 參數
       if (clean.startsWith('http')) {
         try {
           const u = new URL(clean);
@@ -1088,8 +1323,8 @@
         }
 
         const newCard = {
-          id: 'card_' + nowBase + '_' + i,
-          title: title,
+          id: 'spot_' + (nowBase + i),
+          title,
           category: defaultCat,
           country: geo ? geo.country : '日本',
           district: geo ? geo.district : '沖繩縣・待確認行政區',
@@ -1098,8 +1333,11 @@
           lng: geo ? geo.lng : null,
           mapUrl: isUrl ? line : '',
           notes: '',
+          mustBuy: '',
+          businessHours: '',
+          parkingInfo: '',
           starred: false,
-          createdAt: nowBase + (lines.length - i), // 確保第一筆在最上方
+          createdAt: nowBase + (lines.length - i),
           isNew: true
         };
 
@@ -1108,12 +1346,10 @@
       }
 
       document.getElementById('batchInputText').value = '';
-      document.getElementById('sortSelect').value = 'newest'; // 自動切回最新加入優先
+      document.getElementById('sortSelect').value = 'newest';
       persistState();
       populateRegionDropdowns();
       renderAll();
-
-      // 捲動資料庫頂部讓使用者立刻看到剛新增的 NEW 卡片
       document.getElementById('databaseCardsContainer').scrollTop = 0;
 
       btn.disabled = false;
@@ -1122,7 +1358,7 @@
     }
 
     async function batchUpdateAllDistricts() {
-      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認')) && c.title);
+      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認') || c.district === '未分類') && c.title);
       if (targets.length === 0) {
         showToast('所有卡片皆已有行政區資訊！', 'blue');
         return;
@@ -1143,7 +1379,7 @@
       showToast('行政區與座標補齊完成！', 'emerald');
     }
 
-    // 7. 單筆新增 / 編輯 / 刪除 / 星號
+    // 7. 單筆新增 / 編輯 / 刪除
     function openCardModal(cardId = null) {
       const modal = document.getElementById('cardModal');
       const titleEl = document.getElementById('cardModalTitle');
@@ -1166,6 +1402,9 @@
         document.getElementById('fieldDuration').value = card.duration || 60;
         document.getElementById('fieldLat').value = card.lat || '';
         document.getElementById('fieldLng').value = card.lng || '';
+        document.getElementById('fieldHours').value = card.businessHours || '';
+        document.getElementById('fieldParking').value = card.parkingInfo || '';
+        document.getElementById('fieldMustBuy').value = card.mustBuy || '';
         document.getElementById('fieldMapUrl').value = card.mapUrl || '';
         document.getElementById('fieldImage').value = card.image || '';
         document.getElementById('fieldNotes').value = card.notes || '';
@@ -1181,6 +1420,9 @@
         document.getElementById('fieldDuration').value = 60;
         document.getElementById('fieldLat').value = '';
         document.getElementById('fieldLng').value = '';
+        document.getElementById('fieldHours').value = '';
+        document.getElementById('fieldParking').value = '';
+        document.getElementById('fieldMustBuy').value = '';
         document.getElementById('fieldMapUrl').value = '';
         document.getElementById('fieldImage').value = '';
         document.getElementById('fieldNotes').value = '';
@@ -1227,7 +1469,6 @@
       let country = document.getElementById('fieldCountry').value.trim() || '日本';
       let district = document.getElementById('fieldDistrict').value.trim();
 
-      // 若未填座標，儲存時自動嘗試抓取一次
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         const geo = await geocodePlaceName(title);
         if (geo) {
@@ -1245,6 +1486,9 @@
         duration: parseInt(document.getElementById('fieldDuration').value, 10) || 60,
         lat: Number.isFinite(lat) ? lat : null,
         lng: Number.isFinite(lng) ? lng : null,
+        businessHours: document.getElementById('fieldHours').value.trim(),
+        parkingInfo: document.getElementById('fieldParking').value.trim(),
+        mustBuy: document.getElementById('fieldMustBuy').value.trim(),
         mapUrl: document.getElementById('fieldMapUrl').value.trim(),
         image: document.getElementById('fieldImage').value.trim(),
         notes: document.getElementById('fieldNotes').value.trim(),
@@ -1253,13 +1497,11 @@
 
       if (id) {
         const idx = state.cards.findIndex(c => c.id === id);
-        if (idx !== -1) {
-          state.cards[idx] = { ...state.cards[idx], ...payload };
-        }
+        if (idx !== -1) state.cards[idx] = { ...state.cards[idx], ...payload };
         showToast('卡片資料已更新', 'emerald');
       } else {
         const newCard = {
-          id: 'card_' + Date.now(),
+          id: 'spot_' + Date.now(),
           ...payload,
           createdAt: Date.now(),
           isNew: true
@@ -1268,9 +1510,7 @@
         document.getElementById('sortSelect').value = 'newest';
 
         const assignDay = parseInt(document.getElementById('fieldAssignDay').value, 10);
-        if (assignDay) {
-          addCardToDay(newCard.id, assignDay);
-        }
+        if (assignDay) addCardToDay(newCard.id, assignDay);
         showToast('已新增卡片並自動置頂！', 'emerald');
       }
 
@@ -1287,7 +1527,7 @@
     function deleteCard(cardId) {
       const card = state.cards.find(c => c.id === cardId);
       if (!card) return;
-      if (!confirm(`確定要刪除「${card.title}」嗎？（若已排入行程也會一併移除）`)) return;
+      if (!confirm(`確定要刪除「${card.title}」嗎？`)) return;
 
       state.cards = state.cards.filter(c => c.id !== cardId);
       Object.values(state.itinerary).forEach(day => {
@@ -1360,7 +1600,6 @@
       const navPills = document.getElementById('dayNavPills');
       const board = document.getElementById('kanbanColumnsContainer');
 
-      // 頂部天數膠囊
       navPills.innerHTML = Array.from({ length: totalDays }, (_, i) => {
         const d = i + 1;
         const info = getFormattedDateInfo(d);
@@ -1375,7 +1614,6 @@
           </button>`;
       }).join('');
 
-      // 每日欄位
       board.innerHTML = Array.from({ length: totalDays }, (_, i) => {
         const d = i + 1;
         const info = getFormattedDateInfo(d);
@@ -1421,10 +1659,10 @@
           return `
             <div draggable="true"
               ondragstart="onDragStartItineraryItem(event, ${d}, ${idx})"
-              class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 p-2.5 shadow-2xs transition group">
+              class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 p-2.5 shadow-2xs transition">
               <div class="flex items-center justify-between gap-1 mb-1">
                 <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700">
-                  ${item.customNote && item.customNote.includes('~') ? item.customNote : `${startStr} ~ ${endStr}`}
+                  ${startStr} ~ ${endStr}
                 </span>
                 <div class="flex items-center gap-1">
                   <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
@@ -1483,7 +1721,6 @@
             ondrop="onDropOnDay(event, ${d})"
             class="w-[310px] shrink-0 bg-slate-50/90 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
             
-            <!-- 欄位標頭 -->
             <div class="p-3 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
               <div class="flex items-center justify-between">
                 <div class="flex items-baseline gap-1.5">
@@ -1508,12 +1745,11 @@
               </div>
             </div>
 
-            <!-- 行程卡片清單 -->
-            <div class="flex-1 overflow-y-auto p-2.5 space-y-1">
+            <div class="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1">
               ${items.length > 0 ? cardsHtml : `
                 <div class="h-32 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-4 text-center">
                   <i class="fa-solid fa-hand-pointer mb-1 text-base"></i>
-                  <span>從左側口袋拖曳卡片至此，或點擊卡片「+ 排入 Day ${d}」</span>
+                  <span>從左側口袋拖曳卡片至此，或點擊「排入 ▾」</span>
                 </div>
               `}
             </div>
@@ -1554,9 +1790,7 @@
       } else if (dragPayload.type === 'itinerary') {
         const { fromDay, fromIndex } = dragPayload;
         const [moved] = state.itinerary[fromDay].items.splice(fromIndex, 1);
-        if (moved) {
-          state.itinerary[targetDay].items.push(moved);
-        }
+        if (moved) state.itinerary[targetDay].items.push(moved);
         persistState();
         renderAll();
       }
@@ -1673,7 +1907,7 @@
       renderMapMarkers();
     }
 
-    // 10. Leaflet 地圖與雙向連動檢核
+    // 10. Leaflet 地圖
     function initLeafletMap() {
       mapInstance = L.map('mapContainer', { zoomControl: true }).setView([26.2124, 127.6809], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1707,7 +1941,6 @@
       markerLookup = {};
 
       if (state.mode === 'collect') {
-        // 模式 1：顯示所有目前篩選條件下的口袋卡片圖釘，方便檢核座標
         const cards = getFilteredAndSortedCards().filter(c => Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) && Number(c.lat) !== 0);
         document.getElementById('mapPinCounter').textContent = `${cards.length} 個已定位圖釘`;
 
@@ -1731,10 +1964,7 @@
             </div>
           `);
 
-          marker.on('click', () => {
-            highlightDatabaseCard(card.id);
-          });
-
+          marker.on('click', () => highlightDatabaseCard(card.id));
           marker.addTo(mapMarkersLayer);
           markerLookup[card.id] = marker;
           bounds.push([card.lat, card.lng]);
@@ -1744,7 +1974,6 @@
           mapInstance.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
         }
       } else {
-        // 模式 2：顯示當日行程路線、序號圖釘與移動總計
         const d = state.selectedMapDay;
         const items = state.itinerary[d]?.items || [];
         const coords = [];
@@ -1815,7 +2044,7 @@
       if (!card) return;
       state.highlightedCardId = cardId;
       if (card.isNew) {
-        card.isNew = false; // 點擊檢核後移除 NEW 閃爍
+        card.isNew = false;
         persistState();
       }
       renderDatabaseCards();
@@ -1859,7 +2088,7 @@
       });
     }
 
-    // 11. Google Apps Script 試算表雙向同步與設定
+    // 11. 設定與提示
     function updateTripHeaderDisplay() {
       document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle;
       const days = Number(state.settings.totalDays) || 6;
@@ -1878,7 +2107,7 @@
         statusText.textContent = 'Google 試算表已連線';
       } else {
         pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200';
-        statusText.textContent = '本機暫存模式（未綁定 GAS）';
+        statusText.textContent = '未設定 GAS 網址（點齒輪設定）';
       }
     }
 
@@ -1905,7 +2134,7 @@
       document.getElementById('settingsModal').classList.add('hidden');
     }
 
-    function saveSettings() {
+    async function saveSettings() {
       state.settings.tripTitle = document.getElementById('setTripTitle').value.trim() || DEFAULT_SETTINGS.tripTitle;
       state.settings.startDate = document.getElementById('setStartDate').value || DEFAULT_SETTINGS.startDate;
       state.settings.totalDays = Math.max(1, parseInt(document.getElementById('setTotalDays').value, 10) || 6);
@@ -1915,47 +2144,17 @@
       persistState();
       updateTripHeaderDisplay();
       populateDaySelectors();
-      renderAll();
       closeSettingsModal();
-      showToast('設定已儲存並套用', 'emerald');
-    }
-
-    async function syncWithGoogleSheets() {
-      persistState();
-      if (!state.settings.gasUrl) {
-        showToast('已儲存至本機；如需雲端同步請點齒輪填入 GAS 網址', 'blue');
-        return;
-      }
-      const icon = document.getElementById('syncIcon');
-      icon.classList.add('fa-spin');
-      try {
-        const res = await fetch(state.settings.gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'sync',
-            settings: state.settings,
-            cards: state.cards,
-            itinerary: state.itinerary
-          })
-        });
-        const data = await res.json();
-        if (data && Array.isArray(data.cards)) {
-          state.cards = data.cards;
-          if (data.itinerary) state.itinerary = data.itinerary;
-          persistState();
-          renderAll();
-        }
-        showToast('已與 Google 試算表完成雙向同步！', 'emerald');
-      } catch (err) {
-        showToast('雲端同步連線失敗，資料已安全保留於本機', 'amber');
-      } finally {
-        icon.classList.remove('fa-spin');
+      if (state.settings.gasUrl) {
+        await pullFromGoogleSheets(true);
+      } else {
+        renderAll();
+        showToast('設定已儲存', 'emerald');
       }
     }
 
     function saveAndSyncAll() {
-      syncWithGoogleSheets();
+      syncWithGoogleSheets(false);
     }
 
     function exportJsonBackup() {
@@ -1978,7 +2177,7 @@
       el.className = `px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-2 transition-all ${colorMap[color] || colorMap.slate}`;
       el.innerHTML = `<i class="fa-solid fa-circle-check"></i><span>${msg}</span>`;
       container.appendChild(el);
-      setTimeout(() => el.remove(), 3200);
+      setTimeout(() => el.remove(), 3500);
     }
 
     function renderAll() {
