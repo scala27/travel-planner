@@ -1,3 +1,149 @@
+// ==================== 機票起迄時刻與時差解析器 ====================
+/**
+ * 解析卡片中的航班時刻格式：例如 "✈️ 16:45-19:20 (+1h)" 或 "16:45-19:20 (-1h)"
+ * 回傳 { depStr, arrStr, depMins, arrMins, tzDiff, flightMins } 或 null
+ */
+function parseFlightSchedule(hoursStr) {
+  const raw = String(hoursStr || '').trim();
+  if (!raw) return null;
+
+  // 必須帶有 ✈️ 標記或明確的 (+Xh)/(-Xh) 時差標記，避免誤判一般機場營業時間 (如 06:00-23:00)
+  const match = raw.match(/(?:✈️|航班)?\s*(\d{1,2}:\d{2})\s*[-~～→]\s*(\d{1,2}:\d{2})(?:\s*\(([+-]?\d+(?:\.\d+)?)h\))?/i);
+  if (!match) return null;
+
+  const hasFlightIndicator = /✈️|航班/.test(raw) || match[3] !== undefined;
+  if (!hasFlightIndicator) return null;
+
+  const depParts = match[1].split(':');
+  const arrParts = match[2].split(':');
+  const depH = parseInt(depParts[0], 10);
+  const depM = parseInt(depParts[1], 10);
+  const arrH = parseInt(arrParts[0], 10);
+  const arrM = parseInt(arrParts[1], 10);
+
+  if (isNaN(depH) || isNaN(arrH)) return null;
+
+  const depStr = `${String(depH).padStart(2, '0')}:${String(depM).padStart(2, '0')}`;
+  const arrStr = `${String(arrH).padStart(2, '0')}:${String(arrM).padStart(2, '0')}`;
+  const depMins = depH * 60 + depM;
+  const arrMins = arrH * 60 + arrM;
+  const tzDiff = match[3] !== undefined ? parseFloat(match[3]) : 0;
+
+  // 實際飛行分鐘數 = (當地抵達 - 出發起飛) - 時差*60；若跨午夜則 +1440
+  let flightMins = (arrMins - depMins) - Math.round(tzDiff * 60);
+  if (flightMins <= 0) flightMins += 1440;
+
+  return { depStr, arrStr, depMins, arrMins, tzDiff, flightMins };
+}
+
+function syncFlightInputsToHoursField() {
+  const depVal = document.getElementById('flight-dep-time')?.value || '';
+  const arrVal = document.getElementById('flight-arr-time')?.value || '';
+  const tzVal = parseFloat(document.getElementById('flight-tz-diff')?.value || '0');
+  const hoursInput = document.getElementById('field-hours');
+  const previewEl = document.getElementById('flight-calc-preview');
+
+  if (!depVal || !arrVal) {
+    if (previewEl) {
+      previewEl.textContent = '輸入機票上的起飛與當地抵達時間後，看板將自動以此時刻為基準計算報到、實際飛行分鐘數與後續轉乘時間。';
+    }
+    return;
+  }
+
+  const tzTag = tzVal > 0 ? `+${tzVal}h` : `${tzVal}h`;
+  const formatted = `✈️ ${depVal}-${arrVal} (${tzTag})`;
+  if (hoursInput) hoursInput.value = formatted;
+
+  const parsed = parseFlightSchedule(formatted);
+  if (parsed && previewEl) {
+    const stayBuffer = Number(document.getElementById('field-duration')?.value) || 0;
+    const checkinStr = minutesToTimeStr(parsed.depMins - stayBuffer);
+    previewEl.innerHTML = `✅ 實際飛行 <strong>${parsed.flightMins} 分鐘</strong>｜系統將自動錨定：<strong>${checkinStr} 報到 ～ ${parsed.depStr} 起飛</strong>，並於 <strong>${parsed.arrStr}</strong> 接續目的地當地時間。`;
+  }
+}
+
+function populateFlightInputsFromHoursField() {
+  const hoursVal = document.getElementById('field-hours')?.value || '';
+  const depEl = document.getElementById('flight-dep-time');
+  const arrEl = document.getElementById('flight-arr-time');
+  const tzEl = document.getElementById('flight-tz-diff');
+  const previewEl = document.getElementById('flight-calc-preview');
+  if (!depEl || !arrEl || !tzEl) return;
+
+  const parsed = parseFlightSchedule(hoursVal);
+  if (parsed) {
+    depEl.value = parsed.depStr;
+    arrEl.value = parsed.arrStr;
+    tzEl.value = String(parsed.tzDiff);
+    if (previewEl) {
+      const stayBuffer = Number(document.getElementById('field-duration')?.value) || 0;
+      const checkinStr = minutesToTimeStr(parsed.depMins - stayBuffer);
+      previewEl.innerHTML = `✅ 實際飛行 <strong>${parsed.flightMins} 分鐘</strong>｜系統將自動錨定：<strong>${checkinStr} 報到 ～ ${parsed.depStr} 起飛</strong>，並於 <strong>${parsed.arrStr}</strong> 接續目的地當地時間。`;
+    }
+  } else {
+    depEl.value = '';
+    arrEl.value = '';
+    if (previewEl) {
+      previewEl.textContent = '輸入機票上的起飛與當地抵達時間後，看板將自動以此時刻為基準計算報到、實際飛行分鐘數與後續轉乘時間。';
+    }
+  }
+}
+
+function clearFlightScheduleInputs() {
+  const depEl = document.getElementById('flight-dep-time');
+  const arrEl = document.getElementById('flight-arr-time');
+  const hoursEl = document.getElementById('field-hours');
+  if (depEl) depEl.value = '';
+  if (arrEl) arrEl.value = '';
+  if (hoursEl && parseFlightSchedule(hoursEl.value)) {
+    hoursEl.value = '';
+  }
+  populateFlightInputsFromHoursField();
+}
+
+function handleCategoryFieldChange() {
+  const cat = document.getElementById('field-category').value;
+  const multiBox = document.getElementById('multi-day-stay-box');
+  const singleWrap = document.getElementById('single-day-select-wrap');
+  const flightBox = document.getElementById('flight-schedule-box');
+  const durLabel = document.getElementById('label-duration-field');
+
+  if (cat === '住宿') {
+    multiBox.classList.remove('hidden');
+    singleWrap.classList.add('opacity-40', 'pointer-events-none');
+  } else {
+    multiBox.classList.add('hidden');
+    singleWrap.classList.remove('opacity-40', 'pointer-events-none');
+  }
+
+  if (cat === '交通') {
+    flightBox.classList.remove('hidden');
+    if (durLabel) durLabel.textContent = '報到/轉乘緩衝(分)';
+    populateFlightInputsFromHoursField();
+  } else {
+    flightBox.classList.add('hidden');
+    if (durLabel) durLabel.textContent = '預計停留(分)';
+  }
+}
+
+// 掛鉤編輯與新增視窗，開啟時自動同步航班時刻 UI
+(function hookCardModalsForFlightUI() {
+  if (typeof window.openEditCardModal === 'function') {
+    const origEdit = window.openEditCardModal;
+    window.openEditCardModal = function(id) {
+      origEdit(id);
+      handleCategoryFieldChange();
+    };
+  }
+  if (typeof window.openNewCardModal === 'function') {
+    const origNew = window.openNewCardModal;
+    window.openNewCardModal = function(prefill) {
+      origNew(prefill);
+      handleCategoryFieldChange();
+    };
+  }
+})();
+
 // ==================== 版面空間與檢視模式控制 ====================
 function toggleLeftPanel() {
   uiState.leftVisible = !uiState.leftVisible;
@@ -120,7 +266,7 @@ function scrollToDayColumn(dateStr) {
   }
 }
 
-// ==================== 多時段排程解析與每日出發時間軸 ====================
+// ==================== 多時段排程解析與機票錨定時間軸 ====================
 function isSpotRevisit(spot) {
   return String(spot.status || '').includes('revisit');
 }
@@ -233,25 +379,62 @@ function getMealWindowBadge(startMins, endMins) {
 function buildDayTimeline(dateStr, dayItems) {
   const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
   let cursorMins = timeStrToMinutes(getDayStartTime(dateStr));
+  let activeInboundFlight = null;
 
   return dayItems.map((item, idx) => {
+    const isHotel = item.spot.category === '住宿';
+    const isTransport = item.spot.category === '交通';
+    const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
+    const stayMins = (isHotel || isReturnLeg) ? 0 : (Number(item.spot.estimated_duration) || 0);
+
+    // 檢查此卡片是否設定了機票起迄時刻
+    const flightSched = (isTransport && !isReturnLeg) ? parseFlightSchedule(item.spot.business_hours) : null;
+
     let transitFromPrev = null;
     if (idx > 0) {
       const prevItem = dayItems[idx - 1];
       const legInfo = estimateSingleLegQuick(dateStr, prevItem, item, globalMode);
+      // 若上一站帶有明確機票時刻，則覆寫本段航程分鐘數與標籤
+      if (activeInboundFlight) {
+        legInfo.mode = 'flight';
+        legInfo.mins = activeInboundFlight.flightMins;
+        legInfo.flightSched = activeInboundFlight;
+      }
       transitFromPrev = legInfo;
       cursorMins += legInfo.mins;
     }
 
-    const arriveMins = cursorMins;
-    const isHotel = item.spot.category === '住宿';
-    const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
-    const stayMins = (isHotel || isReturnLeg) ? 0 : (Number(item.spot.estimated_duration) || 0);
-    const departMins = arriveMins + stayMins;
+    let arriveMins = cursorMins;
+    let departMins = arriveMins + stayMins;
+    let checkinWarning = false;
+
+    // 情境 A：本站為設定了「機票起迄時刻」的出發機場 -> 以機票起飛時間為硬錨點！
+    if (flightSched) {
+      const recommendedCheckinMins = flightSched.depMins - stayMins;
+      if (idx === 0) {
+        arriveMins = recommendedCheckinMins;
+      } else {
+        // 若前面行程抵達機場時間晚於建議報到時間，標記警告
+        if (cursorMins > recommendedCheckinMins + 5) {
+          checkinWarning = true;
+        }
+        arriveMins = cursorMins;
+      }
+      departMins = flightSched.depMins;
+      activeInboundFlight = flightSched;
+    } else if (activeInboundFlight) {
+      // 情境 B：本站為剛下飛機的「目的地機場」 -> 直接錨定機票的當地抵達時間！
+      arriveMins = activeInboundFlight.arrMins;
+      departMins = arriveMins + stayMins;
+      activeInboundFlight = null;
+    }
+
     cursorMins = departMins;
 
     return {
       ...item,
+      flightSched,
+      checkinWarning,
       transitFromPrev,
       arriveMins,
       departMins,
@@ -315,7 +498,6 @@ function renderPocketList(daysList) {
 
   document.getElementById('mobile-pocket-count').textContent = dbSpots.length;
 
-  // 切換至「交通」分類時，提供「台灣出發門戶」與「沖繩樞紐」一鍵匯入卡片
   const presetBanner = currentCategoryFilter === '交通' ? `
     <div class="bg-sky-50 border border-sky-200 rounded-xl p-2.5 space-y-2">
       <div class="text-[11px] text-sky-900 font-bold flex items-center gap-1">
@@ -348,6 +530,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
   const isHotel = spot.category === '住宿';
   const isTransport = spot.category === '交通';
   const isRevisit = isSpotRevisit(spot);
+  const flightSched = isTransport ? parseFlightSchedule(spot.business_hours) : null;
   const assignedDays = getSpotAssignedDays(spot);
   const isIncluded = assignedDays.length > 0;
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
@@ -393,6 +576,12 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
           </div>
         </div>
 
+        ${flightSched ? `
+          <div class="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-2 py-1 mb-1.5 text-[11px] font-medium">
+            ✈️ 機票時刻：<strong>${flightSched.depStr}</strong> 起飛 → <strong>${flightSched.arrStr}</strong> 當地抵達 (飛行 ${flightSched.flightMins}分)
+          </div>
+        ` : ''}
+
         ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1.5">${spot.description}</p>` : ''}
 
         ${spot.must_buy ? `
@@ -406,7 +595,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
             ${isHotel 
               ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> 住宿飯店 (可重複拖入)` 
               : (isTransport
-                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> 機場/車站樞紐`
+                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> ${flightSched ? '已設機票時刻' : '機場/車站樞紐'}`
                   : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
             }
             ${!spot.photo_url ? `· ${spot.area}` : ''}
@@ -493,7 +682,9 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
   const canAddReturnToday = (isHotel || isTransport) && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
 
   let timeBadgeHTML = '';
-  if (orderNum === 1 && (isHotel || isTransport)) {
+  if (item.flightSched) {
+    timeBadgeHTML = `<span class="text-[11px] font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">${item.arriveStr} 報到 ～ ${item.departStr} 起飛</span>`;
+  } else if (orderNum === 1 && (isHotel || isTransport)) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-ai-indigo bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} 出發/報到</span>`;
   } else if (isReturnLeg) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-purple-800 bg-purple-100 border border-purple-200 px-1.5 py-0.2 rounded">約 ${item.arriveStr} 返抵</span>`;
@@ -503,13 +694,24 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.2 rounded">${item.arriveStr}</span>`;
   }
 
+  const warningBadge = item.checkinWarning
+    ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-red-100 text-red-700 font-bold">⚠️ 報到時間不足</span>`
+    : '';
+
   const mealBadge = (!isHotel && !isTransport && !isReturnLeg) ? getMealWindowBadge(item.arriveMins, item.departMins) : '';
 
   const isFlightLeg = item.transitFromPrev && item.transitFromPrev.mode === 'flight';
+  const prevFlightSched = item.transitFromPrev && item.transitFromPrev.flightSched;
+  const transitLabelText = prevFlightSched
+    ? `✈️ ${prevFlightSched.depStr} 起飛 → ${prevFlightSched.arrStr} 當地抵達 (飛行 ${prevFlightSched.flightMins} 分)`
+    : (item.transitFromPrev
+        ? `${item.transitFromPrev.isIndoor ? '🚶 館內/緊鄰移動' : MODE_SHORT_LABEL[item.transitFromPrev.mode]} 約 ${item.transitFromPrev.mins} 分`
+        : '');
+
   const transitConnectorHTML = item.transitFromPrev ? `
     <div class="flex items-center justify-center py-0.5 select-none pointer-events-none">
       <span class="text-[10px] ${isFlightLeg ? 'text-purple-800 bg-purple-50 border-purple-200 font-bold' : 'text-slate-500 bg-white/90 border-slate-200/80'} border rounded-full px-2 py-0.2 shadow-2xs">
-        ↓ ${item.transitFromPrev.isIndoor ? '🚶 館內/緊鄰移動' : MODE_SHORT_LABEL[item.transitFromPrev.mode]} 約 ${item.transitFromPrev.mins} 分
+        ↓ ${transitLabelText}
       </span>
     </div>
   ` : '';
@@ -526,6 +728,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
         <div class="flex items-center justify-between gap-1 mb-1">
           <div class="flex items-center gap-1 flex-wrap">
             ${timeBadgeHTML}
+            ${warningBadge}
             ${mealBadge}
           </div>
           <div class="flex items-center gap-1 shrink-0">
@@ -555,7 +758,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
           ${isHotel 
             ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${spot.area}`
             : (isTransport 
-                ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : `報到/轉乘 ${spot.estimated_duration || 30}分`}</span> · ${spot.area}`
+                ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span> · ${spot.area}`
                 : `${spot.area} · 停留${spot.estimated_duration || 60}分`)
           }
           ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
@@ -590,6 +793,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
         <div class="flex items-center justify-between gap-1 mb-1.5">
           <div class="flex items-center gap-1 flex-wrap">
             ${timeBadgeHTML}
+            ${warningBadge}
             ${mealBadge}
           </div>
           <div class="flex items-center gap-1 shrink-0">
@@ -639,7 +843,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
             ${isHotel 
               ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店' : `已排 ${uniqueStayNights} 晚`}</span>` 
               : (isTransport
-                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : `報到/轉乘 ${spot.estimated_duration || 30}分`}</span>`
+                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span>`
                   : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
             }
             · ${spot.area}
@@ -857,19 +1061,6 @@ function setFilterArea(area) {
   currentAreaFilter = area;
   renderDynamicAreaControls();
   renderAll();
-}
-
-function toggleMultiDayStayUI() {
-  const cat = document.getElementById('field-category').value;
-  const multiBox = document.getElementById('multi-day-stay-box');
-  const singleWrap = document.getElementById('single-day-select-wrap');
-  if (cat === '住宿') {
-    multiBox.classList.remove('hidden');
-    singleWrap.classList.add('opacity-40', 'pointer-events-none');
-  } else {
-    multiBox.classList.add('hidden');
-    singleWrap.classList.remove('opacity-40', 'pointer-events-none');
-  }
 }
 
 function selectAllStayDays() {
