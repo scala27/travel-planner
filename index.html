@@ -122,7 +122,7 @@
 
           <div class="flex items-center gap-1.5">
             <span id="collectModeHint" class="text-[11px] text-blue-600 font-medium hidden lg:inline">
-              <i class="fa-solid fa-cloud-check"></i> 新增/編輯/刪除後自動同步至試算表
+              <i class="fa-solid fa-circle-info"></i> 點擊「詳情」可展開說明，點擊卡片可編輯
             </span>
             <button id="btnTogglePlanFilters" onclick="togglePlanAdvancedFilters()"
               class="hidden px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 items-center gap-1">
@@ -244,8 +244,8 @@
         </div>
       </div>
 
-      <!-- 卡片列表容器 -->
-      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start content-start bg-slate-50/40"></div>
+      <!-- 等高整齊的卡片列表容器（詳細說明預設摺疊，點擊可展開） -->
+      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40"></div>
     </section>
 
     <!-- 模式2收合口袋後的展開浮動按鈕 -->
@@ -493,14 +493,14 @@
     </div>
   </div>
 
-  <!-- ==================== 彈窗 2：系統與 Google 試算表設定 ==================== -->
+  <!-- ==================== 彈窗 2：系統與 Google 試算表設定（含 GAS 後端同步碼檢核） ==================== -->
   <div id="settingsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
-      <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
         <h3 class="font-bold text-base text-slate-800"><i class="fa-solid fa-gear text-blue-600 mr-1.5"></i>行程與試算表同步設定</h3>
         <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-700 text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <div class="p-5 space-y-3.5 text-xs">
+      <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
         <div>
           <label class="block font-bold text-slate-700 mb-1">行程專案名稱</label>
           <input type="text" id="setTripTitle" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
@@ -520,11 +520,21 @@
           <input type="url" id="setGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-[11px]" />
         </div>
-        <div class="p-2.5 rounded-lg bg-blue-50 text-blue-800 text-[11px] leading-relaxed">
-          💡 每次新增、修改或刪除卡片都會自動寫回 Google 試算表；也可隨時點頂部「寫入試算表」或「重新載入」手動同步。
+
+        <div class="p-3 rounded-xl bg-amber-50/90 border border-amber-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-amber-900"><i class="fa-solid fa-code mr-1"></i>若刪除卡片後重新載入又出現（GAS 覆蓋碼）</span>
+            <button type="button" onclick="copyGasBackendCode()"
+              class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold">
+              複製 GAS 程式碼
+            </button>
+          </div>
+          <p class="text-[11px] text-amber-800 leading-relaxed">
+            請確認您的 Google Apps Script 在寫入 <strong>Spots</strong> 工作表時有先清空舊資料列（<code>clearContent()</code>），否則底部多餘的列（如第 35 列）會殘留。可點上方按鈕複製標準完整腳本貼上並重新部署。
+          </p>
         </div>
       </div>
-      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between">
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between shrink-0">
         <button onclick="exportJsonBackup()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-100">
           <i class="fa-solid fa-download mr-1"></i>匯出 JSON 備份
         </button>
@@ -573,6 +583,8 @@
       radarActive: false,
       selectedMapDay: 1,
       highlightedCardId: null,
+      expandedCards: {}, // 記錄哪些卡片已展開詳細說明
+      deletedIds: [],    // 記錄已刪除的卡片 ID，寫入時通知後端清除
       filters: {
         scope: 'all',
         category: 'all',
@@ -609,6 +621,7 @@
           state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
           state.cards = Array.isArray(parsed.cards) ? parsed.cards : [];
           state.itinerary = parsed.itinerary || {};
+          state.deletedIds = Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [];
         } catch (e) {}
       }
 
@@ -632,12 +645,12 @@
       }
     }
 
-    // 每次本機狀態變更時，預設自動排程回寫 Google 試算表
     function persistState(triggerAutoPush = true) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         settings: state.settings,
         cards: state.cards,
-        itinerary: state.itinerary
+        itinerary: state.itinerary,
+        deletedIds: state.deletedIds
       }));
 
       if (triggerAutoPush && state.settings.gasUrl) {
@@ -645,7 +658,7 @@
         clearTimeout(autoSyncTimer);
         autoSyncTimer = setTimeout(() => {
           pushAllToGoogleSheets(true);
-        }, 600);
+        }, 500);
       }
     }
 
@@ -708,6 +721,19 @@
       return [];
     }
 
+    function cleanDistrictString(rawArea, country) {
+      let clean = String(rawArea || '').trim();
+      if (clean.includes('/')) {
+        const parts = clean.split('/').map(s => s.trim()).filter(Boolean);
+        clean = parts[parts.length - 1];
+      }
+      clean = clean
+        .replace(/^日本\s*[・\/-]\s*/, '')
+        .replace(/^台灣\s*[・\/-]\s*/, '')
+        .replace(/^臺灣\s*[・\/-]\s*/, '');
+      return clean || country || '未分類';
+    }
+
     function normalizeSheetRowToCard(row, index) {
       const id = String(row.id || `spot_${Date.now()}_${index}`);
       const title = String(row.name || row.title || '未命名地點').trim();
@@ -721,13 +747,7 @@
         }
       }
 
-      let cleanDistrict = rawArea;
-      if (cleanDistrict.includes('/')) {
-        const parts = cleanDistrict.split('/').map(s => s.trim()).filter(Boolean);
-        cleanDistrict = parts[parts.length - 1];
-      }
-      cleanDistrict = cleanDistrict.replace(/^日本・/, '').replace(/^台灣・/, '').replace(/^臺灣・/, '');
-
+      const cleanDistrict = cleanDistrictString(rawArea, country);
       const category = String(row.category || '景點').trim();
       const rawHours = String(row.business_hours || row.businessHours || '').trim();
       const rawMustBuy = String(row.must_buy || row.mustBuy || '').trim();
@@ -756,7 +776,7 @@
         title,
         category,
         country,
-        district: cleanDistrict || rawArea || '未分類',
+        district: cleanDistrict,
         rawArea,
         duration: parseInt(row.estimated_duration || row.duration, 10) || 60,
         lat: Number.isFinite(lat) ? lat : null,
@@ -830,9 +850,8 @@
         if (card.bookingRef) mustBuyCol = card.bookingRef;
       }
 
-      const areaFormatted = card.district
-        ? (card.district.startsWith(card.country) ? card.district : `${card.country}・${card.district}`)
-        : card.country;
+      const cleanDist = cleanDistrictString(card.district, card.country);
+      const areaFormatted = cleanDist.startsWith(card.country) ? cleanDist : `${card.country}・${cleanDist}`;
 
       return {
         id: card.id,
@@ -856,8 +875,9 @@
 
     async function fetchGasEndpoint(baseUrl, querySuffix = '') {
       const sep = baseUrl.includes('?') ? '&' : '?';
-      const targetUrl = querySuffix ? `${baseUrl}${sep}${querySuffix}` : baseUrl;
-      const res = await fetch(targetUrl, { method: 'GET', redirect: 'follow' });
+      const cacheBust = `_t=${Date.now()}`;
+      const targetUrl = querySuffix ? `${baseUrl}${sep}${querySuffix}&${cacheBust}` : `${baseUrl}${sep}${cacheBust}`;
+      const res = await fetch(targetUrl, { method: 'GET', redirect: 'follow', cache: 'no-store' });
       const text = await res.text();
       try {
         return JSON.parse(text);
@@ -891,7 +911,10 @@
         }
 
         if (rows.length > 0) {
-          const mappedCards = rows.map((r, idx) => normalizeSheetRowToCard(r, idx));
+          const mappedCards = rows
+            .map((r, idx) => normalizeSheetRowToCard(r, idx))
+            .filter(c => !state.deletedIds.includes(c.id));
+
           state.cards = mappedCards;
 
           ensureItineraryDays();
@@ -931,7 +954,7 @@
           const nowStr = new Date().toTimeString().slice(0, 5);
           setSyncPillStatus('ok', `已載入 ${mappedCards.length} 筆 (${nowStr})`);
           if (showNotification) {
-            showToast(`已成功從 Google 試算表載入全部 ${mappedCards.length} 筆資料！`, 'emerald');
+            showToast(`已成功從 Google 試算表載入 ${mappedCards.length} 筆資料！`, 'emerald');
           }
         } else {
           setSyncPillStatus('warning', '試算表無資料列');
@@ -951,7 +974,7 @@
       }
     }
 
-    async function pushAllToGoogleSheets(isSilentAuto = false) {
+    async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId = null) {
       persistState(false);
       if (!state.settings.gasUrl) {
         if (!isSilentAuto) showToast('已儲存至本機；如需寫入試算表請點齒輪設定 GAS 網址', 'blue');
@@ -960,34 +983,61 @@
 
       const pushIcon = document.getElementById('pushIcon');
       if (pushIcon) pushIcon.classList.add('fa-bounce');
-      setSyncPillStatus('syncing', '正在寫入 Google 試算表...');
+      setSyncPillStatus('syncing', '正在覆蓋寫入試算表...');
 
       try {
         const sheetRows = state.cards.map((c, idx) => serializeCardToSheetRow(c, idx));
+
+        // 若有單筆刪除，額外發送 deleteSpot 給可能使用單筆刪除邏輯的 GAS
+        if (extraDeletedId) {
+          try {
+            await fetch(state.settings.gasUrl, {
+              method: 'POST',
+              redirect: 'follow',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                action: 'deleteSpot',
+                sheet: 'Spots',
+                id: extraDeletedId
+              })
+            });
+          } catch (e) {}
+        }
+
         const res = await fetch(state.settings.gasUrl, {
           method: 'POST',
           redirect: 'follow',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'syncAll',
+            mode: 'overwrite',
+            clearRemaining: true,
             sheet: 'Spots',
+            deletedIds: state.deletedIds,
             data: sheetRows,
             spots: sheetRows,
             cards: sheetRows,
             itinerary: state.itinerary
           })
         });
-        await res.text();
+        const respText = await res.text();
+        let respJson = null;
+        try { respJson = JSON.parse(respText); } catch (e) {}
+
+        if (respJson && respJson.status === 'error') {
+          throw new Error(respJson.message || 'GAS 寫入回傳錯誤');
+        }
+
         const nowStr = new Date().toTimeString().slice(0, 5);
-        setSyncPillStatus('ok', `已寫入試算表 (${nowStr})`);
+        setSyncPillStatus('ok', `已寫入試算表 ${sheetRows.length} 筆 (${nowStr})`);
         if (!isSilentAuto) {
-          showToast(`已成功將全部 ${sheetRows.length} 筆卡片寫回 Google 試算表！`, 'emerald');
+          showToast(`已將最新 ${sheetRows.length} 筆資料完整寫入 Google 試算表！`, 'emerald');
         }
       } catch (err) {
         console.error('GAS POST Error:', err);
-        setSyncPillStatus('warning', '自動寫入未確認（已存本機）');
+        setSyncPillStatus('warning', '試算表寫入異常（請點齒輪檢查GAS）');
         if (!isSilentAuto) {
-          showToast('寫入試算表連線異常，資料已先保存於本機瀏覽器', 'amber');
+          showToast('寫入試算表異常，請點右上角齒輪檢查 GAS 覆蓋寫入程式碼', 'amber');
         }
       } finally {
         if (pushIcon) pushIcon.classList.remove('fa-bounce');
@@ -1018,7 +1068,7 @@
 
         dbPanel.classList.remove('hidden', 'w-[295px]');
         dbPanel.classList.add('w-[65%]');
-        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start content-start bg-slate-50/40';
+        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
         boardSection.classList.add('hidden');
         boardSection.classList.remove('flex');
 
@@ -1194,7 +1244,12 @@
       return list;
     }
 
-    // 5. 渲染資料庫卡片
+    // 5. 渲染等高整齊的資料庫卡片（詳細說明預設摺疊，點擊展開）
+    function toggleCardDetailExpand(cardId) {
+      state.expandedCards[cardId] = !state.expandedCards[cardId];
+      renderDatabaseCards();
+    }
+
     function renderCategorySummaryHtml(card) {
       const blocks = [];
 
@@ -1315,21 +1370,21 @@
         return;
       }
 
+      // 模式 1：等高整齊卡片設計（詳細說明預設摺疊，需要時點擊展開）
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
         const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
         const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + (card.district || ''))}`;
 
-        let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">未排入</span>`;
+        let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 shrink-0">未排入</span>`;
         if (scheduledDays.length > 0) {
           const dayLabel = scheduledDays.map(d => `Day ${d}`).join(', ');
-          const stayTag = card.category === '住宿' && scheduledDays.length > 1 ? ` (連住${scheduledDays.length}晚)` : '';
-          statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-600 text-white shadow-2xs"><i class="fa-solid fa-check mr-0.5"></i>${dayLabel}${stayTag}</span>`;
+          statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-600 text-white shadow-2xs shrink-0"><i class="fa-solid fa-check mr-0.5"></i>${dayLabel}</span>`;
         }
 
         const newBadge = card.isNew
-          ? `<span class="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-extrabold tracking-wide shadow-2xs">NEW</span>`
+          ? `<span class="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-extrabold tracking-wide shadow-2xs shrink-0">NEW</span>`
           : '';
 
         const coordBadge = hasCoords
@@ -1338,45 +1393,70 @@
 
         const isHighlighted = state.highlightedCardId === card.id;
         const detailsHtml = renderCategorySummaryHtml(card);
+        const hasDetails = Boolean(detailsHtml);
+        const isExpanded = !!state.expandedCards[card.id];
+
+        const detailToggleBtn = hasDetails
+          ? `<button type="button" onclick="event.stopPropagation(); toggleCardDetailExpand('${card.id}')"
+               class="text-[11px] font-semibold px-2 py-0.5 rounded border transition inline-flex items-center gap-1 ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-blue-50/80 hover:bg-blue-100 text-blue-700 border-blue-200'}">
+               <i class="fa-regular fa-file-lines"></i>
+               <span>${isExpanded ? '收合詳情' : '詳情'}</span>
+               <i class="fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[9px]"></i>
+             </button>`
+          : `<span class="text-[11px] text-slate-400 px-1.5 py-0.5">無備註</span>`;
 
         return `
           <div id="db-card-${card.id}"
             draggable="true"
             ondragstart="onDragStartCard(event, '${card.id}')"
             onclick="handleCardClick('${card.id}')"
-            class="bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-2xs flex flex-col justify-between cursor-pointer ${card.isNew ? 'card-is-new' : ''} ${isHighlighted ? 'card-is-highlighted' : ''}">
+            class="h-full bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-2xs flex flex-col justify-between cursor-pointer ${card.isNew ? 'card-is-new' : ''} ${isHighlighted ? 'card-is-highlighted' : ''}">
             
-            <div class="p-3 space-y-2">
-              <div class="flex items-center justify-between gap-1.5 flex-wrap">
-                <div class="flex items-center gap-1 flex-wrap">
-                  ${newBadge}
-                  <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600">${card.district || card.country || '未分類區域'}</span>
+            <div class="p-3 flex-1 flex flex-col justify-between gap-2">
+              <div class="space-y-2">
+                <!-- 第一列：行政區 ＋ 納入狀態 -->
+                <div class="flex items-center justify-between gap-1.5">
+                  <div class="flex items-center gap-1 min-w-0">
+                    ${newBadge}
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 truncate">${card.district || card.country || '未分類'}</span>
+                  </div>
+                  ${statusBadge}
                 </div>
-                ${statusBadge}
-              </div>
 
-              <div class="flex items-start justify-between gap-2">
-                <h4 class="font-bold text-[14px] text-slate-800 leading-snug break-words">${card.title}</h4>
-                <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
-                  <button onclick="toggleStarCard('${card.id}')" title="標記星號二訪"
-                    class="text-sm ${card.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}">
-                    <i class="fa-${card.starred ? 'solid' : 'regular'} fa-star"></i>
-                  </button>
-                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
+                <!-- 第二列：固定兩行高度的標題 ＋ 星號 ＋ 類別 -->
+                <div class="flex items-start justify-between gap-2 min-h-[2.65rem]">
+                  <h4 class="font-bold text-[14px] text-slate-800 leading-snug line-clamp-2 break-words" title="${card.title}">${card.title}</h4>
+                  <div class="flex items-center gap-1.5 shrink-0 pt-0.5" onclick="event.stopPropagation()">
+                    <button onclick="toggleStarCard('${card.id}')" title="標記星號二訪"
+                      class="text-sm ${card.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}">
+                      <i class="fa-${card.starred ? 'solid' : 'regular'} fa-star"></i>
+                    </button>
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
+                  </div>
                 </div>
               </div>
 
-              <div class="flex items-center gap-1.5 flex-wrap">
-                ${coordBadge}
-                <span class="text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
-                  <i class="fa-regular fa-clock mr-0.5"></i>停留 ${card.duration || 60} 分
-                </span>
+              <!-- 第三列：定位狀態 ＋ 停留時間 ＋ 詳情展開按鈕 -->
+              <div class="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100/80">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  ${coordBadge}
+                  <span class="text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                    <i class="fa-regular fa-clock mr-0.5"></i>${card.duration || 60}分
+                  </span>
+                </div>
+                ${detailToggleBtn}
               </div>
 
-              ${detailsHtml ? `<div class="space-y-1.5 pt-0.5">${detailsHtml}</div>` : ''}
+              <!-- 可摺疊的詳細說明區塊（預設隱藏，點擊詳情按鈕後顯示） -->
+              ${hasDetails && isExpanded ? `
+                <div class="space-y-1.5 pt-1.5 border-t border-dashed border-slate-200" onclick="event.stopPropagation()">
+                  ${detailsHtml}
+                </div>
+              ` : ''}
             </div>
 
-            <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 rounded-b-xl flex items-center justify-between gap-1.5 flex-wrap" onclick="event.stopPropagation()">
+            <!-- 底部操作列 -->
+            <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 rounded-b-xl flex items-center justify-between gap-1.5 shrink-0" onclick="event.stopPropagation()">
               <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
                 class="text-[11px] font-bold bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-slate-700 cursor-pointer focus:outline-none">
                 <option value="">+ 排入 ▾</option>
@@ -2013,15 +2093,18 @@
       if (!card) return;
       if (!confirm(`確定要刪除「${card.title}」並同步更新試算表嗎？`)) return;
 
+      if (!state.deletedIds.includes(cardId)) {
+        state.deletedIds.push(cardId);
+      }
       state.cards = state.cards.filter(c => c.id !== cardId);
       Object.values(state.itinerary).forEach(day => {
         day.items = (day.items || []).filter(it => it.cardId !== cardId);
       });
 
-      persistState(true);
       populateRegionDropdowns();
       renderAll();
-      showToast(`已刪除「${card.title}」並同步更新試算表`, 'slate');
+      showToast(`已刪除「${card.title}」，正在同步覆蓋試算表...`, 'slate');
+      pushAllToGoogleSheets(true, cardId);
     }
 
     function toggleStarCard(cardId) {
@@ -2697,6 +2780,59 @@
         renderAll();
         showToast('設定已儲存', 'emerald');
       }
+    }
+
+    function copyGasBackendCode() {
+      const gasCode = `function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Spots') || ss.getSheets()[0];
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: [] })).setMimeType(ContentService.MimeType.JSON);
+  }
+  const headers = values[0].map(h => String(h).trim());
+  const rows = values.slice(1).filter(r => r[0] || r[1]).map(r => {
+    const obj = {};
+    headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
+    return obj;
+  });
+  return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: rows })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Spots') || ss.getSheets()[0];
+    const body = JSON.parse(e.postData.contents);
+    const headers = ['id','name','category','area','description','must_buy','business_hours','estimated_duration','parking_info','source_url','photo_url','status','assigned_day','sort_order','lat','lng'];
+
+    if (body.action === 'deleteSpot' && body.id) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][0]) === String(body.id)) {
+          sheet.deleteRow(i + 1);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const list = body.data || body.spots || body.cards || [];
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (list.length > 0) {
+      const matrix = list.map(item => headers.map(h => item[h] !== undefined ? item[h] : ''));
+      sheet.getRange(2, 1, matrix.length, headers.length).setValues(matrix);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', count: list.length })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
+}`;
+      navigator.clipboard.writeText(gasCode).then(() => {
+        showToast('已複製標準 GAS 完整程式碼！請貼入 Apps Script 並部署新版本', 'emerald');
+      });
     }
 
     function exportJsonBackup() {
