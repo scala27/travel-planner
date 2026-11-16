@@ -12,10 +12,10 @@ let spots = [];
 let dayStartTimes = {};
 let legModeOverrides = {};
 let currentCategoryFilter = '全部';
-let currentRegionL1Filter = '全部'; // 第一層：國家 / 台灣縣市（例如：日本 · 沖繩縣、台灣 · 臺中市）
-let currentRegionL2Filter = '全部'; // 第二層：城市 / 鄉鎮區（例如：那霸市、清水區）
+let currentRegionScopeFilter = 'all'; // 'all' | 'domestic' (國內) | 'international' (國外)
+let currentRegionL1Filter = '全部';    // 國內：縣市 (如 臺中市)｜國外：國家 · 州/都道府縣 (如 日本 · 沖繩縣)
+let currentRegionL2Filter = '全部';    // 國內：鄉鎮市區 (如 沙鹿區)｜國外：城市/町村 (如 那霸市、浦添市)
 let currentDbStatusFilter = 'all';
-let latestPlaceAddress = '';
 let mapInstance = null;
 let mapLayerGroup = null;
 let routeRequestToken = 0;
@@ -80,7 +80,7 @@ const YUI_RAIL_STATIONS = [
   { name: '日子浦西站', lat: 26.2454, lng: 127.7416, trackIdx: 25 }
 ];
 
-// ==================== 3. 預設範例資料（標準化 國家·縣市·鄉鎮區 標籤） ====================
+// ==================== 3. 預設範例資料 ====================
 const DEFAULT_DEMO_SPOTS = [
   {
     id: 'demo_tpe_rmq',
@@ -183,8 +183,8 @@ const DEFAULT_DEMO_SPOTS = [
     name: '西來院達摩寺',
     category: '景點',
     area: '日本 · 沖繩縣 · 那霸市',
-    lat: 26.2212,
-    lng: 127.7176,
+    lat: 26.2179,
+    lng: 127.7225,
     estimated_duration: 45,
     business_hours: '09:00 - 17:00',
     parking_info: '寺院前設有免費參拜停車位，鄰近首里城',
@@ -212,42 +212,90 @@ const DEFAULT_DEMO_SPOTS = [
   }
 ];
 
-// ==================== 4. 行政區解析與動態兩層級篩選器 ====================
-function parseAreaHierarchy(areaStr) {
-  const raw = String(areaStr || '').trim();
+// ==================== 4. 國內 / 國外三層級行政區解析與動態聯動控制 ====================
+function isSpotInTaiwanCoords(spot) {
+  const lat = parseFloat(spot.lat);
+  const lng = parseFloat(spot.lng);
+  if (isNaN(lat) || isNaN(lng)) return null;
+  // 台灣本島及澎金馬離島地理範圍
+  return lat >= 21.8 && lat <= 26.5 && lng >= 118.0 && lng <= 122.2;
+}
+
+function parseAreaHierarchy(spotOrArea) {
+  const isObj = typeof spotOrArea === 'object' && spotOrArea !== null;
+  const raw = String(isObj ? (spotOrArea.area || '') : (spotOrArea || '')).trim();
+  const coordTaiwan = isObj ? isSpotInTaiwanCoords(spotOrArea) : null;
+
   if (!raw || raw === '未分類') {
-    return { l1: '未分類', l2: '未分類', full: '未分類' };
+    const scope = coordTaiwan === true ? 'domestic' : (coordTaiwan === false ? 'international' : 'unknown');
+    return { scope, l1: '未分類', l2: '未分類', full: '未分類', shortBadge: '未分類' };
   }
+
   const parts = raw.split(/\s*[·・\/|-]\s*/).map(p => p.trim()).filter(Boolean);
+  const isDomesticText = /^(台灣|臺灣|台灣出發)/.test(parts[0]) ||
+    /^(臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(parts[0]);
+
+  const scope = isDomesticText ? 'domestic' : (coordTaiwan === true ? 'domestic' : 'international');
+
+  if (scope === 'domestic') {
+    // 去掉「台灣」前綴，第二層直接顯示縣市（如 臺中市），第三層顯示鄉鎮市區（如 沙鹿區）
+    const cleanParts = parts[0] === '台灣' || parts[0] === '臺灣' ? parts.slice(1) : parts;
+    const l1 = cleanParts[0] || '台灣其他';
+    const l2 = cleanParts[1] || '其他區';
+    const full = cleanParts.length >= 2 ? `台灣 · ${l1} · ${l2}` : `台灣 · ${l1}`;
+    const shortBadge = cleanParts.length >= 2 ? `${l1} · ${l2}` : l1;
+    return { scope: 'domestic', l1, l2, full, shortBadge };
+  }
+
+  // 國外：L1 為「國家 · 都道府縣/州」（如 日本 · 沖繩縣），L2 為「城市/町村」（如 那霸市、浦添市）
   if (parts.length >= 3) {
-    return { l1: `${parts[0]} · ${parts[1]}`, l2: parts[2], full: `${parts[0]} · ${parts[1]} · ${parts[2]}` };
+    const l1 = `${parts[0]} · ${parts[1]}`;
+    const l2 = parts[2];
+    return { scope: 'international', l1, l2, full: `${parts[0]} · ${parts[1]} · ${parts[2]}`, shortBadge: `${parts[1]} · ${parts[2]}` };
   }
   if (parts.length === 2) {
-    return { l1: parts[0], l2: parts[1], full: `${parts[0]} · ${parts[1]}` };
+    return { scope: 'international', l1: parts[0], l2: parts[1], full: `${parts[0]} · ${parts[1]}`, shortBadge: `${parts[0]} · ${parts[1]}` };
   }
-  return { l1: parts[0], l2: '其他', full: parts[0] };
+  return { scope: 'international', l1: parts[0], l2: '其他區', full: parts[0], shortBadge: parts[0] };
 }
 
 function renderDynamicAreaControls() {
-  const l1Sel = document.getElementById('filter-region-l1');
-  const l2Sel = document.getElementById('filter-region-l2');
-  const datalistEl = document.getElementById('area-suggestions-list');
-
+  let domesticCount = 0;
+  let internationalCount = 0;
   const l1Counts = {};
   const l2MapByL1 = {};
   const allFullAreas = new Set();
 
   spots.forEach(s => {
-    const h = parseAreaHierarchy(s.area);
+    const h = parseAreaHierarchy(s);
     allFullAreas.add(h.full);
+    if (h.scope === 'domestic') domesticCount++;
+    else if (h.scope === 'international') internationalCount++;
+
+    if (currentRegionScopeFilter !== 'all' && h.scope !== currentRegionScopeFilter) return;
+
     l1Counts[h.l1] = (l1Counts[h.l1] || 0) + 1;
     if (!l2MapByL1[h.l1]) l2MapByL1[h.l1] = {};
     l2MapByL1[h.l1][h.l2] = (l2MapByL1[h.l1][h.l2] || 0) + 1;
   });
 
+  const elAll = document.getElementById('scope-count-all');
+  const elDom = document.getElementById('scope-count-domestic');
+  const elIntl = document.getElementById('scope-count-international');
+  if (elAll) elAll.textContent = spots.length;
+  if (elDom) elDom.textContent = domesticCount;
+  if (elIntl) elIntl.textContent = internationalCount;
+
+  const l1Sel = document.getElementById('filter-region-l1');
+  const l2Sel = document.getElementById('filter-region-l2');
+  const datalistEl = document.getElementById('area-suggestions-list');
+
   if (l1Sel) {
+    const l1DefaultLabel = currentRegionScopeFilter === 'domestic'
+      ? '全部台灣縣市'
+      : (currentRegionScopeFilter === 'international' ? '全部國家 / 地區' : '全部縣市 / 國家');
     const sortedL1 = Object.keys(l1Counts).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-    l1Sel.innerHTML = `<option value="全部">🌍 全部國家/縣市 (${spots.length})</option>` +
+    l1Sel.innerHTML = `<option value="全部">${l1DefaultLabel}</option>` +
       sortedL1.map(l1 => `<option value="${l1}">${l1} (${l1Counts[l1]})</option>`).join('');
     if ([...l1Sel.options].some(o => o.value === currentRegionL1Filter)) {
       l1Sel.value = currentRegionL1Filter;
@@ -268,8 +316,9 @@ function renderDynamicAreaControls() {
     } else if (l2MapByL1[currentRegionL1Filter]) {
       Object.assign(targetL2Counts, l2MapByL1[currentRegionL1Filter]);
     }
+    const l2DefaultLabel = currentRegionScopeFilter === 'domestic' ? '全部鄉鎮市區' : '全部城市 / 町村';
     const sortedL2 = Object.keys(targetL2Counts).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-    l2Sel.innerHTML = `<option value="全部">📍 全部城市/鄉鎮區</option>` +
+    l2Sel.innerHTML = `<option value="全部">${l2DefaultLabel}</option>` +
       sortedL2.map(l2 => `<option value="${l2}">${l2} (${targetL2Counts[l2]})</option>`).join('');
     if ([...l2Sel.options].some(o => o.value === currentRegionL2Filter)) {
       l2Sel.value = currentRegionL2Filter;
@@ -282,6 +331,23 @@ function renderDynamicAreaControls() {
   if (datalistEl) {
     datalistEl.innerHTML = [...allFullAreas].sort().map(a => `<option value="${a}">`).join('');
   }
+}
+
+function setFilterRegionScope(scope) {
+  currentRegionScopeFilter = scope;
+  currentRegionL1Filter = '全部';
+  currentRegionL2Filter = '全部';
+
+  const keys = ['all', 'domestic', 'international'];
+  document.querySelectorAll('.scope-btn').forEach((btn, idx) => {
+    const active = keys[idx] === scope;
+    btn.className = active
+      ? 'scope-btn py-1 rounded-md text-[11px] font-bold bg-white text-ai-indigo shadow-2xs transition'
+      : 'scope-btn py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-ink-dark transition';
+  });
+
+  renderDynamicAreaControls();
+  renderAll();
 }
 
 function handleRegionL1Change(val) {
