@@ -129,7 +129,7 @@ function handleCategoryFieldChange() {
   }
 }
 
-// ==================== 卡片座標精準重抓與 Google 地圖連結解析 ====================
+// ==================== Google 地圖連結與經緯度雙向自動連動行政區 ====================
 function updateGoogleMapsPlaceLink() {
   const name = document.getElementById('field-name')?.value.trim() || '';
   const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
@@ -145,6 +145,13 @@ function updateGoogleMapsPlaceLink() {
   }
 }
 
+function showPlaceSyncBanner(msg) {
+  const box = document.getElementById('place-sync-feedback');
+  if (!box) return;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
 async function handleSourceUrlInputChange() {
   updateGoogleMapsPlaceLink();
   const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
@@ -157,55 +164,27 @@ async function handleSourceUrlInputChange() {
     const rev = await reverseGeocodeAdminArea(parsed.lat, parsed.lng);
     if (rev && rev.adminArea) {
       document.getElementById('field-area').value = rev.adminArea;
-    }
-    showToast(`📍 已從 Google 地圖連結自動萃取精準座標 (${parsed.lat}, ${parsed.lng})！`);
-  }
-}
-
-async function handleLookupPlaceAddress(forceOverwrite = true) {
-  const name = document.getElementById('field-name')?.value.trim();
-  if (!name) {
-    showToast('請先輸入地點名稱再查詢座標');
-    return;
-  }
-  const btn = document.getElementById('btn-lookup-address');
-  const origHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = `<span>定位中...</span>`;
-
-  try {
-    const geo = await smartGeocodePlace(name);
-    if (geo) {
-      latestPlaceAddress = geo.displayName || '';
-      document.getElementById('place-address-text').textContent = latestPlaceAddress;
-      document.getElementById('place-coords-text').textContent = `新座標：${geo.lat}, ${geo.lng} (${geo.adminArea || ''})`;
-      document.getElementById('place-address-result').classList.remove('hidden');
-
-      if (forceOverwrite || !document.getElementById('field-lat').value) {
-        document.getElementById('field-lat').value = geo.lat;
-        document.getElementById('field-lng').value = geo.lng;
-      }
-      if (geo.adminArea && (forceOverwrite || !document.getElementById('field-area').value)) {
-        document.getElementById('field-area').value = geo.adminArea;
-      }
-      showToast(`✅ 已依地圖視野重新定位「${name}」並更新行政區！`);
+      showPlaceSyncBanner(`✅ 已從 Google 地圖連結萃取座標 (${parsed.lat}, ${parsed.lng})，並自動辨識為「${rev.adminArea}」`);
     } else {
-      showToast('找不到精準座標，建議點右側「開啟 Google 地圖」複製網址貼入連結欄');
+      showPlaceSyncBanner(`✅ 已從 Google 地圖連結萃取座標 (${parsed.lat}, ${parsed.lng})`);
     }
-  } catch (e) {
-    showToast('地址查詢暫時無法連線，請稍後再試');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = origHtml;
-    lucide.createIcons();
+    const navBtn = document.getElementById('btn-google-nav');
+    if (navBtn) navBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${parsed.lat},${parsed.lng}`;
   }
 }
 
-function applyAddressToParking() {
-  if (!latestPlaceAddress) return;
-  const parkingInput = document.getElementById('field-parking');
-  parkingInput.value = parkingInput.value ? `${latestPlaceAddress} (${parkingInput.value})` : latestPlaceAddress;
-  showToast('已將地址填入下方欄位！');
+async function handleLatLngManualChange() {
+  const lat = document.getElementById('field-lat')?.value.trim() || '';
+  const lng = document.getElementById('field-lng')?.value.trim() || '';
+  if (!lat || !lng || isNaN(parseFloat(lat)) || isNaN(parseFloat(lng))) return;
+
+  const rev = await reverseGeocodeAdminArea(lat, lng);
+  if (rev && rev.adminArea && rev.adminArea !== '未分類') {
+    document.getElementById('field-area').value = rev.adminArea;
+    showPlaceSyncBanner(`✅ 已依最新座標自動校準行政區為「${rev.adminArea}」`);
+  }
+  const navBtn = document.getElementById('btn-google-nav');
+  if (navBtn) navBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
 
 function openNewCardModal(prefill = {}) {
@@ -227,7 +206,9 @@ function openNewCardModal(prefill = {}) {
 
   document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = false; });
 
-  resetAddressLookupUI();
+  const feedbackBox = document.getElementById('place-sync-feedback');
+  if (feedbackBox) feedbackBox.classList.add('hidden');
+
   updateGoogleMapsPlaceLink();
   handleCategoryFieldChange();
   openModal('modal-card-detail');
@@ -274,7 +255,9 @@ function openEditCardModal(id) {
 
   document.getElementById('btn-delete-card').classList.remove('hidden');
 
-  resetAddressLookupUI();
+  const feedbackBox = document.getElementById('place-sync-feedback');
+  if (feedbackBox) feedbackBox.classList.add('hidden');
+
   updateGoogleMapsPlaceLink();
   handleCategoryFieldChange();
   openModal('modal-card-detail');
@@ -285,6 +268,7 @@ async function handleSaveCard(event) {
   event.preventDefault();
 
   const existingId = document.getElementById('field-id').value.trim();
+  const existingSpot = existingId ? spots.find(s => String(s.id) === existingId) : null;
   const name = document.getElementById('field-name').value.trim();
   if (!name) return;
 
@@ -297,8 +281,8 @@ async function handleSaveCard(event) {
   let lat = document.getElementById('field-lat').value.trim();
   let lng = document.getElementById('field-lng').value.trim();
 
-  // 若有貼入 Google 地圖網址且尚未填座標，優先從網址解析
-  if ((!lat || !lng) && sourceUrl) {
+  // 1. 若有貼入 Google 地圖連結，優先從連結解析出精準座標
+  if (sourceUrl) {
     const parsedUrl = extractCoordsFromGoogleMapsUrl(sourceUrl);
     if (parsedUrl && parsedUrl.lat && parsedUrl.lng) {
       lat = parsedUrl.lat;
@@ -306,20 +290,24 @@ async function handleSaveCard(event) {
     }
   }
 
-  // 若仍無座標，則以目前地圖視野為權重自動查詢
+  // 2. 若仍無座標，自動進行地理編碼查詢
   if (!lat || !lng) {
     const geo = await smartGeocodePlace(name);
     if (geo) {
       lat = geo.lat;
       lng = geo.lng;
-      if (!area && geo.adminArea) area = geo.adminArea;
+      if (geo.adminArea) area = geo.adminArea;
     }
   }
 
-  // 若有座標但尚未有標準化行政區，自動反查並填入
-  if (lat && lng && (!area || area === '未分類')) {
+  // 3. 只要有經緯度，若行政區未填、為舊格式（無「·」分隔）或經緯度已變更，自動依座標校準覆蓋行政區
+  const coordsChanged = existingSpot && (String(existingSpot.lat || '') !== String(lat) || String(existingSpot.lng || '') !== String(lng));
+  const areaUnchangedFromOld = existingSpot && area === existingSpot.area && !area.includes('·');
+  if (lat && lng && (!area || area === '未分類' || coordsChanged || areaUnchangedFromOld)) {
     const rev = await reverseGeocodeAdminArea(lat, lng);
-    if (rev && rev.adminArea) area = rev.adminArea;
+    if (rev && rev.adminArea && rev.adminArea !== '未分類') {
+      area = rev.adminArea;
+    }
   }
   if (!area) area = '未分類';
 
@@ -335,7 +323,6 @@ async function handleSaveCard(event) {
   } else {
     const selectedDay = document.getElementById('field-day').value;
     if (selectedDay && selectedDay !== 'pocket') {
-      const existingSpot = existingId ? spots.find(s => String(s.id) === existingId) : null;
       const prevOccs = existingSpot ? getSpotOccurrences(existingSpot) : [];
       if (prevOccs.length > 0 && prevOccs[0].dateStr === selectedDay) {
         assigned_day = existingSpot.assigned_day;
@@ -857,7 +844,8 @@ function renderPocketList(daysList) {
   const dbSpots = spots
     .filter(s => currentCategoryFilter === '全部' || s.category === currentCategoryFilter)
     .filter(s => {
-      const h = parseAreaHierarchy(s.area);
+      const h = parseAreaHierarchy(s);
+      if (currentRegionScopeFilter !== 'all' && h.scope !== currentRegionScopeFilter) return false;
       if (currentRegionL1Filter !== '全部' && h.l1 !== currentRegionL1Filter) return false;
       if (currentRegionL2Filter !== '全部' && h.l2 !== currentRegionL2Filter) return false;
       return true;
@@ -916,8 +904,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
   const assignedDays = getSpotAssignedDays(spot);
   const isIncluded = assignedDays.length > 0;
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
-  const areaObj = parseAreaHierarchy(spot.area);
-  const shortAreaTag = areaObj.l2 !== '未分類' && areaObj.l2 !== '其他' ? `${areaObj.l1.split('·').pop().trim()} · ${areaObj.l2}` : areaObj.full;
+  const areaObj = parseAreaHierarchy(spot);
 
   const dayCounts = {};
   assignedDays.forEach(d => { dayCounts[d] = (dayCounts[d] || 0) + 1; });
@@ -934,7 +921,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
       ${spot.photo_url ? `
         <div class="w-full bg-slate-200 overflow-hidden relative" style="height: 74px;">
           <img src="${spot.photo_url}" alt="${spot.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'"/>
-          <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs max-w-[85%] truncate">${shortAreaTag}</span>
+          <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs max-w-[85%] truncate">${areaObj.shortBadge}</span>
           ${isIncluded ? `<span class="absolute bottom-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">✅ ${dayNamesText}</span>` : ''}
         </div>
       ` : ''}
@@ -988,7 +975,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
                   ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i>`
                   : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
             }
-            <span class="truncate" title="${spot.area}">· ${shortAreaTag}</span>
+            <span class="truncate" title="${spot.area}">· ${areaObj.shortBadge}</span>
           </span>
 
           <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
@@ -1068,6 +1055,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
   const isTransport = spot.category === '交通';
   const isRevisit = isSpotRevisit(spot);
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700', borderLeft: 'border-l-slate-400' };
+  const areaObj = parseAreaHierarchy(spot);
 
   const uniqueStayNights = getSpotUniqueDays(spot).length;
   const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
@@ -1153,10 +1141,10 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
 
         <div class="text-[11px] text-slate-400 mt-1 pl-6 truncate">
           ${isHotel 
-            ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${spot.area}`
+            ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${areaObj.shortBadge}`
             : (isTransport 
-                ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span> · ${spot.area}`
-                : `${spot.area} · 停留${spot.estimated_duration || 60}分`)
+                ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span> · ${areaObj.shortBadge}`
+                : `${areaObj.shortBadge} · 停留${spot.estimated_duration || 60}分`)
           }
           ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
         </div>
@@ -1243,7 +1231,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
                   ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span>`
                   : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
             }
-            <span class="truncate">· ${spot.area}</span>
+            <span class="truncate">· ${areaObj.shortBadge}</span>
           </span>
           <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo shrink-0" title="在地圖定位">
             <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
@@ -1460,11 +1448,6 @@ function setFilterDbStatus(st) {
 
 function selectAllStayDays() {
   document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = true; });
-}
-
-function resetAddressLookupUI() {
-  latestPlaceAddress = '';
-  document.getElementById('place-address-result').classList.add('hidden');
 }
 
 function switchMobileTab(tab) {
