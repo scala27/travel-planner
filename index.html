@@ -117,7 +117,6 @@
 
     <!-- ==================== 左欄：全球永久口袋資料庫 ==================== -->
     <section id="panel-pocket" class="w-full lg:w-[310px] xl:w-[340px] min-w-0 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full transition-all duration-200">
-      <!-- 精簡建卡與批次匯入工具列 -->
       <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
         <div class="flex items-center justify-between gap-1">
           <span class="text-xs font-bold text-ai-indigo flex items-center gap-1 truncate">
@@ -370,24 +369,33 @@
           </div>
         </div>
 
-        <!-- Google 地圖點位驗證與自動座標/行政區連動區塊 -->
+        <!-- Google 地圖點位驗證與自動剪貼簿同步區塊 -->
         <div class="bg-sky-50/70 border border-sky-200/90 rounded-xl p-3 space-y-2">
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
               <i data-lucide="map-pin" class="w-4 h-4 text-sky-600"></i>
-              <span>Google 地圖位置驗證與自動座標同步</span>
+              <span>Google 地圖位置驗證與自動同步</span>
             </div>
-            <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
-              class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs shrink-0">
-              <span>開啟 Google 地圖</span>
-              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-            </a>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
+                onclick="markWaitingForGoogleMapsClipboard()"
+                class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs">
+                <span>1. 開啟 Google 地圖</span>
+                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              </a>
+              <button type="button" onclick="pasteGoogleMapsLinkFromClipboard(true)"
+                class="bg-white hover:bg-sky-100 text-sky-800 border border-sky-300 text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs"
+                title="一鍵讀取剛複製的 Google 地圖網址並自動抓座標與行政區">
+                <i data-lucide="clipboard-paste" class="w-3.5 h-3.5"></i>
+                <span>2. 一鍵貼入連結</span>
+              </button>
+            </div>
           </div>
 
           <div id="place-sync-feedback" class="hidden bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 text-xs text-emerald-900 font-medium"></div>
 
           <p class="text-[11px] text-sky-800/85 leading-snug">
-            💡 操作方式：點右側 <strong>「開啟 Google 地圖」</strong> 確認點位無誤後，複製網址貼入下方 <strong>「🔗 Google 地圖連結」</strong>，系統即會<strong>自動抓出精準經緯度並更新行政區分類</strong>。
+            💡 在 Google 地圖點選正確地標並複製網址後，<strong>切回本分頁即會自動讀取並抓出座標與行政區</strong>（若瀏覽器攔截自動讀取，點「2. 一鍵貼入連結」即可）。
           </p>
         </div>
 
@@ -404,7 +412,7 @@
 
         <div class="grid grid-cols-3 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">行政區分類 (依座標自動辨識)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">行政區分類 (自動辨識)</label>
             <input type="text" id="field-area" list="area-suggestions-list" placeholder="例如：日本 · 沖繩縣 · 那霸市"
               class="w-full border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-xs focus:border-ai-indigo focus:outline-none" />
             <datalist id="area-suggestions-list"></datalist>
@@ -462,14 +470,17 @@
           </p>
         </div>
 
-        <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3">
-          <div class="flex items-center justify-between mb-2">
+        <div id="multi-day-stay-box" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-3 space-y-1.5">
+          <div class="flex items-center justify-between">
             <label class="text-xs font-bold text-purple-900 flex items-center gap-1">
-              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住日期安排（可複選連住多晚）
+              <i data-lucide="bed-double" class="w-3.5 h-3.5"></i> 住宿入住夜晚安排（僅勾選實際過夜日期）
             </label>
             <button type="button" onclick="selectAllStayDays()" class="text-[11px] text-purple-700 hover:underline font-medium">全選所有天數</button>
           </div>
-          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5"></div>
+          <p class="text-[11px] text-purple-800/85">
+            💡 換飯店時，例如前兩晚住 A 飯店、第 3 天換住 B 飯店，A 飯店只需勾選 <strong>Day 1、Day 2（2 晚）</strong>，系統會自動在 <strong>Day 3 早上帶出 A 飯店「退房出發」</strong> 並接續前往 B 飯店。
+          </p>
+          <div id="multi-day-checkboxes" class="flex flex-wrap gap-1.5 pt-1"></div>
         </div>
 
         <div>
@@ -495,7 +506,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖連結 (貼入自動抓座標與行政區)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖連結 (自動或手動貼入)</label>
             <input type="url" id="field-source-url" oninput="handleSourceUrlInputChange()" placeholder="https://www.google.com/maps/..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
