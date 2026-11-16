@@ -46,7 +46,6 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// 判斷座標是否位於沖繩本島 Yui Rail 單軌地理圍欄內
 function isInOkinawaGeofence(lat, lng) {
   return lat >= 26.05 && lat <= 26.88 && lng >= 127.55 && lng <= 128.35;
 }
@@ -75,7 +74,6 @@ function getYuiRailTrackSlice(stA, stB) {
   return coords;
 }
 
-// 產生跨海/國際航班的平滑二次貝茲飛行弧線座標
 function buildFlightArcCoords(latA, lngA, latB, lngB) {
   const pts = [];
   const steps = 40;
@@ -83,7 +81,6 @@ function buildFlightArcCoords(latA, lngA, latB, lngB) {
   const midLng = (lngA + lngB) / 2;
   const dLat = latB - latA;
   const dLng = lngB - lngA;
-  // 垂直於航線方向稍微向北弧起，視覺清晰美觀
   const ctrlLat = midLat + Math.abs(dLng) * 0.14 + Math.abs(dLat) * 0.08;
   const ctrlLng = midLng - dLat * 0.12;
 
@@ -98,7 +95,6 @@ function buildFlightArcCoords(latA, lngA, latB, lngB) {
 }
 
 function estimateFlightMinutes(km) {
-  // 民航噴射客機巡航約 720 km/h，加上起降爬升滑行約 40 分鐘（台中-沖繩約 630km -> 約 93 分鐘）
   return Math.max(45, Math.round((km / 720) * 60 + 40));
 }
 
@@ -113,12 +109,17 @@ function resolveLegMode(dateStr, itemA, itemB, globalMode) {
 
   const spotA = itemA.spot;
   const spotB = itemB.spot;
+
+  // 若起點機場設定了機票起迄時刻，直接判為航班
+  if (spotA.category === '交通' && typeof parseFlightSchedule === 'function' && parseFlightSchedule(spotA.business_hours)) {
+    return 'flight';
+  }
+
   const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
   const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
 
   if (!isNaN(latA) && !isNaN(lngA) && !isNaN(latB) && !isNaN(lngB)) {
     const km = haversineKm(latA, lngA, latB, lngB);
-    // 跨國或跨海長距離（> 150 km）自動啟用跨海/國際航班模式
     if (km > 150) {
       return 'flight';
     }
@@ -127,7 +128,6 @@ function resolveLegMode(dateStr, itemA, itemB, globalMode) {
 
     if (km <= 0.15) return 'walking';
 
-    // 僅當起迄點皆位於沖繩地理圍欄內時，啟用 Yui Rail 單軌判斷
     if (isInOkinawaGeofence(latA, lngA) && isInOkinawaGeofence(latB, lngB)) {
       const stA = findNearestYuiRailStation(latA, lngA);
       const stB = findNearestYuiRailStation(latB, lngB);
@@ -149,14 +149,23 @@ function resolveLegMode(dateStr, itemA, itemB, globalMode) {
 
 function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
   const spotA = itemA.spot, spotB = itemB.spot;
-  if (!spotA.lat || !spotA.lng || !spotB.lat || !spotB.lng) return { mins: 0, km: 0, mode: 'bus' };
+  const flightSched = (spotA.category === '交通' && typeof parseFlightSchedule === 'function')
+    ? parseFlightSchedule(spotA.business_hours)
+    : null;
+
+  if (!spotA.lat || !spotA.lng || !spotB.lat || !spotB.lng) {
+    if (flightSched) return { mins: flightSched.flightMins, km: 0, mode: 'flight', flightSched };
+    return { mins: 0, km: 0, mode: 'bus' };
+  }
+
   const latA = parseFloat(spotA.lat), lngA = parseFloat(spotA.lng);
   const latB = parseFloat(spotB.lat), lngB = parseFloat(spotB.lng);
   const km = haversineKm(latA, lngA, latB, lngB);
   const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
 
   if (mode === 'flight') {
-    return { mins: estimateFlightMinutes(km), km: km, mode: 'flight' };
+    const mins = flightSched ? flightSched.flightMins : estimateFlightMinutes(km);
+    return { mins, km, mode: 'flight', flightSched };
   }
   if (km <= 0.15) {
     return { mins: 2, km: km, mode: 'walking', isIndoor: true };
@@ -334,6 +343,9 @@ async function updateMapMarkers() {
       const legMode = resolveLegMode(filterDay, itemA, itemB, globalMode);
       const gmapsLegUrl = buildPointToPointGmapsUrl(latA, lngA, latB, lngB, legMode);
       const canUseOkinawaMonorail = isInOkinawaGeofence(latA, lngA) && isInOkinawaGeofence(latB, lngB);
+      const flightSched = (pA.category === '交通' && typeof parseFlightSchedule === 'function')
+        ? parseFlightSchedule(pA.business_hours)
+        : null;
 
       let legMins = 0;
       let legDistKm = 0;
@@ -348,7 +360,6 @@ async function updateMapMarkers() {
           opacity: 0.9
         }).addTo(mapLayerGroup);
 
-        // 在航線中點加上飛機圖示標籤
         const midPt = arcCoords[Math.floor(arcCoords.length / 2)];
         const planeIcon = L.divIcon({
           html: `<div style="background:#7E22CE;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">✈️</div>`,
@@ -360,8 +371,10 @@ async function updateMapMarkers() {
 
         allBoundsPts.push(...arcCoords);
         legDistKm = haversineKm(latA, lngA, latB, lngB);
-        legMins = estimateFlightMinutes(legDistKm);
-        detailNote = `跨海直飛航線 (${Math.round(legDistKm)} km)`;
+        legMins = flightSched ? flightSched.flightMins : estimateFlightMinutes(legDistKm);
+        detailNote = flightSched
+          ? `${flightSched.depStr}→${flightSched.arrStr} 跨海直飛 (${Math.round(legDistKm)} km)`
+          : `跨海直飛航線 (${Math.round(legDistKm)} km)`;
 
       } else if (legMode === 'monorail' && canUseOkinawaMonorail) {
         const stA = findNearestYuiRailStation(latA, lngA);
