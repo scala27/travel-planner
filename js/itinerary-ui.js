@@ -127,8 +127,6 @@ function handleCategoryFieldChange() {
 }
 
 // ==================== 卡片新增、編修、儲存與刪除視窗控制 ====================
-let latestPlaceAddress = '';
-
 function updateGoogleMapsPlaceLink() {
   const name = document.getElementById('field-name')?.value.trim() || '';
   const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
