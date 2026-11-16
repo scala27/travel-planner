@@ -84,7 +84,7 @@
         class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
         <i class="fa-solid fa-gear text-sm"></i>
       </button>
-      <button id="btnManualSync" onclick="syncWithGoogleSheets(true)"
+      <button id="btnManualSync" onclick="pullFromGoogleSheets(true)" title="從 Google 試算表重新載入最新資料"
         class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
         <i id="syncIcon" class="fa-solid fa-rotate"></i>
         <span id="syncBtnLabel">已同步</span>
@@ -265,7 +265,7 @@
           <button onclick="scrollBoard(340)" class="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs flex items-center justify-center">
             <i class="fa-solid fa-chevron-right"></i>
           </button>
-          <button onclick="saveAndSyncAll()"
+          <button onclick="pushAllToGoogleSheets()"
             class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition">
             <i class="fa-solid fa-floppy-disk"></i> 儲存排程
           </button>
@@ -332,7 +332,7 @@
     </aside>
   </main>
 
-  <!-- ==================== 彈窗 1：依類別客製化的新增 / 編輯卡片視窗 ==================== -->
+  <!-- ==================== 彈窗 1：友善智慧自動帶入的編輯卡片視窗 ==================== -->
   <div id="cardModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
       <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -345,11 +345,32 @@
       <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
         <input type="hidden" id="editCardId" />
 
+        <!-- 快捷智慧解析列：貼上 Google Maps 網址或經緯度自動填入並反查行政區 -->
+        <div class="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 flex items-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-600 shrink-0"></i>
+          <input type="text" id="quickPasteGeoInput"
+            onpaste="setTimeout(() => parseQuickGeoInput(), 50)"
+            placeholder="快捷解析：貼上 Google Maps 網址或座標 (如 26.2197, 127.6822) 自動帶入..."
+            class="flex-1 bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 text-xs focus:outline-none focus:border-amber-500" />
+          <button type="button" onclick="parseQuickGeoInput()"
+            class="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold shrink-0">
+            解析帶入
+          </button>
+        </div>
+
+        <!-- 名稱與類別 -->
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
-            <input type="text" id="fieldTitle" placeholder="例如：臺中國際機場、那霸西酒店"
-              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 font-semibold text-slate-800" />
+            <div class="flex gap-1.5">
+              <input type="text" id="fieldTitle" placeholder="例如：那霸久茂地巢穴酒店"
+                class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 font-semibold text-slate-800" />
+              <button type="button" onclick="autoGeocodeModalFields()" title="依名稱自動搜尋座標與行政區"
+                class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold shrink-0 flex items-center gap-1">
+                <i class="fa-solid fa-magnifying-glass-location"></i>
+                <span class="hidden sm:inline">查座標</span>
+              </button>
+            </div>
           </div>
           <div>
             <label class="block font-bold text-slate-700 mb-1">類別（自動切換欄位）</label>
@@ -364,16 +385,24 @@
           </div>
         </div>
 
+        <!-- 國家、行政區（附下拉快捷建議）與停留時間 -->
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block font-bold text-slate-700 mb-1">國家 / 地區</label>
-            <input type="text" id="fieldCountry" value="日本" placeholder="日本 / 台灣"
+            <input type="text" id="fieldCountry" list="countrySuggestions" value="日本" placeholder="選擇或輸入國家"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            <datalist id="countrySuggestions">
+              <option value="日本"></option>
+              <option value="台灣"></option>
+              <option value="韓國"></option>
+              <option value="泰國"></option>
+            </datalist>
           </div>
           <div>
             <label class="block font-bold text-slate-700 mb-1">行政區 (area)</label>
-            <input type="text" id="fieldDistrict" placeholder="例如：沖繩縣・那霸市"
+            <input type="text" id="fieldDistrict" list="districtSuggestions" placeholder="選擇或輸入行政區"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            <datalist id="districtSuggestions"></datalist>
           </div>
           <div>
             <label class="block font-bold text-slate-700 mb-1">停留 / 候機 (分鐘)</label>
@@ -382,6 +411,31 @@
           </div>
         </div>
 
+        <!-- 座標區（支援雙向反查行政區） -->
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700"><i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>經緯度座標與行政區反查</span>
+            <button type="button" onclick="reverseGeocodeModalCoords()"
+              class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs">
+              <i class="fa-solid fa-compass"></i> 依目前座標反查國家與行政區
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">緯度 (lat)</label>
+              <input type="number" step="any" id="fieldLat" placeholder="26.2124"
+                onpaste="handleLatLngPaste(event)"
+                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">經度 (lng)</label>
+              <input type="number" step="any" id="fieldLng" placeholder="127.6792"
+                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 類別專屬動態欄位區 -->
         <div id="dynamicCategoryFieldsBox" class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/35 space-y-3"></div>
 
         <div>
@@ -390,29 +444,11 @@
             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 leading-relaxed"></textarea>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">緯度 (lat)</label>
-            <input type="number" step="any" id="fieldLat" placeholder="26.2124"
-              class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">經度 (lng)</label>
-            <div class="flex gap-1.5">
-              <input type="number" step="any" id="fieldLng" placeholder="127.6792"
-                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
-              <button type="button" onclick="autoGeocodeModalFields()" title="依名稱自動抓取座標"
-                class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shrink-0">
-                <i class="fa-solid fa-location-crosshairs"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址</label>
+            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址（貼上自動抓座標）</label>
             <input type="url" id="fieldMapUrl" placeholder="https://maps.app.goo.gl/..."
+              onchange="extractCoordsFromMapUrlField()"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
           </div>
           <div>
@@ -479,6 +515,9 @@
           <input type="url" id="setGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-[11px]" />
         </div>
+        <div class="p-2.5 rounded-lg bg-blue-50 text-blue-800 text-[11px] leading-relaxed">
+          💡 點擊頂部「已同步」會安全讀取 Google 試算表 <strong>Spots</strong> 分頁資料；點擊看板「儲存排程」則會將目前排程寫回試算表。
+        </div>
       </div>
       <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between">
         <button onclick="exportJsonBackup()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-100">
@@ -486,7 +525,7 @@
         </button>
         <div class="flex gap-2">
           <button onclick="closeSettingsModal()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
-          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">套用並同步</button>
+          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold">套用並讀取</button>
         </div>
       </div>
     </div>
@@ -504,6 +543,14 @@
       totalDays: 6,
       gasUrl: ''
     };
+
+    const PRESET_DISTRICTS = [
+      '沖繩縣・那霸市', '沖繩縣・浦添市', '沖繩縣・宜野灣市', '沖繩縣・北谷町',
+      '沖繩縣・嘉手納町', '沖繩縣・讀谷村', '沖繩縣・恩納村', '沖繩縣・名護市',
+      '沖繩縣・本部町', '沖繩縣・今歸仁村', '沖繩縣・豐見城市', '沖繩縣・糸滿市',
+      '沖繩縣・南城市', '沖繩縣・八重瀨町', '沖繩縣・西原町', '沖繩縣・沖繩市',
+      '臺中市・清水區', '臺中市・西屯區', '桃園市・大園區', '臺北市・松山區'
+    ];
 
     const CATEGORY_META = {
       '景點': { color: '#10b981', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'fa-camera-retro' },
@@ -596,7 +643,38 @@
       }
     }
 
-    // 2. Google 試算表雙向轉譯器
+    // 2. Google 試算表雙向轉譯與遞迴陣列擷取（支援 Spots 分頁）
+    function extractRowsFromGasPayload(payload) {
+      if (!payload) return [];
+      if (Array.isArray(payload)) {
+        if (payload.length > 0 && Array.isArray(payload[0])) {
+          // 二維陣列格式（第一列為標題列）
+          const headers = payload[0].map(h => String(h || '').trim());
+          return payload.slice(1).map(arr => {
+            const obj = {};
+            headers.forEach((h, i) => { if (h) obj[h] = arr[i]; });
+            return obj;
+          });
+        }
+        return payload;
+      }
+      if (typeof payload === 'object') {
+        const priorityKeys = ['spots', 'Spots', 'data', 'records', 'cards', 'rows', 'items', 'list'];
+        for (const key of priorityKeys) {
+          if (Array.isArray(payload[key]) && payload[key].length > 0) {
+            return extractRowsFromGasPayload(payload[key]);
+          }
+        }
+        for (const val of Object.values(payload)) {
+          if (Array.isArray(val) && val.length > 0) {
+            const extracted = extractRowsFromGasPayload(val);
+            if (extracted.length > 0 && typeof extracted[0] === 'object') return extracted;
+          }
+        }
+      }
+      return [];
+    }
+
     function normalizeSheetRowToCard(row, index) {
       const id = String(row.id || `spot_${Date.now()}_${index}`);
       const title = String(row.name || row.title || '未命名地點').trim();
@@ -670,21 +748,29 @@
       };
     }
 
-    function resolveAssignedDayNumber(assignedRaw) {
-      if (!assignedRaw || assignedRaw === 'pocket' || assignedRaw === 'unscheduled') return null;
-      if (/^\d+$/.test(assignedRaw)) {
-        const d = parseInt(assignedRaw, 10);
-        return d >= 1 && d <= (Number(state.settings.totalDays) || 6) ? d : null;
-      }
+    // 支援試算表單日與多日逗號格式（例如 "2027-02-17,2027-02-18"）
+    function resolveAssignedDayNumbers(assignedRaw) {
+      if (!assignedRaw || assignedRaw === 'pocket' || assignedRaw === 'unscheduled') return [];
+      const tokens = String(assignedRaw).split(/[,;、\s]+/).map(s => s.trim()).filter(Boolean);
+      const totalDays = Number(state.settings.totalDays) || 6;
       const start = new Date(state.settings.startDate + 'T00:00:00');
-      const target = new Date(assignedRaw + 'T00:00:00');
-      if (!isNaN(start.getTime()) && !isNaN(target.getTime())) {
-        const diffDays = Math.round((target.getTime() - start.getTime()) / 86400000) + 1;
-        if (diffDays >= 1 && diffDays <= (Number(state.settings.totalDays) || 6)) {
-          return diffDays;
+      const result = [];
+
+      tokens.forEach(tok => {
+        if (/^\d+$/.test(tok)) {
+          const d = parseInt(tok, 10);
+          if (d >= 1 && d <= totalDays && !result.includes(d)) result.push(d);
+        } else {
+          const target = new Date(tok + 'T00:00:00');
+          if (!isNaN(start.getTime()) && !isNaN(target.getTime())) {
+            const diffDays = Math.round((target.getTime() - start.getTime()) / 86400000) + 1;
+            if (diffDays >= 1 && diffDays <= totalDays && !result.includes(diffDays)) {
+              result.push(diffDays);
+            }
+          }
         }
-      }
-      return null;
+      });
+      return result;
     }
 
     function serializeCardToSheetRow(card, index) {
@@ -715,11 +801,23 @@
         source_url: card.mapUrl || '',
         photo_url: card.image || '',
         status: isScheduled ? 'scheduled' : 'pocket',
-        assigned_day: isScheduled ? String(scheduledDays[0]) : 'pocket',
+        assigned_day: isScheduled ? scheduledDays.join(',') : 'pocket',
         sort_order: index + 1,
         lat: card.lat ?? '',
         lng: card.lng ?? ''
       };
+    }
+
+    async function fetchGasEndpoint(baseUrl, querySuffix = '') {
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      const targetUrl = querySuffix ? `${baseUrl}${sep}${querySuffix}` : baseUrl;
+      const res = await fetch(targetUrl, { method: 'GET', redirect: 'follow' });
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return null;
+      }
     }
 
     async function pullFromGoogleSheets(showNotification = true) {
@@ -733,21 +831,20 @@
       label.textContent = '讀取中...';
 
       try {
-        const res = await fetch(state.settings.gasUrl, { method: 'GET', redirect: 'follow' });
-        const rawJson = await res.json();
-
+        const candidateQueries = ['', 'sheet=Spots', 'action=getSpots', 'action=read&sheet=Spots'];
         let rows = [];
-        if (Array.isArray(rawJson)) rows = rawJson;
-        else if (rawJson && Array.isArray(rawJson.data)) rows = rawJson.data;
-        else if (rawJson && Array.isArray(rawJson.records)) rows = rawJson.records;
-        else if (rawJson && Array.isArray(rawJson.cards)) rows = rawJson.cards;
-        else if (rawJson && Array.isArray(rawJson.rows)) rows = rawJson.rows;
+
+        for (const q of candidateQueries) {
+          const json = await fetchGasEndpoint(state.settings.gasUrl, q);
+          const extracted = extractRowsFromGasPayload(json).filter(r => r && (r.name || r.title));
+          if (extracted.length > 0) {
+            rows = extracted;
+            break;
+          }
+        }
 
         if (rows.length > 0) {
-          const mappedCards = rows
-            .filter(r => r && (r.name || r.title))
-            .map((r, idx) => normalizeSheetRowToCard(r, idx));
-
+          const mappedCards = rows.map((r, idx) => normalizeSheetRowToCard(r, idx));
           state.cards = mappedCards;
 
           ensureItineraryDays();
@@ -761,16 +858,19 @@
             .slice()
             .sort((a, b) => a.sortOrder - b.sortOrder)
             .forEach(c => {
-              const dayNum = resolveAssignedDayNumber(c.assignedDayRaw);
-              if (dayNum && rebuilt[dayNum]) {
-                rebuilt[dayNum].items.push({
-                  uid: 'it_' + c.id + '_' + dayNum,
-                  cardId: c.id,
-                  customNote: c.businessHours || '',
-                  transitMode: 'transit',
-                  transitMin: 0
-                });
-              }
+              const dayNums = resolveAssignedDayNumbers(c.assignedDayRaw);
+              dayNums.forEach((dayNum, dIdx) => {
+                if (rebuilt[dayNum]) {
+                  rebuilt[dayNum].items.push({
+                    uid: `it_${c.id}_${dayNum}`,
+                    cardId: c.id,
+                    customNote: c.businessHours || '',
+                    isCheckout: c.category === '住宿' && dIdx > 0,
+                    transitMode: 'transit',
+                    transitMin: 0
+                  });
+                }
+              });
             });
 
           const hasSheetSchedule = Object.values(rebuilt).some(d => d.items.length > 0);
@@ -782,10 +882,10 @@
           populateRegionDropdowns();
           renderAll();
           if (showNotification) {
-            showToast(`已從 Google 試算表載入全部 ${mappedCards.length} 筆資料！`, 'emerald');
+            showToast(`已成功從 Google 試算表載入全部 ${mappedCards.length} 筆資料！`, 'emerald');
           }
         } else if (showNotification) {
-          showToast('試算表目前無資料列或回傳格式為空', 'amber');
+          showToast('試算表無資料列，請確認 GAS 腳本是否讀取「Spots」工作表', 'amber');
         }
       } catch (err) {
         console.error('GAS GET Error:', err);
@@ -798,22 +898,17 @@
       }
     }
 
-    async function syncWithGoogleSheets(pullFirst = false) {
+    async function pushAllToGoogleSheets() {
       persistState();
       if (!state.settings.gasUrl) {
-        showToast('已儲存至本機；如需同步試算表請點齒輪填入 GAS 網址', 'blue');
-        return;
-      }
-
-      if (pullFirst && state.cards.length === 0) {
-        await pullFromGoogleSheets(true);
+        showToast('已儲存至本機；如需寫入試算表請點齒輪設定 GAS 網址', 'blue');
         return;
       }
 
       const icon = document.getElementById('syncIcon');
       const label = document.getElementById('syncBtnLabel');
       icon.classList.add('fa-spin');
-      label.textContent = '同步中...';
+      label.textContent = '寫入中...';
 
       try {
         const sheetRows = state.cards.map((c, idx) => serializeCardToSheetRow(c, idx));
@@ -822,14 +917,16 @@
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'syncAll',
+            sheet: 'Spots',
             data: sheetRows,
+            spots: sheetRows,
             cards: sheetRows,
             itinerary: state.itinerary
           })
         });
-        await pullFromGoogleSheets(true);
+        showToast(`已將 ${sheetRows.length} 筆卡片與排程同步至試算表！`, 'emerald');
       } catch (err) {
-        await pullFromGoogleSheets(true);
+        showToast('排程已存於本機（試算表寫入未確認）', 'amber');
       } finally {
         icon.classList.remove('fa-spin');
         label.textContent = '已同步';
@@ -1287,6 +1384,13 @@
       citySel.innerHTML = `<option value="all">全部城市 / 町村</option>` +
         cities.map(d => `<option value="${d}">${d}</option>`).join('');
       if (cities.includes(prevCity)) citySel.value = prevCity;
+
+      // 更新編輯視窗的行政區建議清單
+      const distDatalist = document.getElementById('districtSuggestions');
+      if (distDatalist) {
+        const allDist = [...new Set([...PRESET_DISTRICTS, ...state.cards.map(c => c.district).filter(d => d && !d.includes('待確認'))])];
+        distDatalist.innerHTML = allDist.map(d => `<option value="${d}"></option>`).join('');
+      }
     }
 
     function onCountryFilterChange() {
@@ -1295,22 +1399,68 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // 6. 新增、批次匯入與自動定位
-    async function geocodePlaceName(query) {
+    // 6. 正向地理編碼（名稱 -> 座標＋行政區）與反向地理編碼（座標 -> 國家＋行政區）
+    function parseNominatimAddress(addr = {}) {
+      let country = addr.country || '日本';
+      if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
+      if (addr.country_code === 'jp' || country.includes('日本')) country = '日本';
+
+      const pref = addr.state || addr.province || addr.county || '';
+      const city = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '';
+      const district = [pref, city].filter(Boolean).join('・') || country;
+      return { country, district };
+    }
+
+    async function geocodePlaceName(query, countryHint = '') {
+      // 清除括號內英文別名（例如 "那霸久茂地巢穴酒店 (Nest Hotel)" -> "那霸久茂地巢穴酒店"）以提高命中率
+      const cleaned = String(query).replace(/[\(（][^\)）]*[\)）]/g, '').trim();
+      const queriesToTry = [
+        countryHint ? `${countryHint} ${cleaned}` : cleaned,
+        cleaned,
+        query
+      ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+
+      for (const q of queriesToTry) {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(q)}`;
+          const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
+          const data = await res.json();
+          if (data && data.length > 0) {
+            const item = data[0];
+            const { country, district } = parseNominatimAddress(item.address);
+            return { lat: parseFloat(item.lat), lng: parseFloat(item.lon), country, district };
+          }
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    async function reverseGeocodeCoords(lat, lng) {
+      if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`;
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${lat}&lon=${lng}`;
         const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
         const data = await res.json();
-        if (data && data.length > 0) {
-          const item = data[0];
-          const addr = item.address || {};
-          const country = addr.country || '日本';
-          const pref = addr.state || addr.province || addr.county || '';
-          const city = addr.city || addr.town || addr.village || addr.suburb || '';
-          const district = [pref, city].filter(Boolean).join('・') || country;
-          return { lat: parseFloat(item.lat), lng: parseFloat(item.lon), country, district };
+        if (data && data.address) {
+          return parseNominatimAddress(data.address);
         }
       } catch (e) {}
+      return null;
+    }
+
+    function extractCoordsFromText(text) {
+      if (!text) return null;
+      // 1. Google Maps @lat,lng 或 !3dlat!4dlng 或 ?q=lat,lng
+      const atMatch = text.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+      if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+
+      const d34Match = text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+      if (d34Match) return { lat: parseFloat(d34Match[1]), lng: parseFloat(d34Match[2]) };
+
+      // 2. 純座標 "26.2197, 127.6822"
+      const pairMatch = text.match(/(-?\d{1,3}\.\d{3,})\s*[,，\s]\s*(-?\d{1,3}\.\d{3,})/);
+      if (pairMatch) return { lat: parseFloat(pairMatch[1]), lng: parseFloat(pairMatch[2]) };
+
       return null;
     }
 
@@ -1321,7 +1471,7 @@
         try {
           const u = new URL(clean);
           const q = u.searchParams.get('q') || u.searchParams.get('query');
-          if (q) return decodeURIComponent(q).replace(/\+/g, ' ');
+          if (q && !/^-?\d+\.\d+,/.test(q)) return decodeURIComponent(q).replace(/\+/g, ' ');
           const placeMatch = u.pathname.match(/\/place\/([^/]+)/);
           if (placeMatch && placeMatch[1]) {
             return decodeURIComponent(placeMatch[1]).replace(/\+/g, ' ');
@@ -1352,10 +1502,19 @@
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const isUrl = line.startsWith('http');
+        const urlCoords = extractCoordsFromText(line);
         const title = extractTitleFromInputLine(line);
         let geo = null;
 
-        if (autoGeo && title && !title.startsWith('http')) {
+        if (urlCoords) {
+          const rev = await reverseGeocodeCoords(urlCoords.lat, urlCoords.lng);
+          geo = {
+            lat: urlCoords.lat,
+            lng: urlCoords.lng,
+            country: rev ? rev.country : '日本',
+            district: rev ? rev.district : '沖繩縣・待確認行政區'
+          };
+        } else if (autoGeo && title && !title.startsWith('http')) {
           geo = await geocodePlaceName(title);
         }
 
@@ -1400,19 +1559,29 @@
     }
 
     async function batchUpdateAllDistricts() {
-      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認') || c.district === '未分類') && c.title);
+      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認') || c.district === '未分類'));
       if (targets.length === 0) {
         showToast('所有卡片皆已有行政區資訊！', 'blue');
         return;
       }
-      showToast(`正在為 ${targets.length} 筆卡片補齊行政區與座標...`, 'blue');
+      showToast(`正在為 ${targets.length} 筆卡片依座標／名稱補齊行政區...`, 'blue');
       for (const card of targets) {
-        const geo = await geocodePlaceName(card.title);
-        if (geo) {
-          card.lat = card.lat || geo.lat;
-          card.lng = card.lng || geo.lng;
-          card.country = geo.country;
-          card.district = geo.district;
+        if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0) {
+          const rev = await reverseGeocodeCoords(card.lat, card.lng);
+          if (rev) {
+            card.country = rev.country;
+            card.district = rev.district;
+            continue;
+          }
+        }
+        if (card.title) {
+          const geo = await geocodePlaceName(card.title, card.country);
+          if (geo) {
+            card.lat = card.lat || geo.lat;
+            card.lng = card.lng || geo.lng;
+            card.country = geo.country;
+            card.district = geo.district;
+          }
         }
       }
       persistState();
@@ -1421,7 +1590,78 @@
       showToast('行政區與座標補齊完成！', 'emerald');
     }
 
-    // 7. 依類別動態渲染編輯欄位 + 單筆新增 / 編輯 / 刪除
+    // 7. 友善編輯視窗快捷解析與反向帶入功能
+    async function parseQuickGeoInput() {
+      const inputEl = document.getElementById('quickPasteGeoInput');
+      const raw = inputEl.value.trim();
+      if (!raw) return;
+
+      if (raw.startsWith('http')) {
+        document.getElementById('fieldMapUrl').value = raw;
+        const extractedName = extractTitleFromInputLine(raw);
+        if (extractedName && !extractedName.startsWith('http') && !document.getElementById('fieldTitle').value.trim()) {
+          document.getElementById('fieldTitle').value = extractedName;
+        }
+      }
+
+      const coords = extractCoordsFromText(raw);
+      if (coords) {
+        document.getElementById('fieldLat').value = coords.lat;
+        document.getElementById('fieldLng').value = coords.lng;
+        showToast('已解析經緯度，正在自動帶入國家與行政區...', 'blue');
+        await reverseGeocodeModalCoords(true);
+        inputEl.value = '';
+      } else if (raw.startsWith('http')) {
+        showToast('已帶入地圖網址（短網址若未含座標，可點名稱旁「查座標」）', 'amber');
+        inputEl.value = '';
+      } else {
+        // 當成地點名稱搜尋
+        if (!document.getElementById('fieldTitle').value.trim()) {
+          document.getElementById('fieldTitle').value = raw;
+        }
+        await autoGeocodeModalFields();
+        inputEl.value = '';
+      }
+    }
+
+    function handleLatLngPaste(e) {
+      const pasted = (e.clipboardData || window.clipboardData).getData('text');
+      const coords = extractCoordsFromText(pasted);
+      if (coords) {
+        e.preventDefault();
+        document.getElementById('fieldLat').value = coords.lat;
+        document.getElementById('fieldLng').value = coords.lng;
+        reverseGeocodeModalCoords(true);
+      }
+    }
+
+    async function extractCoordsFromMapUrlField() {
+      const urlVal = document.getElementById('fieldMapUrl').value.trim();
+      const coords = extractCoordsFromText(urlVal);
+      if (coords) {
+        document.getElementById('fieldLat').value = coords.lat;
+        document.getElementById('fieldLng').value = coords.lng;
+        await reverseGeocodeModalCoords(true);
+      }
+    }
+
+    async function reverseGeocodeModalCoords(silentIfEmpty = false) {
+      const lat = parseFloat(document.getElementById('fieldLat').value);
+      const lng = parseFloat(document.getElementById('fieldLng').value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        if (!silentIfEmpty) showToast('請先填入有效的緯度與經度', 'amber');
+        return;
+      }
+      const rev = await reverseGeocodeCoords(lat, lng);
+      if (rev) {
+        document.getElementById('fieldCountry').value = rev.country;
+        document.getElementById('fieldDistrict').value = rev.district;
+        showToast(`已自動帶入：${rev.country}・${rev.district}`, 'emerald');
+      } else if (!silentIfEmpty) {
+        showToast('無法反查此座標行政區，請手動從下拉選單選擇', 'amber');
+      }
+    }
+
     function renderCategoryDynamicFields(category, card = {}) {
       const box = document.getElementById('dynamicCategoryFieldsBox');
 
@@ -1516,12 +1756,15 @@
       renderCategoryDynamicFields(cat, existing);
     }
 
-    function openCardModal(cardId = null) {
+    async function openCardModal(cardId = null) {
       const modal = document.getElementById('cardModal');
       const titleEl = document.getElementById('cardModalTitle');
       const assignSel = document.getElementById('fieldAssignDay');
       const assignBox = document.getElementById('quickAssignOnSaveBox');
       const btnDelete = document.getElementById('btnModalDeleteCard');
+
+      document.getElementById('quickPasteGeoInput').value = '';
+      populateRegionDropdowns();
 
       const totalDays = Number(state.settings.totalDays) || 6;
       assignSel.innerHTML = `<option value="">僅存入口袋資料庫</option>` +
@@ -1546,6 +1789,12 @@
         renderCategoryDynamicFields(card.category || '景點', card);
         assignBox.classList.add('hidden');
         btnDelete.classList.remove('hidden');
+        modal.classList.remove('hidden');
+
+        // 若已有座標但行政區顯示待確認，開啟視窗時自動反查補齊！
+        if (card.lat && card.lng && (!card.district || card.district.includes('待確認'))) {
+          reverseGeocodeModalCoords(true);
+        }
       } else {
         titleEl.textContent = '新增口袋卡片（儲存後自動置頂）';
         document.getElementById('editCardId').value = '';
@@ -1563,9 +1812,8 @@
         renderCategoryDynamicFields('美食', {});
         assignBox.classList.remove('hidden');
         btnDelete.classList.add('hidden');
+        modal.classList.remove('hidden');
       }
-
-      modal.classList.remove('hidden');
     }
 
     function closeCardModal() {
@@ -1581,20 +1829,21 @@
 
     async function autoGeocodeModalFields() {
       const name = document.getElementById('fieldTitle').value.trim();
+      const countryHint = document.getElementById('fieldCountry').value.trim();
       if (!name) {
         showToast('請先輸入地點名稱', 'amber');
         return;
       }
       showToast('正在抓取座標與行政區...', 'blue');
-      const geo = await geocodePlaceName(name);
+      const geo = await geocodePlaceName(name, countryHint);
       if (geo) {
         document.getElementById('fieldLat').value = geo.lat;
         document.getElementById('fieldLng').value = geo.lng;
         document.getElementById('fieldCountry').value = geo.country;
         document.getElementById('fieldDistrict').value = geo.district;
-        showToast(`已取得座標 (${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)})`, 'emerald');
+        showToast(`已帶入座標 (${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}) 與 ${geo.district}`, 'emerald');
       } else {
-        showToast('查無精確座標，請手動輸入或貼上地圖座標', 'amber');
+        showToast('查無精確座標，可從 Google Maps 複製座標貼上上方快捷解析列', 'amber');
       }
     }
 
@@ -1613,11 +1862,18 @@
       let district = document.getElementById('fieldDistrict').value.trim();
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        const geo = await geocodePlaceName(title);
+        const geo = await geocodePlaceName(title, country);
         if (geo) {
           lat = geo.lat;
           lng = geo.lng;
-          if (!district) district = geo.district;
+          country = geo.country;
+          if (!district || district.includes('待確認')) district = geo.district;
+        }
+      } else if (!district || district.includes('待確認')) {
+        const rev = await reverseGeocodeCoords(lat, lng);
+        if (rev) {
+          country = rev.country;
+          district = rev.district;
         }
       }
 
@@ -1721,7 +1977,7 @@
       renderDatabaseCards();
     }
 
-    // 8. 多日行程看板與時間自動推算（支援航班時刻對齊與跨海航段）
+    // 8. 多日行程看板與時間自動推算
     function getFormattedDateInfo(dayNum) {
       const start = new Date(state.settings.startDate + 'T00:00:00');
       if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
@@ -1745,7 +2001,6 @@
       return `${h}:${m}`;
     }
 
-    // 從文字中擷取所有 HH:MM（支援全形 ： 與半形 :）
     function extractClockTimes(text) {
       if (!text) return [];
       const normalized = String(text).replace(/：/g, ':');
@@ -1762,7 +2017,6 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // 判斷兩點之間是否為航空飛航（雙機場、跨國或距離 > 150km）
     function isFlightLeg(cardA, cardB, km) {
       if (!cardA || !cardB) return false;
       const isBothTransport = cardA.category === '交通' && cardB.category === '交通';
@@ -1775,7 +2029,6 @@
       if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0 };
       const km = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
 
-      // 優先判斷航空飛航（如臺中機場 -> 那霸空港約 90 分鐘）
       if (isFlightLeg(cardA, cardB, km)) {
         const airMin = km > 0 ? Math.max(60, Math.round(km / 8.2)) : 90;
         return { mode: 'flight', min: airMin, km };
@@ -1818,7 +2071,6 @@
         const dayData = state.itinerary[d] || { startTime: '09:00', items: [] };
         const items = dayData.items || [];
 
-        // 若當日第一張是交通卡片且有明確出發/報到時間（例如 15:00），自動對齊起始時間
         let initialStart = dayData.startTime;
         if (items.length > 0) {
           const firstCard = state.cards.find(c => c.id === items[0].cardId);
@@ -1841,7 +2093,6 @@
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const dur = Number(card.duration) || 60;
 
-          // 若為交通卡片且有填寫出發時間，對齊出發時刻
           const depTimes = card.category === '交通' ? extractClockTimes(card.departTime) : [];
           if (depTimes.length > 0 && idx === 0) {
             cursorMin = timeToMinutes(depTimes[0]);
@@ -1858,7 +2109,6 @@
           const activeMode = est?.mode === 'flight' ? 'flight' : (item.transitMode || est?.mode || 'transit');
           let transitMin = est?.mode === 'flight' ? est.min : (Number(item.transitMin) || est?.min || 0);
 
-          // 若本張交通卡片有明確「抵達時間」（例如 19:30），下一站直接對齊 19:30！
           const arrTimes = card.category === '交通' ? extractClockTimes(card.arriveTime) : [];
           if (nextCard) {
             totalTransitMin += transitMin;
@@ -1879,7 +2129,6 @@
             flight: '✈️ 航空飛航'
           };
 
-          // 交通卡片時間膠囊：若有報到/起飛時間，清楚顯示報到與起飛，抵達時間交給航段與下一站機場
           let timePillText = `${startStr} ~ ${endStr}`;
           if (card.category === '交通' && (card.departTime || card.arriveTime)) {
             if (depTimes.length >= 2) {
@@ -2300,7 +2549,7 @@
       if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0 && mapInstance) {
         mapInstance.setView([card.lat, card.lng], 15, { animate: true });
       } else if (warnIfMissing) {
-        showToast('此卡片尚未設定座標，可於編輯視窗點擊定位按鈕自動抓取', 'amber');
+        showToast('此卡片尚未設定座標，可於編輯視窗貼上座標或點擊「查座標」', 'amber');
       }
     }
 
@@ -2397,10 +2646,6 @@
         renderAll();
         showToast('設定已儲存', 'emerald');
       }
-    }
-
-    function saveAndSyncAll() {
-      syncWithGoogleSheets(false);
     }
 
     function exportJsonBackup() {
