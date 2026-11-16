@@ -121,9 +121,14 @@
           </div>
 
           <div class="flex items-center gap-1.5">
-            <span id="collectModeHint" class="text-[11px] text-blue-600 font-medium hidden lg:inline">
-              <i class="fa-solid fa-circle-info"></i> 點擊「詳情」可展開說明，點擊卡片可編輯
-            </span>
+            <!-- 模式 1 專屬：迷你卡片檢視切換 -->
+            <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1 transition"
+              title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
+              <i class="fa-solid fa-compress text-blue-600"></i>
+              <span id="miniCardBtnLabel">迷你卡片</span>
+            </button>
+
             <button id="btnTogglePlanFilters" onclick="togglePlanAdvancedFilters()"
               class="hidden px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 items-center gap-1">
               <i class="fa-solid fa-filter text-blue-600"></i> 篩選
@@ -136,15 +141,17 @@
         </div>
 
         <!-- 批次自動定位並分類入庫面板 -->
-        <div id="batchImportBox" class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+        <div id="batchImportBox" class="hidden bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2">
               <select id="batchDefaultCategory" class="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:border-blue-500">
-                <option value="美食">🍜 預設類別：美食</option>
                 <option value="景點">🏞️ 預設類別：景點</option>
+                <option value="美食">🍜 預設類別：美食</option>
                 <option value="購物">🛍️ 預設類別：購物</option>
                 <option value="住宿">🏨 預設類別：住宿</option>
+                <option value="機場">✈️ 預設類別：機場</option>
                 <option value="交通">🚆 預設類別：交通</option>
+                <option value="體驗">🎡 預設類別：體驗</option>
               </select>
               <label class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 cursor-pointer">
                 <input type="checkbox" id="batchAutoGeocode" checked class="accent-emerald-600 rounded" />
@@ -226,8 +233,12 @@
                 class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
               <button onclick="setFilter('category', '住宿')" data-filter-cat="住宿"
                 class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+              <button onclick="setFilter('category', '機場')" data-filter-cat="機場"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
               <button onclick="setFilter('category', '交通')" data-filter-cat="交通"
                 class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+              <button onclick="setFilter('category', '體驗')" data-filter-cat="體驗"
+                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
             </div>
 
             <div class="flex items-center gap-1">
@@ -244,7 +255,7 @@
         </div>
       </div>
 
-      <!-- 等高整齊的卡片列表容器（詳細說明預設摺疊，點擊可展開） -->
+      <!-- 卡片列表容器 -->
       <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40"></div>
     </section>
 
@@ -280,19 +291,28 @@
       <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch"></div>
     </section>
 
-    <!-- ==================== 區塊 C：地圖與當日交通路線面板 ==================== -->
+    <!-- ==================== 區塊 C：地圖與分類圖層控制面板 ==================== -->
     <aside id="mapPanel" class="w-[35%] bg-white border-l border-slate-200 flex flex-col shrink-0 transition-all duration-200 z-10 min-h-0">
-      <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
+      <!-- 模式 1 頂部標題列 -->
+      <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div class="flex items-center gap-2">
           <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-          <span class="text-xs font-bold text-slate-800">景點座標檢核地圖</span>
+          <span class="text-xs font-bold text-slate-800">景點分布檢核地圖</span>
         </div>
-        <button onclick="fitMapToFilteredCards()"
-          class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
-          <i class="fa-solid fa-expand text-blue-600"></i> 顯示全部篩選圖釘
-        </button>
+        <div class="flex items-center gap-1.5">
+          <button onclick="toggleMapExpand()" id="btnMapExpandCollect"
+            class="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition">
+            <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+            <span id="mapExpandCollectLabel">放大地圖</span>
+          </button>
+          <button onclick="fitMapToFilteredCards()"
+            class="px-2 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-expand text-blue-600"></i> 全覽
+          </button>
+        </div>
       </div>
 
+      <!-- 模式 2 頂部控制列 -->
       <div id="mapHeaderPlanMode" class="hidden p-2.5 border-b border-slate-200 bg-slate-50 space-y-2 shrink-0">
         <div class="flex items-center gap-1.5">
           <select id="mapDaySelect" onchange="onMapDayChange()"
@@ -305,15 +325,27 @@
             <option value="drive">🚗 自駕開車</option>
             <option value="walk">🚶 步行優先</option>
           </select>
+          <button onclick="toggleMapExpand()" id="btnMapExpandPlan"
+            class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition">
+            <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+            <span id="mapExpandPlanLabel">放大地圖</span>
+          </button>
         </div>
 
-        <button id="btnRadarToggle" onclick="toggleRadarMode()"
-          class="w-full py-1.5 px-2.5 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100/80 text-amber-800 text-[11px] font-semibold flex items-center justify-between transition">
-          <span>🎯 周邊口袋雷達：<strong id="radarStatusText">關閉</strong>（點擊地圖搜1.5km）</span>
-          <i class="fa-solid fa-satellite-dish"></i>
-        </button>
+        <div class="flex items-center gap-1.5">
+          <button id="btnOverlayPocket" onclick="toggleOverlayPocketOnPlanMap()"
+            class="flex-1 py-1.5 px-2.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100/80 text-blue-800 text-[11px] font-semibold flex items-center justify-between transition">
+            <span>📍 疊加口袋點位：<strong id="overlayPocketStatusText">關閉</strong></span>
+            <i class="fa-solid fa-layer-group"></i>
+          </button>
+          <button id="btnRadarToggle" onclick="toggleRadarMode()"
+            class="py-1.5 px-2.5 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100/80 text-amber-800 text-[11px] font-semibold flex items-center gap-1 shrink-0 transition"
+            title="開啟後點擊地圖可搜尋 1.5km 內口袋點位">
+            <span>🎯 雷達：<strong id="radarStatusText">關</strong></span>
+          </button>
+        </div>
 
-        <div class="bg-white rounded-xl border border-slate-200 p-2 space-y-1.5 max-h-36 overflow-y-auto">
+        <div class="bg-white rounded-xl border border-slate-200 p-2 space-y-1.5 max-h-32 overflow-y-auto">
           <div class="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-100 pb-1">
             <span><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日移動總計：</span>
             <span id="dailyTransitSummary" class="text-blue-700">約 0 分 (0.0 km)</span>
@@ -322,22 +354,33 @@
         </div>
       </div>
 
-      <div class="px-3 py-1.5 bg-white border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></i>景點</span>
-          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></i>美食</span>
-          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></i>購物</span>
-          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></i>住宿</span>
-          <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></i>交通</span>
+      <!-- 共用：地圖分類圖釘顯示 / 隱藏控制器（兩頁面皆可用） -->
+      <div class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-eye text-blue-600"></i>
+            <span>地圖分類圖層（點擊可隱藏/開啟）</span>
+          </span>
+          <div class="flex items-center gap-1">
+            <button onclick="setOnlyAttractionsLayer()"
+              class="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+              只看景點
+            </button>
+            <button onclick="setAllMapLayersVisible(true)"
+              class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold">
+              全開
+            </button>
+            <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium ml-1">0 釘</span>
+          </div>
         </div>
-        <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium">0 個圖釘</span>
+        <div id="mapCategoryToggleContainer" class="flex items-center gap-1 flex-wrap"></div>
       </div>
 
       <div id="mapContainer" class="flex-1 w-full relative z-0 min-h-0"></div>
     </aside>
   </main>
 
-  <!-- ==================== 彈窗 1：友善智慧自動帶入的編輯卡片視窗 ==================== -->
+  <!-- ==================== 彈窗 1：精簡聚焦的編輯卡片視窗 ==================== -->
   <div id="cardModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
       <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -350,32 +393,12 @@
       <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
         <input type="hidden" id="editCardId" />
 
-        <!-- 快捷智慧解析列 -->
-        <div class="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 flex items-center gap-2">
-          <i class="fa-solid fa-wand-magic-sparkles text-amber-600 shrink-0"></i>
-          <input type="text" id="quickPasteGeoInput"
-            onpaste="setTimeout(() => parseQuickGeoInput(), 50)"
-            placeholder="快捷解析：貼上 Google Maps 網址或座標 (如 26.2197, 127.6822) 自動帶入..."
-            class="flex-1 bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 text-xs focus:outline-none focus:border-amber-500" />
-          <button type="button" onclick="parseQuickGeoInput()"
-            class="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold shrink-0">
-            解析帶入
-          </button>
-        </div>
-
-        <!-- 名稱與類別 -->
+        <!-- 名稱與分類 -->
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
-            <div class="flex gap-1.5">
-              <input type="text" id="fieldTitle" placeholder="例如：那霸久茂地巢穴酒店"
-                class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 font-semibold text-slate-800" />
-              <button type="button" onclick="autoGeocodeModalFields()" title="依名稱自動搜尋座標與行政區"
-                class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold shrink-0 flex items-center gap-1">
-                <i class="fa-solid fa-magnifying-glass-location"></i>
-                <span class="hidden sm:inline">查座標</span>
-              </button>
-            </div>
+            <input type="text" id="fieldTitle" placeholder="例如：那霸空港 / 那霸久茂地巢穴酒店"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 font-semibold text-slate-800" />
           </div>
           <div>
             <label class="block font-bold text-slate-700 mb-1">類別（自動切換欄位）</label>
@@ -385,7 +408,9 @@
               <option value="美食">🍜 美食</option>
               <option value="購物">🛍️ 購物</option>
               <option value="住宿">🏨 住宿</option>
-              <option value="交通">🚆 交通 / 機場</option>
+              <option value="機場">✈️ 機場</option>
+              <option value="交通">🚆 交通</option>
+              <option value="體驗">🎡 體驗</option>
             </select>
           </div>
         </div>
@@ -416,7 +441,7 @@
           </div>
         </div>
 
-        <!-- 座標區（支援雙向反查行政區） -->
+        <!-- 座標區（保留雙向反查行政區） -->
         <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-700"><i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>經緯度座標與行政區反查</span>
@@ -451,7 +476,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址（貼上自動抓座標）</label>
+            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址</label>
             <input type="url" id="fieldMapUrl" placeholder="https://maps.app.goo.gl/..."
               onchange="extractCoordsFromMapUrlField()"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
@@ -477,23 +502,16 @@
         </div>
       </div>
 
-      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
-        <button id="btnModalDeleteCard" type="button" onclick="deleteCardFromModal()"
-          class="px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition">
-          <i class="fa-solid fa-trash-can"></i> 刪除此卡片
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+        <button onclick="closeCardModal()" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-100">取消</button>
+        <button onclick="saveCardFromModal()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs">
+          儲存並寫入試算表
         </button>
-
-        <div class="flex items-center gap-2">
-          <button onclick="closeCardModal()" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-100">取消</button>
-          <button onclick="saveCardFromModal()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs">
-            儲存並寫入試算表
-          </button>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- ==================== 彈窗 2：系統與 Google 試算表設定（含 GAS 後端同步碼檢核） ==================== -->
+  <!-- ==================== 彈窗 2：系統與 Google 試算表設定 ==================== -->
   <div id="settingsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
       <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -523,14 +541,14 @@
 
         <div class="p-3 rounded-xl bg-amber-50/90 border border-amber-200 space-y-2">
           <div class="flex items-center justify-between">
-            <span class="font-bold text-amber-900"><i class="fa-solid fa-code mr-1"></i>若刪除卡片後重新載入又出現（GAS 覆蓋碼）</span>
+            <span class="font-bold text-amber-900"><i class="fa-solid fa-code mr-1"></i>GAS 後端標準覆蓋寫入程式碼</span>
             <button type="button" onclick="copyGasBackendCode()"
               class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold">
               複製 GAS 程式碼
             </button>
           </div>
           <p class="text-[11px] text-amber-800 leading-relaxed">
-            請確認您的 Google Apps Script 在寫入 <strong>Spots</strong> 工作表時有先清空舊資料列（<code>clearContent()</code>），否則底部多餘的列（如第 35 列）會殘留。可點上方按鈕複製標準完整腳本貼上並重新部署。
+            確保寫入 <strong>Spots</strong> 工作表時完整清空舊列並寫入最新資料（支援景點、美食、購物、住宿、機場、交通、體驗等全部分類）。
           </p>
         </div>
       </div>
@@ -567,24 +585,40 @@
       '臺中市・清水區', '臺中市・西屯區', '桃園市・大園區', '臺北市・松山區'
     ];
 
+    const CATEGORY_LIST = ['景點', '美食', '購物', '住宿', '機場', '交通', '體驗'];
+
     const CATEGORY_META = {
-      '景點': { color: '#10b981', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'fa-camera-retro' },
-      '美食': { color: '#f59e0b', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200', icon: 'fa-utensils' },
-      '購物': { color: '#2563eb', badgeBg: 'bg-blue-50 text-blue-700 border-blue-200', icon: 'fa-bag-shopping' },
-      '住宿': { color: '#9333ea', badgeBg: 'bg-purple-50 text-purple-700 border-purple-200', icon: 'fa-bed' },
-      '交通': { color: '#475569', badgeBg: 'bg-slate-100 text-slate-700 border-slate-300', icon: 'fa-plane-departure' }
+      '景點': { color: '#10b981', pinChar: '景', emoji: '🏞️', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+      '美食': { color: '#f59e0b', pinChar: '美', emoji: '🍜', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
+      '購物': { color: '#2563eb', pinChar: '購', emoji: '🛍️', badgeBg: 'bg-blue-50 text-blue-700 border-blue-200' },
+      '住宿': { color: '#9333ea', pinChar: '宿', emoji: '🏨', badgeBg: 'bg-purple-50 text-purple-700 border-purple-200' },
+      '機場': { color: '#0284c7', pinChar: '機', emoji: '✈️', badgeBg: 'bg-sky-50 text-sky-700 border-sky-200' },
+      '交通': { color: '#475569', pinChar: '交', emoji: '🚆', badgeBg: 'bg-slate-100 text-slate-700 border-slate-300' },
+      '體驗': { color: '#e11d48', pinChar: '驗', emoji: '🎡', badgeBg: 'bg-rose-50 text-rose-700 border-rose-200' }
     };
 
     let state = {
       mode: 'collect',
       pocketCollapsed: false,
       compactView: false,
+      miniCardView: false,       // 模式 1 超精簡卡片檢視（配合大地圖）
+      mapExpanded: false,        // 兩模式皆可切換放大地圖版面
+      overlayPocketOnPlan: false,// 模式 2 地圖是否疊加顯示口袋點位
       planFiltersOpen: false,
       radarActive: false,
       selectedMapDay: 1,
       highlightedCardId: null,
-      expandedCards: {}, // 記錄哪些卡片已展開詳細說明
-      deletedIds: [],    // 記錄已刪除的卡片 ID，寫入時通知後端清除
+      expandedCards: {},
+      deletedIds: [],
+      mapVisibleCategories: {
+        '景點': true,
+        '美食': true,
+        '購物': true,
+        '住宿': true,
+        '機場': true,
+        '交通': true,
+        '體驗': true
+      },
       filters: {
         scope: 'all',
         category: 'all',
@@ -635,6 +669,7 @@
 
       ensureItineraryDays();
       initLeafletMap();
+      renderMapCategoryToggles();
       updateTripHeaderDisplay();
       populateRegionDropdowns();
       populateDaySelectors();
@@ -734,6 +769,10 @@
       return clean || country || '未分類';
     }
 
+    function isTransportOrAirport(category) {
+      return category === '機場' || category === '交通';
+    }
+
     function normalizeSheetRowToCard(row, index) {
       const id = String(row.id || `spot_${Date.now()}_${index}`);
       const title = String(row.name || row.title || '未命名地點').trim();
@@ -748,7 +787,11 @@
       }
 
       const cleanDistrict = cleanDistrictString(rawArea, country);
-      const category = String(row.category || '景點').trim();
+      let category = String(row.category || '景點').trim();
+      if (!CATEGORY_META[category]) {
+        category = '景點';
+      }
+
       const rawHours = String(row.business_hours || row.businessHours || '').trim();
       const rawMustBuy = String(row.must_buy || row.mustBuy || '').trim();
       const rawParking = String(row.parking_info || row.parkingInfo || '').trim();
@@ -756,7 +799,7 @@
       let departTime = String(row.departTime || '').trim();
       let arriveTime = String(row.arriveTime || '').trim();
       let flightNo = String(row.flightNo || '').trim();
-      if (category === '交通' && !departTime && rawHours) {
+      if (isTransportOrAirport(category) && !departTime && rawHours) {
         const cleaned = rawHours.replace(/^✈️\s*/, '').replace(/^🚆\s*/, '');
         const parts = cleaned.split(/[-~→>]/).map(s => s.trim());
         if (parts.length >= 2) {
@@ -789,7 +832,7 @@
         parkingInfo: rawParking,
         departTime,
         arriveTime,
-        flightNo: flightNo || (category === '交通' ? rawMustBuy : ''),
+        flightNo: flightNo || (isTransportOrAirport(category) ? rawMustBuy : ''),
         checkInOut: String(row.checkInOut || (category === '住宿' ? rawHours : '')).trim(),
         bookingRef: String(row.bookingRef || (category === '住宿' ? rawMustBuy : '')).trim(),
         sheetStatus: String(row.status || 'pocket').trim(),
@@ -840,9 +883,10 @@
       const isScheduled = scheduledDays.length > 0;
       let hoursCol = card.businessHours || '';
       let mustBuyCol = card.mustBuy || '';
-      if (card.category === '交通') {
+      if (isTransportOrAirport(card.category)) {
+        const prefix = card.category === '機場' ? '✈️ ' : '🚆 ';
         if (card.departTime || card.arriveTime) {
-          hoursCol = `✈️ ${card.departTime || ''}${card.arriveTime ? ' ~ ' + card.arriveTime : ''}`.trim();
+          hoursCol = `${prefix}${card.departTime || ''}${card.arriveTime ? ' ~ ' + card.arriveTime : ''}`.trim();
         }
         if (card.flightNo) mustBuyCol = card.flightNo;
       } else if (card.category === '住宿') {
@@ -988,7 +1032,6 @@
       try {
         const sheetRows = state.cards.map((c, idx) => serializeCardToSheetRow(c, idx));
 
-        // 若有單筆刪除，額外發送 deleteSpot 給可能使用單筆刪除邏輯的 GAS
         if (extraDeletedId) {
           try {
             await fetch(state.settings.gasUrl, {
@@ -1044,20 +1087,106 @@
       }
     }
 
-    // 3. 雙模式切換核心控制
+    // 3. 雙模式與地圖大小／迷你卡片版面切換控制
+    function applyLayoutProportions() {
+      const dbPanel = document.getElementById('databasePanel');
+      const mapPanel = document.getElementById('mapPanel');
+      const cardsGrid = document.getElementById('databaseCardsContainer');
+      const expandCollectLabel = document.getElementById('mapExpandCollectLabel');
+      const expandPlanLabel = document.getElementById('mapExpandPlanLabel');
+      const btnExpandCollect = document.getElementById('btnMapExpandCollect');
+      const btnExpandPlan = document.getElementById('btnMapExpandPlan');
+
+      dbPanel.classList.remove('w-[65%]', 'w-[40%]', 'w-[295px]');
+      mapPanel.classList.remove('w-[35%]', 'w-[60%]', 'w-[320px]', 'w-[48%]');
+
+      if (state.mode === 'collect') {
+        if (state.mapExpanded) {
+          dbPanel.classList.add('w-[40%]');
+          mapPanel.classList.add('w-[60%]');
+          if (expandCollectLabel) expandCollectLabel.textContent = '還原比例';
+          if (btnExpandCollect) btnExpandCollect.className = 'px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition';
+        } else {
+          dbPanel.classList.add('w-[65%]');
+          mapPanel.classList.add('w-[35%]');
+          if (expandCollectLabel) expandCollectLabel.textContent = '放大地圖';
+          if (btnExpandCollect) btnExpandCollect.className = 'px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition';
+        }
+
+        if (state.miniCardView) {
+          cardsGrid.className = state.mapExpanded
+            ? 'flex-1 min-h-0 overflow-y-auto p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 items-stretch content-start bg-slate-50/40'
+            : 'flex-1 min-h-0 overflow-y-auto p-2.5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 items-stretch content-start bg-slate-50/40';
+        } else {
+          cardsGrid.className = state.mapExpanded
+            ? 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 xl:grid-cols-2 gap-2.5 items-stretch content-start bg-slate-50/40'
+            : 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
+        }
+      } else {
+        if (!state.pocketCollapsed) {
+          dbPanel.classList.add('w-[295px]');
+        }
+        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2 bg-slate-50/60';
+
+        if (state.mapExpanded) {
+          mapPanel.classList.add('w-[48%]');
+          if (expandPlanLabel) expandPlanLabel.textContent = '還原地圖';
+          if (btnExpandPlan) btnExpandPlan.className = 'px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition';
+        } else {
+          mapPanel.classList.add('w-[320px]');
+          if (expandPlanLabel) expandPlanLabel.textContent = '放大地圖';
+          if (btnExpandPlan) btnExpandPlan.className = 'px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition';
+        }
+      }
+
+      setTimeout(() => {
+        if (mapInstance) mapInstance.invalidateSize();
+      }, 220);
+    }
+
+    function toggleMapExpand() {
+      state.mapExpanded = !state.mapExpanded;
+      if (state.mode === 'collect' && state.mapExpanded && !state.miniCardView) {
+        // 放大地圖時若尚未開啟迷你卡片，可自動切換讓左側更精簡一眼辨識，使用者仍可手動切回
+        state.miniCardView = true;
+        updateMiniCardButtonUi();
+      }
+      applyLayoutProportions();
+      renderDatabaseCards();
+      renderMapMarkers();
+    }
+
+    function updateMiniCardButtonUi() {
+      const btn = document.getElementById('btnMiniCardToggle');
+      const label = document.getElementById('miniCardBtnLabel');
+      if (!btn || !label) return;
+      if (state.miniCardView) {
+        btn.className = 'px-2.5 py-1 rounded-lg border border-blue-600 bg-blue-600 text-white text-xs font-bold flex items-center gap-1 shadow-2xs transition';
+        label.textContent = '完整卡片';
+      } else {
+        btn.className = 'px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1 transition';
+        label.textContent = '迷你卡片';
+      }
+    }
+
+    function toggleMiniCardMode() {
+      state.miniCardView = !state.miniCardView;
+      updateMiniCardButtonUi();
+      applyLayoutProportions();
+      renderDatabaseCards();
+    }
+
     function switchWorkspaceMode(targetMode) {
       state.mode = targetMode;
       const tabCollect = document.getElementById('tabModeCollect');
       const tabPlan = document.getElementById('tabModePlan');
       const dbPanel = document.getElementById('databasePanel');
       const boardSection = document.getElementById('itineraryBoardSection');
-      const mapPanel = document.getElementById('mapPanel');
-      const cardsGrid = document.getElementById('databaseCardsContainer');
       const btnCollapsePocket = document.getElementById('btnCollapsePocket');
       const btnExpandPocket = document.getElementById('btnExpandPocket');
       const btnTogglePlanFilters = document.getElementById('btnTogglePlanFilters');
+      const btnMiniCardToggle = document.getElementById('btnMiniCardToggle');
       const advFilters = document.getElementById('advancedFilterGroup');
-      const collectHint = document.getElementById('collectModeHint');
       const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
       const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
       const batchBox = document.getElementById('batchImportBox');
@@ -1066,14 +1195,10 @@
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-        dbPanel.classList.remove('hidden', 'w-[295px]');
-        dbPanel.classList.add('w-[65%]');
-        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
+        dbPanel.classList.remove('hidden');
         boardSection.classList.add('hidden');
         boardSection.classList.remove('flex');
 
-        mapPanel.classList.remove('w-[320px]');
-        mapPanel.classList.add('w-[35%]');
         mapHeaderCollect.classList.remove('hidden');
         mapHeaderPlan.classList.add('hidden');
 
@@ -1082,30 +1207,24 @@
         btnTogglePlanFilters.classList.add('hidden');
         btnTogglePlanFilters.classList.remove('flex');
         btnExpandPocket.classList.add('hidden');
-        collectHint.classList.remove('hidden');
-        batchBox.classList.remove('hidden');
+        btnMiniCardToggle.classList.remove('hidden');
         advFilters.classList.remove('hidden');
       } else {
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-        dbPanel.classList.remove('w-[65%]');
         if (state.pocketCollapsed) {
           dbPanel.classList.add('hidden');
           btnExpandPocket.classList.remove('hidden');
           btnExpandPocket.classList.add('flex');
         } else {
           dbPanel.classList.remove('hidden');
-          dbPanel.classList.add('w-[295px]');
           btnExpandPocket.classList.add('hidden');
         }
-        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2 bg-slate-50/60';
 
         boardSection.classList.remove('hidden');
         boardSection.classList.add('flex');
 
-        mapPanel.classList.remove('w-[35%]');
-        mapPanel.classList.add('w-[320px]');
         mapHeaderCollect.classList.add('hidden');
         mapHeaderPlan.classList.remove('hidden');
 
@@ -1113,7 +1232,7 @@
         btnCollapsePocket.classList.add('flex');
         btnTogglePlanFilters.classList.remove('hidden');
         btnTogglePlanFilters.classList.add('flex');
-        collectHint.classList.add('hidden');
+        btnMiniCardToggle.classList.add('hidden');
         batchBox.classList.add('hidden');
 
         if (!state.planFiltersOpen) {
@@ -1121,10 +1240,8 @@
         }
       }
 
+      applyLayoutProportions();
       renderAll();
-      setTimeout(() => {
-        if (mapInstance) mapInstance.invalidateSize();
-      }, 220);
     }
 
     function togglePlanAdvancedFilters() {
@@ -1150,7 +1267,54 @@
       renderKanbanBoard();
     }
 
-    // 4. 篩選與排序邏輯
+    function toggleOverlayPocketOnPlanMap() {
+      state.overlayPocketOnPlan = !state.overlayPocketOnPlan;
+      document.getElementById('overlayPocketStatusText').textContent = state.overlayPocketOnPlan ? '開啟中' : '關閉';
+      renderMapMarkers();
+    }
+
+    // 4. 地圖分類圖層隱藏 / 開啟控制
+    function renderMapCategoryToggles() {
+      const container = document.getElementById('mapCategoryToggleContainer');
+      if (!container) return;
+
+      container.innerHTML = CATEGORY_LIST.map(cat => {
+        const meta = CATEGORY_META[cat];
+        const isVisible = state.mapVisibleCategories[cat] !== false;
+        return `
+          <button type="button" onclick="toggleMapCategoryLayer('${cat}')"
+            class="px-2 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1 border transition ${isVisible ? 'bg-white border-slate-300 text-slate-800 shadow-2xs' : 'bg-slate-100 border-slate-200 text-slate-400 line-through opacity-65'}">
+            <span class="w-2 h-2 rounded-full inline-block" style="background-color:${isVisible ? meta.color : '#cbd5e1'}"></span>
+            <span>${cat}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function toggleMapCategoryLayer(cat) {
+      state.mapVisibleCategories[cat] = !state.mapVisibleCategories[cat];
+      renderMapCategoryToggles();
+      renderMapMarkers();
+    }
+
+    function setOnlyAttractionsLayer() {
+      CATEGORY_LIST.forEach(cat => {
+        state.mapVisibleCategories[cat] = (cat === '景點' || cat === '機場' || cat === '住宿');
+      });
+      renderMapCategoryToggles();
+      renderMapMarkers();
+      showToast('已切換為第一層路線規劃圖層（僅顯示景點、住宿、機場）', 'emerald');
+    }
+
+    function setAllMapLayersVisible(visible) {
+      CATEGORY_LIST.forEach(cat => {
+        state.mapVisibleCategories[cat] = visible;
+      });
+      renderMapCategoryToggles();
+      renderMapMarkers();
+    }
+
+    // 5. 篩選與排序邏輯
     function setFilter(type, value, shouldRender = true) {
       state.filters[type] = value;
 
@@ -1244,7 +1408,7 @@
       return list;
     }
 
-    // 5. 渲染等高整齊的資料庫卡片（詳細說明預設摺疊，點擊展開）
+    // 6. 渲染資料庫卡片（支援迷你卡片、等高卡片與詳情展開）
     function toggleCardDetailExpand(cardId) {
       state.expandedCards[cardId] = !state.expandedCards[cardId];
       renderDatabaseCards();
@@ -1253,11 +1417,12 @@
     function renderCategorySummaryHtml(card) {
       const blocks = [];
 
-      if (card.category === '交通') {
+      if (isTransportOrAirport(card.category)) {
+        const iconCls = card.category === '機場' ? 'fa-plane-departure text-sky-600' : 'fa-train-subway text-slate-600';
         if (card.departTime || card.arriveTime) {
           blocks.push(`
             <div class="text-[11px] font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 flex items-center gap-1.5 flex-wrap">
-              <i class="fa-solid fa-plane-departure text-blue-600"></i>
+              <i class="fa-solid ${iconCls}"></i>
               <span>${card.departTime ? '出發/起飛：' + card.departTime : ''}</span>
               ${card.arriveTime ? `<span class="text-blue-700">→ 抵達：${card.arriveTime}</span>` : ''}
             </div>
@@ -1317,6 +1482,7 @@
       const totalDays = Number(state.settings.totalDays) || 6;
       const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
+      // 模式 2：旅遊行程規劃的精簡口袋卡片
       if (state.mode === 'plan') {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
@@ -1326,7 +1492,7 @@
             ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">Day ${scheduledDays.join(',')}</span>`
             : `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 shrink-0">未排</span>`;
 
-          const timeSub = card.category === '交通' && (card.departTime || card.arriveTime)
+          const timeSub = isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)
             ? `<div class="text-[10px] text-blue-700 font-semibold">${card.departTime || ''} ${card.arriveTime ? '→ ' + card.arriveTime : ''}</div>`
             : '';
 
@@ -1370,7 +1536,53 @@
         return;
       }
 
-      // 模式 1：等高整齊卡片設計（詳細說明預設摺疊，需要時點擊展開）
+      // 模式 1A：迷你卡片檢視（一眼辨識景點名稱與分類，搭配大地圖分布）
+      if (state.miniCardView) {
+        container.innerHTML = cards.map(card => {
+          const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const scheduledDays = getCardScheduledDays(card.id);
+          const isScheduled = scheduledDays.length > 0;
+          const isHighlighted = state.highlightedCardId === card.id;
+          const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+
+          return `
+            <div id="db-card-${card.id}"
+              draggable="true"
+              ondragstart="onDragStartCard(event, '${card.id}')"
+              onclick="focusCardOnMap('${card.id}')"
+              class="bg-white rounded-xl border ${isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} hover:border-blue-400 p-2.5 shadow-2xs transition cursor-pointer flex flex-col justify-between gap-1.5 ${isHighlighted ? 'card-is-highlighted' : ''}">
+              <div class="flex items-start justify-between gap-1.5">
+                <div class="flex items-start gap-1.5 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style="background-color:${meta.color}"></span>
+                  <h4 class="font-bold text-xs text-slate-800 leading-snug line-clamp-2 break-words" title="${card.title}">${card.title}</h4>
+                </div>
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${meta.badgeBg}">${card.category}</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-1 pt-1 border-t border-slate-100 text-[10px]" onclick="event.stopPropagation()">
+                <div class="flex items-center gap-1 min-w-0">
+                  ${!hasCoords ? `<span class="text-rose-600 font-bold" title="待補座標">⚠</span>` : ''}
+                  <span class="text-slate-500 truncate">${(card.district || '').replace(/^沖繩縣・/, '')}</span>
+                  ${isScheduled ? `<span class="px-1 rounded bg-emerald-600 text-white font-bold shrink-0">D${scheduledDays.join(',')}</span>` : ''}
+                </div>
+                <div class="flex items-center gap-0.5 shrink-0">
+                  <button onclick="openCardModal('${card.id}')" title="編輯"
+                    class="w-5 h-5 rounded hover:bg-amber-50 text-slate-500 hover:text-amber-600 flex items-center justify-center">
+                    <i class="fa-solid fa-pen"></i>
+                  </button>
+                  <button onclick="deleteCard('${card.id}')" title="刪除"
+                    class="w-5 h-5 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        return;
+      }
+
+      // 模式 1B：標準等高整齊卡片設計（詳細說明預設摺疊，需要時點擊展開）
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
@@ -1414,7 +1626,6 @@
             
             <div class="p-3 flex-1 flex flex-col justify-between gap-2">
               <div class="space-y-2">
-                <!-- 第一列：行政區 ＋ 納入狀態 -->
                 <div class="flex items-center justify-between gap-1.5">
                   <div class="flex items-center gap-1 min-w-0">
                     ${newBadge}
@@ -1423,7 +1634,6 @@
                   ${statusBadge}
                 </div>
 
-                <!-- 第二列：固定兩行高度的標題 ＋ 星號 ＋ 類別 -->
                 <div class="flex items-start justify-between gap-2 min-h-[2.65rem]">
                   <h4 class="font-bold text-[14px] text-slate-800 leading-snug line-clamp-2 break-words" title="${card.title}">${card.title}</h4>
                   <div class="flex items-center gap-1.5 shrink-0 pt-0.5" onclick="event.stopPropagation()">
@@ -1436,7 +1646,6 @@
                 </div>
               </div>
 
-              <!-- 第三列：定位狀態 ＋ 停留時間 ＋ 詳情展開按鈕 -->
               <div class="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100/80">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   ${coordBadge}
@@ -1447,7 +1656,6 @@
                 ${detailToggleBtn}
               </div>
 
-              <!-- 可摺疊的詳細說明區塊（預設隱藏，點擊詳情按鈕後顯示） -->
               ${hasDetails && isExpanded ? `
                 <div class="space-y-1.5 pt-1.5 border-t border-dashed border-slate-200" onclick="event.stopPropagation()">
                   ${detailsHtml}
@@ -1455,7 +1663,6 @@
               ` : ''}
             </div>
 
-            <!-- 底部操作列 -->
             <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 rounded-b-xl flex items-center justify-between gap-1.5 shrink-0" onclick="event.stopPropagation()">
               <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
                 class="text-[11px] font-bold bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-slate-700 cursor-pointer focus:outline-none">
@@ -1539,7 +1746,7 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // 6. 正向與反向地理編碼
+    // 7. 地理編碼與座標反查
     function parseNominatimAddress(addr = {}) {
       let country = addr.country || '日本';
       if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
@@ -1727,39 +1934,7 @@
       showToast('行政區與座標補齊完成，已自動寫入試算表！', 'emerald');
     }
 
-    // 7. 友善編輯視窗快捷解析與反向帶入功能
-    async function parseQuickGeoInput() {
-      const inputEl = document.getElementById('quickPasteGeoInput');
-      const raw = inputEl.value.trim();
-      if (!raw) return;
-
-      if (raw.startsWith('http')) {
-        document.getElementById('fieldMapUrl').value = raw;
-        const extractedName = extractTitleFromInputLine(raw);
-        if (extractedName && !extractedName.startsWith('http') && !document.getElementById('fieldTitle').value.trim()) {
-          document.getElementById('fieldTitle').value = extractedName;
-        }
-      }
-
-      const coords = extractCoordsFromText(raw);
-      if (coords) {
-        document.getElementById('fieldLat').value = coords.lat;
-        document.getElementById('fieldLng').value = coords.lng;
-        showToast('已解析經緯度，正在自動帶入國家與行政區...', 'blue');
-        await reverseGeocodeModalCoords(true);
-        inputEl.value = '';
-      } else if (raw.startsWith('http')) {
-        showToast('已帶入地圖網址（短網址若未含座標，可點名稱旁「查座標」）', 'amber');
-        inputEl.value = '';
-      } else {
-        if (!document.getElementById('fieldTitle').value.trim()) {
-          document.getElementById('fieldTitle').value = raw;
-        }
-        await autoGeocodeModalFields();
-        inputEl.value = '';
-      }
-    }
-
+    // 8. 精簡編輯視窗邏輯（無解析帶入／查座標／重複刪除鍵）
     function handleLatLngPaste(e) {
       const pasted = (e.clipboardData || window.clipboardData).getData('text');
       const coords = extractCoordsFromText(pasted);
@@ -1801,15 +1976,15 @@
     function renderCategoryDynamicFields(category, card = {}) {
       const box = document.getElementById('dynamicCategoryFieldsBox');
 
-      if (category === '交通') {
+      if (category === '機場') {
         box.innerHTML = `
-          <div class="flex items-center gap-1.5 text-blue-800 font-bold text-xs">
+          <div class="flex items-center gap-1.5 text-sky-800 font-bold text-xs">
             <i class="fa-solid fa-plane-departure"></i>
-            <span>交通 / 機場搭乘時刻與班次資訊</span>
+            <span>機場航班與報到時刻資訊</span>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block font-bold text-slate-700 mb-1">出發 / 起飛時間</label>
+              <label class="block font-bold text-slate-700 mb-1">報到 / 起飛時間</label>
               <input type="text" id="dynDepartTime" value="${card.departTime || ''}" placeholder="例如：15:00 報到 / 17:00 起飛"
                 class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
@@ -1821,13 +1996,44 @@
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block font-bold text-slate-700 mb-1">航班代號 / 車次 / 航廈</label>
+              <label class="block font-bold text-slate-700 mb-1">航空公司 / 航班代號 / 航廈</label>
               <input type="text" id="dynFlightNo" value="${card.flightNo || card.mustBuy || ''}" placeholder="例如：星宇航空 JX870 / 國際航廈"
                 class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label class="block font-bold text-slate-700 mb-1">接駁 / 停車資訊</label>
-              <input type="text" id="dynParking" value="${card.parkingInfo || ''}" placeholder="例如：轉乘單軌電車至縣廳前站"
+              <label class="block font-bold text-slate-700 mb-1">聯外交通 / 單軌資訊</label>
+              <input type="text" id="dynParking" value="${card.parkingInfo || ''}" placeholder="例如：搭乘單軌電車前往縣廳前站"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+        `;
+      } else if (category === '交通') {
+        box.innerHTML = `
+          <div class="flex items-center gap-1.5 text-slate-800 font-bold text-xs">
+            <i class="fa-solid fa-train-subway"></i>
+            <span>單軌 / 巴士 / 租車接駁資訊</span>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">出發 / 取車時間</label>
+              <input type="text" id="dynDepartTime" value="${card.departTime || ''}" placeholder="例如：09:30"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">抵達 / 還車時間</label>
+              <input type="text" id="dynArriveTime" value="${card.arriveTime || ''}" placeholder="例如：10:45"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">路線 / 車次 / 租車公司</label>
+              <input type="text" id="dynFlightNo" value="${card.flightNo || card.mustBuy || ''}" placeholder="例如：Yui-Rail 一日券 / OTS 租車"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">乘車處 / 站點備註</label>
+              <input type="text" id="dynParking" value="${card.parkingInfo || ''}" placeholder="例如：縣廳前站北口乘車處"
                 class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
           </div>
@@ -1857,8 +2063,8 @@
           </div>
         `;
       } else {
-        const itemLabel = category === '美食' ? '必吃招牌菜' : (category === '購物' ? '必買清單 / 退稅提醒' : '必看亮點 / 門票資訊');
-        const itemPlaceholder = category === '美食' ? '例如：阿古豬排、苦瓜漢堡、海葡萄丼' : (category === '購物' ? '例如：滿 5,500 日圓免稅、限定伴手禮' : '例如：門票 400 日圓、夕陽拍照點');
+        const itemLabel = category === '美食' ? '必吃招牌菜' : (category === '購物' ? '必買清單 / 退稅提醒' : (category === '體驗' ? '體驗項目 / 預約時段' : '必看亮點 / 門票資訊'));
+        const itemPlaceholder = category === '美食' ? '例如：阿古豬排、苦瓜漢堡、海葡萄丼' : (category === '購物' ? '例如：滿 5,500 日圓免稅、限定伴手禮' : '例如：門票費用、預約代號、拍照重點');
         box.innerHTML = `
           <div class="flex items-center gap-1.5 text-slate-800 font-bold text-xs">
             <i class="fa-solid fa-circle-info text-blue-600"></i>
@@ -1897,9 +2103,7 @@
       const titleEl = document.getElementById('cardModalTitle');
       const assignSel = document.getElementById('fieldAssignDay');
       const assignBox = document.getElementById('quickAssignOnSaveBox');
-      const btnDelete = document.getElementById('btnModalDeleteCard');
 
-      document.getElementById('quickPasteGeoInput').value = '';
       populateRegionDropdowns();
 
       const totalDays = Number(state.settings.totalDays) || 6;
@@ -1912,7 +2116,7 @@
         titleEl.textContent = '編輯卡片資料';
         document.getElementById('editCardId').value = card.id;
         document.getElementById('fieldTitle').value = card.title || '';
-        document.getElementById('fieldCategory').value = card.category || '景點';
+        document.getElementById('fieldCategory').value = CATEGORY_META[card.category] ? card.category : '景點';
         document.getElementById('fieldCountry').value = card.country || '日本';
         document.getElementById('fieldDistrict').value = card.district || '';
         document.getElementById('fieldDuration').value = card.duration || 60;
@@ -1924,7 +2128,6 @@
         document.getElementById('fieldStarred').checked = !!card.starred;
         renderCategoryDynamicFields(card.category || '景點', card);
         assignBox.classList.add('hidden');
-        btnDelete.classList.remove('hidden');
         modal.classList.remove('hidden');
 
         if (card.lat && card.lng && (!card.district || card.district.includes('待確認'))) {
@@ -1934,7 +2137,7 @@
         titleEl.textContent = '新增口袋卡片（儲存後自動置頂並同步）';
         document.getElementById('editCardId').value = '';
         document.getElementById('fieldTitle').value = '';
-        document.getElementById('fieldCategory').value = '美食';
+        document.getElementById('fieldCategory').value = '景點';
         document.getElementById('fieldCountry').value = '日本';
         document.getElementById('fieldDistrict').value = '沖繩縣・那霸市';
         document.getElementById('fieldDuration').value = 60;
@@ -1944,42 +2147,14 @@
         document.getElementById('fieldImage').value = '';
         document.getElementById('fieldNotes').value = '';
         document.getElementById('fieldStarred').checked = false;
-        renderCategoryDynamicFields('美食', {});
+        renderCategoryDynamicFields('景點', {});
         assignBox.classList.remove('hidden');
-        btnDelete.classList.add('hidden');
         modal.classList.remove('hidden');
       }
     }
 
     function closeCardModal() {
       document.getElementById('cardModal').classList.add('hidden');
-    }
-
-    function deleteCardFromModal() {
-      const id = document.getElementById('editCardId').value;
-      if (!id) return;
-      closeCardModal();
-      deleteCard(id);
-    }
-
-    async function autoGeocodeModalFields() {
-      const name = document.getElementById('fieldTitle').value.trim();
-      const countryHint = document.getElementById('fieldCountry').value.trim();
-      if (!name) {
-        showToast('請先輸入地點名稱', 'amber');
-        return;
-      }
-      showToast('正在抓取座標與行政區...', 'blue');
-      const geo = await geocodePlaceName(name, countryHint);
-      if (geo) {
-        document.getElementById('fieldLat').value = geo.lat;
-        document.getElementById('fieldLng').value = geo.lng;
-        document.getElementById('fieldCountry').value = geo.country;
-        document.getElementById('fieldDistrict').value = geo.district;
-        showToast(`已帶入座標 (${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}) 與 ${geo.district}`, 'emerald');
-      } else {
-        showToast('查無精確座標，可從 Google Maps 複製座標貼上上方快捷解析列', 'amber');
-      }
     }
 
     async function saveCardFromModal() {
@@ -2021,11 +2196,12 @@
       let checkInOut = '';
       let bookingRef = '';
 
-      if (category === '交通') {
+      if (isTransportOrAirport(category)) {
         departTime = document.getElementById('dynDepartTime')?.value.trim() || '';
         arriveTime = document.getElementById('dynArriveTime')?.value.trim() || '';
         flightNo = document.getElementById('dynFlightNo')?.value.trim() || '';
-        businessHours = (departTime || arriveTime) ? `✈️ ${departTime}${arriveTime ? ' ~ ' + arriveTime : ''}`.trim() : '';
+        const prefix = category === '機場' ? '✈️ ' : '🚆 ';
+        businessHours = (departTime || arriveTime) ? `${prefix}${departTime}${arriveTime ? ' ~ ' + arriveTime : ''}`.trim() : '';
         mustBuy = flightNo;
       } else if (category === '住宿') {
         checkInOut = document.getElementById('dynCheckInOut')?.value.trim() || '';
@@ -2115,7 +2291,7 @@
       renderDatabaseCards();
     }
 
-    // 8. 多日行程看板與時間自動推算
+    // 9. 多日行程看板與時間自動推算
     function getFormattedDateInfo(dayNum) {
       const start = new Date(state.settings.startDate + 'T00:00:00');
       if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
@@ -2157,10 +2333,10 @@
 
     function isFlightLeg(cardA, cardB, km) {
       if (!cardA || !cardB) return false;
-      const isBothTransport = cardA.category === '交通' && cardB.category === '交通';
+      const isBothAirport = cardA.category === '機場' && cardB.category === '機場';
       const hasAirportKeyword = /機場|空港|Airport/i.test(cardA.title) && /機場|空港|Airport/i.test(cardB.title);
       const isCrossCountry = cardA.country && cardB.country && cardA.country !== cardB.country;
-      return isBothTransport || hasAirportKeyword || isCrossCountry || km > 150;
+      return isBothAirport || hasAirportKeyword || isCrossCountry || km > 150;
     }
 
     function estimateTransit(cardA, cardB) {
@@ -2212,7 +2388,7 @@
         let initialStart = dayData.startTime;
         if (items.length > 0) {
           const firstCard = state.cards.find(c => c.id === items[0].cardId);
-          if (firstCard && firstCard.category === '交通' && firstCard.departTime) {
+          if (firstCard && isTransportOrAirport(firstCard.category) && firstCard.departTime) {
             const depTimes = extractClockTimes(firstCard.departTime);
             if (depTimes.length > 0 && dayData.startTime === '09:00') {
               initialStart = depTimes[0];
@@ -2231,7 +2407,7 @@
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const dur = Number(card.duration) || 60;
 
-          const depTimes = card.category === '交通' ? extractClockTimes(card.departTime) : [];
+          const depTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.departTime) : [];
           if (depTimes.length > 0 && idx === 0) {
             cursorMin = timeToMinutes(depTimes[0]);
           }
@@ -2239,7 +2415,7 @@
           const startStr = minutesToTime(cursorMin);
           const endStr = minutesToTime(cursorMin + dur);
           cursorMin += dur;
-          if (card.category !== '住宿' && card.category !== '交通') totalActMin += dur;
+          if (card.category !== '住宿' && !isTransportOrAirport(card.category)) totalActMin += dur;
 
           const nextItem = items[idx + 1];
           const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
@@ -2247,7 +2423,7 @@
           const activeMode = est?.mode === 'flight' ? 'flight' : (item.transitMode || est?.mode || 'transit');
           let transitMin = est?.mode === 'flight' ? est.min : (Number(item.transitMin) || est?.min || 0);
 
-          const arrTimes = card.category === '交通' ? extractClockTimes(card.arriveTime) : [];
+          const arrTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.arriveTime) : [];
           if (nextCard) {
             totalTransitMin += transitMin;
             if (arrTimes.length > 0) {
@@ -2257,8 +2433,8 @@
             }
           }
 
-          if (card.category !== '住宿' && card.category !== '交通') pinCounter++;
-          const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '交通' ? '行' : pinCounter);
+          if (card.category !== '住宿' && !isTransportOrAirport(card.category)) pinCounter++;
+          const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : pinCounter));
 
           const transitLabelMap = {
             walk: '🚶 慢活步行',
@@ -2268,7 +2444,7 @@
           };
 
           let timePillText = `${startStr} ~ ${endStr}`;
-          if (card.category === '交通' && (card.departTime || card.arriveTime)) {
+          if (isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)) {
             if (depTimes.length >= 2) {
               timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
             } else if (card.departTime) {
@@ -2333,7 +2509,7 @@
             ${nextCard ? `
               <div class="my-1.5 flex justify-center">
                 <button onclick="cycleTransitMode(${d}, ${idx})"
-                  class="px-2.5 py-1 rounded-full ${activeMode === 'flight' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
+                  class="px-2.5 py-1 rounded-full ${activeMode === 'flight' ? 'bg-sky-50 border-sky-200 text-sky-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
                   <span>↓ ${transitLabelMap[activeMode]} ${legSubText}</span>
                 </button>
               </div>
@@ -2387,7 +2563,7 @@
       }).join('');
     }
 
-    // 9. 看板互動與拖曳操作
+    // 10. 看板互動與拖曳操作
     let dragPayload = null;
 
     function onDragStartCard(e, cardId) {
@@ -2542,7 +2718,7 @@
       renderMapMarkers();
     }
 
-    // 10. Leaflet 地圖
+    // 11. Leaflet 地圖（支援分類圖層隱藏／開啟與雙模式疊加）
     function initLeafletMap() {
       mapInstance = L.map('mapContainer', { zoomControl: true }).setView([26.2124, 127.6809], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -2559,10 +2735,11 @@
       });
     }
 
-    function createColoredPinIcon(color, labelText) {
+    function createColoredPinIcon(color, labelText, isGhost = false) {
+      const opacityStyle = isGhost ? 'opacity:0.78;border-style:dashed;' : '';
       return L.divIcon({
         className: 'custom-map-pin',
-        html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:9999px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">${labelText}</div>`,
+        html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:9999px;border:2.5px solid #fff;${opacityStyle}box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">${labelText}</div>`,
         iconSize: [26, 26],
         iconAnchor: [13, 13],
         popupAnchor: [0, -14]
@@ -2576,15 +2753,20 @@
       markerLookup = {};
 
       if (state.mode === 'collect') {
-        const cards = getFilteredAndSortedCards().filter(c => Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) && Number(c.lat) !== 0);
-        document.getElementById('mapPinCounter').textContent = `${cards.length} 個已定位圖釘`;
+        const cards = getFilteredAndSortedCards().filter(c =>
+          Number.isFinite(Number(c.lat)) &&
+          Number.isFinite(Number(c.lng)) &&
+          Number(c.lat) !== 0 &&
+          state.mapVisibleCategories[c.category] !== false
+        );
+        document.getElementById('mapPinCounter').textContent = `${cards.length} 釘`;
 
         const bounds = [];
         cards.forEach(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
           const marker = L.marker([card.lat, card.lng], {
-            icon: createColoredPinIcon(meta.color, card.category[0])
+            icon: createColoredPinIcon(meta.color, meta.pinChar || card.category[0])
           });
 
           marker.bindPopup(`
@@ -2610,28 +2792,34 @@
       } else {
         const d = state.selectedMapDay;
         const items = state.itinerary[d]?.items || [];
+        const dayCardIds = new Set(items.map(it => it.cardId));
         const coords = [];
         const legsHtml = [];
         let totalMin = 0;
         let totalKm = 0;
         let stopIndex = 0;
+        let visiblePinCount = 0;
 
         items.forEach((item, idx) => {
           const card = state.cards.find(c => c.id === item.cardId);
           if (!card) return;
           const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
 
-          if (card.category !== '住宿' && card.category !== '交通') stopIndex++;
-          const label = card.category === '住宿' ? '宿' : (card.category === '交通' ? '行' : stopIndex);
+          if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
+          const label = card.category === '住宿' ? '宿' : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
 
           if (hasCoords) {
-            const marker = L.marker([card.lat, card.lng], {
-              icon: createColoredPinIcon(meta.color, label)
-            }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${card.district || ''}</div>`);
-            marker.addTo(mapMarkersLayer);
-            markerLookup[card.id] = marker;
             coords.push([card.lat, card.lng]);
+            if (isLayerVisible) {
+              visiblePinCount++;
+              const marker = L.marker([card.lat, card.lng], {
+                icon: createColoredPinIcon(meta.color, label)
+              }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${card.district || ''}</div>`);
+              marker.addTo(mapMarkersLayer);
+              markerLookup[card.id] = marker;
+            }
           }
 
           const nextItem = items[idx + 1];
@@ -2653,6 +2841,31 @@
           }
         });
 
+        // 若開啟「疊加口袋點位」，在地圖顯示尚未排入當日的口袋卡片（依照分類圖層開關過濾，方便加美食／購物）
+        if (state.overlayPocketOnPlan) {
+          state.cards.forEach(c => {
+            if (dayCardIds.has(c.id)) return;
+            if (state.mapVisibleCategories[c.category] === false) return;
+            const hasCoords = Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) && Number(c.lat) !== 0;
+            if (!hasCoords) return;
+
+            visiblePinCount++;
+            const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
+            L.marker([c.lat, c.lng], {
+              icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true)
+            }).bindPopup(`
+              <div class="text-xs space-y-1 min-w-[170px]">
+                <div class="font-bold text-slate-800">${c.title}</div>
+                <div class="text-[11px] text-slate-500">${c.district || ''}・${c.category}（口袋點位）</div>
+                <button onclick="addCardToDay('${c.id}', ${d})"
+                  class="w-full mt-1 px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-bold">
+                  + 直接排入 Day ${d}
+                </button>
+              </div>
+            `).addTo(mapMarkersLayer);
+          });
+        }
+
         if (coords.length > 1) {
           L.polyline(coords, { color: '#2563eb', weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(mapRouteLayer);
         }
@@ -2660,7 +2873,7 @@
           mapInstance.fitBounds(coords, { padding: [40, 40], maxZoom: 14 });
         }
 
-        document.getElementById('mapPinCounter').textContent = `Day ${d} 共 ${coords.length} 點`;
+        document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
         document.getElementById('dailyTransitSummary').textContent = `約 ${totalMin} 分 (${totalKm.toFixed(1)} km)`;
         document.getElementById('dailyTransitLegsList').innerHTML = legsHtml.length > 0
           ? legsHtml.join('')
@@ -2685,9 +2898,14 @@
       renderDatabaseCards();
 
       if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0 && mapInstance) {
+        if (state.mapVisibleCategories[card.category] === false) {
+          state.mapVisibleCategories[card.category] = true;
+          renderMapCategoryToggles();
+          renderMapMarkers();
+        }
         mapInstance.setView([card.lat, card.lng], 15, { animate: true });
       } else if (warnIfMissing) {
-        showToast('此卡片尚未設定座標，可於編輯視窗貼上座標或點擊「查座標」', 'amber');
+        showToast('此卡片尚未設定座標，可點擊編輯填入經緯度', 'amber');
       }
     }
 
@@ -2700,7 +2918,7 @@
 
     function toggleRadarMode() {
       state.radarActive = !state.radarActive;
-      document.getElementById('radarStatusText').textContent = state.radarActive ? '開啟中（請點地圖）' : '關閉';
+      document.getElementById('radarStatusText').textContent = state.radarActive ? '開' : '關';
       if (!state.radarActive && radarCircleLayer) {
         mapRouteLayer.removeLayer(radarCircleLayer);
         radarCircleLayer = null;
@@ -2711,8 +2929,12 @@
       if (radarCircleLayer) mapRouteLayer.removeLayer(radarCircleLayer);
       radarCircleLayer = L.circle([lat, lng], { radius: 1500, color: '#f59e0b', fillOpacity: 0.12 }).addTo(mapRouteLayer);
 
-      const nearby = state.cards.filter(c => haversineKm(lat, lng, c.lat, c.lng) > 0 && haversineKm(lat, lng, c.lat, c.lng) <= 1.5);
-      showToast(`周邊 1.5km 內找到 ${nearby.length} 個口袋地點`, 'amber');
+      const nearby = state.cards.filter(c =>
+        state.mapVisibleCategories[c.category] !== false &&
+        haversineKm(lat, lng, c.lat, c.lng) > 0 &&
+        haversineKm(lat, lng, c.lat, c.lng) <= 1.5
+      );
+      showToast(`周邊 1.5km 內找到 ${nearby.length} 個顯示中分類的口袋地點`, 'amber');
       nearby.forEach(c => {
         const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
         L.marker([c.lat, c.lng], { icon: createColoredPinIcon(meta.color, '★') })
@@ -2721,7 +2943,7 @@
       });
     }
 
-    // 11. 設定與提示
+    // 12. 設定與提示
     function updateTripHeaderDisplay() {
       document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle;
       const days = Number(state.settings.totalDays) || 6;
