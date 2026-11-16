@@ -1,13 +1,18 @@
+// ==================== 全域時間校準常數與快取 ====================
+// 旅遊慢活平均步行速度：3.6 km/h（每公里約 16.7 分鐘，0.9 km 約 15 分鐘）
+var WALK_SPEED_KMH = 3.6;
+// 儲存右側地圖實測路網結果，確保中間看板與右側地圖時間 100% 一致
+var resolvedLegCache = {};
+
+if (typeof uiState !== 'undefined') {
+  uiState.inboxExpanded = false;
+}
+
 // ==================== 機票起迄時刻與時差解析器 ====================
-/**
- * 解析卡片中的航班時刻格式：例如 "✈️ 16:45-19:20 (+1h)" 或 "16:45-19:20 (-1h)"
- * 回傳 { depStr, arrStr, depMins, arrMins, tzDiff, flightMins } 或 null
- */
 function parseFlightSchedule(hoursStr) {
   const raw = String(hoursStr || '').trim();
   if (!raw) return null;
 
-  // 必須帶有 ✈️ 標記或明確的 (+Xh)/(-Xh) 時差標記，避免誤判一般機場營業時間 (如 06:00-23:00)
   const match = raw.match(/(?:✈️|航班)?\s*(\d{1,2}:\d{2})\s*[-~～→]\s*(\d{1,2}:\d{2})(?:\s*\(([+-]?\d+(?:\.\d+)?)h\))?/i);
   if (!match) return null;
 
@@ -29,7 +34,6 @@ function parseFlightSchedule(hoursStr) {
   const arrMins = arrH * 60 + arrM;
   const tzDiff = match[3] !== undefined ? parseFloat(match[3]) : 0;
 
-  // 實際飛行分鐘數 = (當地抵達 - 出發起飛) - 時差*60；若跨午夜則 +1440
   let flightMins = (arrMins - depMins) - Math.round(tzDiff * 60);
   if (flightMins <= 0) flightMins += 1440;
 
@@ -285,7 +289,6 @@ async function handleSaveCard(event) {
   let lat = document.getElementById('field-lat').value.trim();
   let lng = document.getElementById('field-lng').value.trim();
 
-  // 若座標留空，自動透過 Nominatim 地理編碼補齊
   if (!lat || !lng) {
     try {
       const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name)}`);
@@ -352,6 +355,7 @@ async function handleSaveCard(event) {
     spots.unshift(spotData);
   }
 
+  resolvedLegCache = {};
   saveLocalState();
   renderAll();
   closeModal('modal-card-detail');
@@ -377,6 +381,7 @@ function handleDeleteCard() {
   if (!confirm(`確定要從資料庫永久刪除「${spot.name}」嗎？`)) return;
 
   spots = spots.filter(s => String(s.id) !== id);
+  resolvedLegCache = {};
   saveLocalState();
   renderAll();
   closeModal('modal-card-detail');
@@ -387,6 +392,118 @@ function handleDeleteCard() {
       method: 'POST',
       body: JSON.stringify({ action: 'delete_spot', id })
     }).catch(err => console.error('雲端刪除失敗', err));
+  }
+}
+
+// ==================== 資料庫快捷排入與雷達插隊排入 ====================
+function quickAssignSpotToDay(spotId, targetDateStr) {
+  if (!targetDateStr) return;
+  const spot = spots.find(s => String(s.id) === String(spotId));
+  if (!spot) return;
+
+  const dayItems = getDayItems(targetDateStr);
+  const maxOrder = dayItems.reduce((m, it) => Math.max(m, it.order), 0);
+  const occs = getSpotOccurrences(spot);
+
+  if (spot.category === '住宿' && occs.some(o => o.dateStr === targetDateStr)) {
+    occs.push({ dateStr: targetDateStr, order: maxOrder + 1 });
+  } else if (!occs.some(o => o.dateStr === targetDateStr)) {
+    occs.push({ dateStr: targetDateStr, order: maxOrder + 1 });
+  } else {
+    showToast(`「${spot.name}」已經排入該日行程中`);
+    return;
+  }
+
+  occs.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.order - b.order);
+  const rev = isSpotRevisit(spot);
+  spot.assigned_day = occs.map(o => o.dateStr).join(',');
+  spot.sort_order = occs.map(o => o.order).join(',');
+  spot.status = rev ? 'scheduled|revisit' : 'scheduled';
+
+  resolvedLegCache = {};
+  saveLocalState();
+  renderAll();
+  scrollToDayColumn(targetDateStr);
+
+  // 自動切換右側地圖至該日以同步實測路網時間
+  const mapSel = document.getElementById('map-day-selector');
+  if (mapSel && [...mapSel.options].some(o => o.value === targetDateStr)) {
+    mapSel.value = targetDateStr;
+    updateMapMarkers();
+  }
+
+  const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+  const dayLabel = (daysList.find(d => d.dateStr === targetDateStr) || {}).label || targetDateStr;
+  showToast(`✅ 已將「${spot.name}」排入 ${dayLabel}！`);
+
+  if (appConfig.gasUrl) {
+    fetch(appConfig.gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'sync_board',
+        updates: [{ id: spot.id, assigned_day: spot.assigned_day, sort_order: spot.sort_order, is_revisit: rev }]
+      })
+    }).catch(err => console.error('背景同步失敗', err));
+  }
+}
+
+// 從地圖「周邊口袋雷達」直接插隊排入（緊接在基準點如飯店之後）
+function quickInsertRadarSpotToDay(spotId, targetDateStr, anchorSpotId) {
+  const spot = spots.find(s => String(s.id) === String(spotId));
+  if (!spot || !targetDateStr) return;
+
+  const dayItems = getDayItems(targetDateStr);
+  let insertAfterIdx = 0;
+  if (anchorSpotId) {
+    const foundIdx = dayItems.findIndex(it => String(it.spot.id) === String(anchorSpotId));
+    if (foundIdx > -1) insertAfterIdx = foundIdx;
+  }
+
+  // 重建當日順序，將新卡片插入基準點正後方
+  const orderedIds = dayItems.map(it => ({ spot: it.spot, occIdx: it.globalOccIdx }));
+  orderedIds.splice(insertAfterIdx + 1, 0, { spot, occIdx: -1 });
+
+  const updates = [];
+  const touchedSpots = new Set();
+
+  orderedIds.forEach((entry, idx) => {
+    const s = entry.spot;
+    const newOrder = idx + 1;
+    const occs = getSpotOccurrences(s);
+    if (entry.occIdx === -1) {
+      occs.push({ dateStr: targetDateStr, order: newOrder });
+    } else if (occs[entry.occIdx]) {
+      occs[entry.occIdx].order = newOrder;
+    }
+    occs.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.order - b.order);
+    const rev = isSpotRevisit(s);
+    s.assigned_day = occs.map(o => o.dateStr).join(',');
+    s.sort_order = occs.map(o => o.order).join(',');
+    s.status = rev ? 'scheduled|revisit' : 'scheduled';
+    touchedSpots.add(s);
+  });
+
+  touchedSpots.forEach(s => {
+    updates.push({
+      id: s.id,
+      assigned_day: s.assigned_day,
+      sort_order: s.sort_order,
+      is_revisit: isSpotRevisit(s)
+    });
+  });
+
+  resolvedLegCache = {};
+  saveLocalState();
+  renderAll();
+  scrollToDayColumn(targetDateStr);
+  if (mapInstance) mapInstance.closePopup();
+  showToast(`🧭 已將「${spot.name}」插隊排入行程並重算時間軸！`);
+
+  if (appConfig.gasUrl && updates.length > 0) {
+    fetch(appConfig.gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'sync_board', updates })
+    }).catch(err => console.error('背景同步失敗', err));
   }
 }
 
@@ -440,10 +557,10 @@ function toggleInboxDrawer() {
   const btn = document.getElementById('btn-toggle-inbox');
   if (uiState.inboxExpanded) {
     body.classList.remove('hidden');
-    btn.innerHTML = `<i data-lucide="chevron-up" class="w-4 h-4"></i>`;
+    btn.classList.add('bg-ai-indigo', 'text-white');
   } else {
     body.classList.add('hidden');
-    btn.innerHTML = `<i data-lucide="chevron-down" class="w-4 h-4"></i>`;
+    btn.classList.remove('bg-ai-indigo', 'text-white');
   }
   lucide.createIcons();
 }
@@ -452,9 +569,9 @@ function toggleBoardCompactMode() {
   uiState.boardCompact = !uiState.boardCompact;
   const btn = document.getElementById('btn-board-density');
   if (uiState.boardCompact) {
-    btn.innerHTML = `<i data-lucide="list" class="w-3.5 h-3.5 text-ai-indigo"></i><span>精簡檢視</span>`;
+    btn.innerHTML = `<i data-lucide="list" class="w-3.5 h-3.5 text-ai-indigo"></i><span class="hidden xl:inline">精簡檢視</span>`;
   } else {
-    btn.innerHTML = `<i data-lucide="layout-grid" class="w-3.5 h-3.5 text-ai-indigo"></i><span>完整圖文</span>`;
+    btn.innerHTML = `<i data-lucide="layout-grid" class="w-3.5 h-3.5 text-ai-indigo"></i><span class="hidden xl:inline">完整圖文</span>`;
   }
   renderAll();
 }
@@ -479,7 +596,7 @@ function initResizer() {
     const rect = workspace.getBoundingClientRect();
     const newMapWidth = rect.right - e.clientX;
     const minMapWidth = 270;
-    const maxMapWidth = rect.width * 0.65;
+    const maxMapWidth = rect.width * 0.58;
 
     if (newMapWidth >= minMapWidth && newMapWidth <= maxMapWidth) {
       uiState.mapWidthPx = newMapWidth;
@@ -633,14 +750,12 @@ function buildDayTimeline(dateStr, dayItems) {
     const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
     const stayMins = (isHotel || isReturnLeg) ? 0 : (Number(item.spot.estimated_duration) || 0);
 
-    // 檢查此卡片是否設定了機票起迄時刻
     const flightSched = (isTransport && !isReturnLeg) ? parseFlightSchedule(item.spot.business_hours) : null;
 
     let transitFromPrev = null;
     if (idx > 0) {
       const prevItem = dayItems[idx - 1];
       const legInfo = estimateSingleLegQuick(dateStr, prevItem, item, globalMode);
-      // 若上一站帶有明確機票時刻，則覆寫本段航程分鐘數與標籤
       if (activeInboundFlight) {
         legInfo.mode = 'flight';
         legInfo.mins = activeInboundFlight.flightMins;
@@ -654,13 +769,11 @@ function buildDayTimeline(dateStr, dayItems) {
     let departMins = arriveMins + stayMins;
     let checkinWarning = false;
 
-    // 情境 A：本站為設定了「機票起迄時刻」的出發機場 -> 以機票起飛時間為硬錨點！
     if (flightSched) {
       const recommendedCheckinMins = flightSched.depMins - stayMins;
       if (idx === 0) {
         arriveMins = recommendedCheckinMins;
       } else {
-        // 若前面行程抵達機場時間晚於建議報到時間，標記警告
         if (cursorMins > recommendedCheckinMins + 5) {
           checkinWarning = true;
         }
@@ -669,7 +782,6 @@ function buildDayTimeline(dateStr, dayItems) {
       departMins = flightSched.depMins;
       activeInboundFlight = flightSched;
     } else if (activeInboundFlight) {
-      // 情境 B：本站為剛下飛機的「目的地機場」 -> 直接錨定機票的當地抵達時間！
       arriveMins = activeInboundFlight.arrMins;
       departMins = arriveMins + stayMins;
       activeInboundFlight = null;
@@ -710,7 +822,7 @@ function renderKanbanDayNavBar(daysList) {
     const count = getDayItems(d.dateStr).length;
     return `
       <button onclick="scrollToDayColumn('${d.dateStr}')"
-        class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 transition shrink-0 flex items-center gap-1">
+        class="px-2 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 transition shrink-0 flex items-center gap-1">
         <span>${d.label}</span>
         <span class="text-[10px] opacity-75">${d.shortDate.split(' ')[0]}</span>
         ${count > 0 ? `<span class="w-4 h-4 rounded-full bg-ai-indigo/15 text-ai-indigo text-[10px] font-bold flex items-center justify-center">${count}</span>` : ''}
@@ -738,22 +850,23 @@ function renderPocketList(daysList) {
     .filter(s => !keyword || 
       (s.name && s.name.toLowerCase().includes(keyword)) ||
       (s.must_buy && s.must_buy.toLowerCase().includes(keyword)) ||
-      (s.description && s.description.toLowerCase().includes(keyword))
+      (s.description && s.description.toLowerCase().includes(keyword)) ||
+      (s.business_hours && s.business_hours.toLowerCase().includes(keyword))
     )
     .sort((a, b) => (parseInt(a.sort_order) || 99) - (parseInt(b.sort_order) || 99));
 
   document.getElementById('mobile-pocket-count').textContent = dbSpots.length;
 
   const presetBanner = currentCategoryFilter === '交通' ? `
-    <div class="bg-sky-50 border border-sky-200 rounded-xl p-2.5 space-y-2">
+    <div class="bg-sky-50 border border-sky-200 rounded-xl p-2 space-y-1.5">
       <div class="text-[11px] text-sky-900 font-bold flex items-center gap-1">
         <span>🛫 一鍵匯入常用出發與轉乘樞紐</span>
       </div>
       <div class="grid grid-cols-2 gap-1.5">
-        <button onclick="importPresetHubs('taiwan')" class="bg-white hover:bg-sky-600 text-sky-800 hover:text-white border border-sky-300 text-[11px] font-medium px-2 py-1.5 rounded-lg transition shadow-2xs">
+        <button onclick="importPresetHubs('taiwan')" class="bg-white hover:bg-sky-600 text-sky-800 hover:text-white border border-sky-300 text-[11px] font-medium px-2 py-1 rounded-lg transition shadow-2xs">
           🇹🇼 台灣機場/高鐵
         </button>
-        <button onclick="importPresetHubs('okinawa')" class="bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-medium px-2 py-1.5 rounded-lg transition shadow-2xs">
+        <button onclick="importPresetHubs('okinawa')" class="bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-medium px-2 py-1 rounded-lg transition shadow-2xs">
           🇯🇵 沖繩單軌/空港
         </button>
       </div>
@@ -764,15 +877,15 @@ function renderPocketList(daysList) {
     container.innerHTML = presetBanner + `
       <div class="text-center py-8 px-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs">
         <p class="mb-1 font-medium">目前資料庫沒有符合條件的卡片</p>
-        <p>上方輸入地點或貼上 Google Maps 連結即可建立！</p>
+        <p>點擊上方「＋ 新增卡片」或「批次匯入」即可建立！</p>
       </div>`;
     return;
   }
 
-  container.innerHTML = presetBanner + dbSpots.map(spot => buildPocketDatabaseCardHTML(spot, dayLabelMap)).join('');
+  container.innerHTML = presetBanner + dbSpots.map(spot => buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList)).join('');
 }
 
-function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
+function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
   const isHotel = spot.category === '住宿';
   const isTransport = spot.category === '交通';
   const isRevisit = isSpotRevisit(spot);
@@ -788,66 +901,79 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap) {
     return dayCounts[d] > 1 ? `${lbl}(往返)` : lbl;
   }).join(', ');
 
+  const quickAssignOptions = (daysList || []).map(d => `<option value="${d.dateStr}">${d.label}</option>`).join('');
+
   return `
     <div class="spot-card bg-white rounded-xl border ${isIncluded ? 'border-emerald-300/90' : 'border-slate-200/90'} shadow-2xs hover:shadow-md transition cursor-grab active:cursor-grabbing overflow-hidden group"
          data-id="${spot.id}" onclick="openEditCardModal('${spot.id}')">
       ${spot.photo_url ? `
-        <div class="w-full bg-slate-200 overflow-hidden relative" style="height: 82px;">
+        <div class="w-full bg-slate-200 overflow-hidden relative" style="height: 74px;">
           <img src="${spot.photo_url}" alt="${spot.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'"/>
           <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs">${spot.area}</span>
-          ${isIncluded ? `<span class="absolute bottom-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">✅ 已納入本次行程 (${dayNamesText})</span>` : ''}
+          ${isIncluded ? `<span class="absolute bottom-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">✅ ${dayNamesText}</span>` : ''}
         </div>
       ` : ''}
       <div class="p-2.5">
         ${(!spot.photo_url && (isIncluded || isRevisit)) ? `
-          <div class="flex flex-wrap items-center gap-1 mb-1.5">
-            ${isIncluded ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✅ 已納入行程 (${dayNamesText})</span>` : ''}
-            ${isRevisit ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">⭐ 值得二訪</span>` : ''}
+          <div class="flex flex-wrap items-center gap-1 mb-1">
+            ${isIncluded ? `<span class="text-[10px] font-bold px-2 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✅ ${dayNamesText}</span>` : ''}
+            ${isRevisit ? `<span class="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200">⭐ 值得二訪</span>` : ''}
           </div>
         ` : (spot.photo_url && isRevisit ? `
           <div class="mb-1">
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">⭐ 值得二訪</span>
+            <span class="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200">⭐ 值得二訪</span>
           </div>
         ` : '')}
 
-        <div class="flex items-start justify-between gap-1.5 mb-1">
-          <h4 class="font-bold text-xs sm:text-sm text-ink-dark leading-snug">${spot.name}</h4>
-          <div class="flex items-center gap-1 shrink-0">
+        <div class="flex items-start justify-between gap-1 mb-1">
+          <h4 class="font-bold text-xs text-ink-dark leading-snug">${spot.name}</h4>
+          <div class="flex items-center gap-0.5 shrink-0">
             <button type="button" onclick="event.stopPropagation(); toggleSpotRevisit('${spot.id}')"
-              class="p-1 rounded hover:bg-amber-50 transition ${isRevisit ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'}"
+              class="p-0.5 rounded hover:bg-amber-50 transition ${isRevisit ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'}"
               title="${isRevisit ? '取消值得二訪標記' : '標記為值得二訪'}">
               <i data-lucide="star" class="w-3.5 h-3.5 ${isRevisit ? 'fill-amber-400' : ''}"></i>
             </button>
-            <span class="text-[10px] px-1.5 py-0.5 rounded-md border font-medium ${theme.badge}">${spot.category}</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded border font-medium ${theme.badge}">${spot.category}</span>
           </div>
         </div>
 
         ${flightSched ? `
-          <div class="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-2 py-1 mb-1.5 text-[11px] font-medium">
-            ✈️ 機票時刻：<strong>${flightSched.depStr}</strong> 起飛 → <strong>${flightSched.arrStr}</strong> 當地抵達 (飛行 ${flightSched.flightMins}分)
+          <div class="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-2 py-0.5 mb-1 text-[10px] font-medium">
+            ✈️ <strong>${flightSched.depStr}</strong> 起飛 → <strong>${flightSched.arrStr}</strong> 抵達 (${flightSched.flightMins}分)
           </div>
-        ` : ''}
+        ` : (spot.business_hours ? `
+          <div class="text-[10px] text-slate-500 mb-1 flex items-center gap-1 truncate">
+            <span>⏰ ${spot.business_hours}</span>
+          </div>
+        ` : '')}
 
-        ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1.5">${spot.description}</p>` : ''}
+        ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1">${spot.description}</p>` : ''}
 
         ${spot.must_buy ? `
-          <div class="${isHotel ? 'bg-purple-50 border-purple-200 text-purple-950' : (isTransport ? 'bg-sky-50 border-sky-200 text-sky-900' : 'bg-amber-50/70 border-amber-100 text-amber-900')} border rounded-lg px-2 py-1 mb-1.5 text-[11px]">
-            <span class="font-bold">${isHotel ? '🛏️ 備註：' : (isTransport ? '🚉 交通重點：' : '🛍️ 必買/吃：')}</span>${spot.must_buy}
+          <div class="${isHotel ? 'bg-purple-50 border-purple-200 text-purple-950' : (isTransport ? 'bg-sky-50 border-sky-200 text-sky-900' : 'bg-amber-50/70 border-amber-100 text-amber-900')} border rounded-lg px-2 py-0.5 mb-1.5 text-[10px] truncate">
+            <span class="font-bold">${isHotel ? '🛏️' : (isTransport ? '🚉' : '🛍️')}</span> ${spot.must_buy}
           </div>
         ` : ''}
 
-        <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
-          <span class="flex items-center gap-1">
+        <div class="flex items-center justify-between gap-1 text-[10px] text-slate-400 pt-1.5 border-t border-slate-100">
+          <span class="flex items-center gap-1 truncate">
             ${isHotel 
-              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> 住宿飯店 (可重複拖入)` 
+              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i> 住宿` 
               : (isTransport
-                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> ${flightSched ? '已設機票時刻' : '機場/車站樞紐'}`
-                  : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
+                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i> 交通`
+                  : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
             }
             ${!spot.photo_url ? `· ${spot.area}` : ''}
           </span>
-          <div class="flex items-center gap-1.5">
-            <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo" title="在地圖定位">
+
+          <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
+            <select onchange="quickAssignSpotToDay('${spot.id}', this.value); this.value='';"
+              class="text-[10px] bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 font-bold rounded px-1.5 py-0.5 cursor-pointer transition focus:outline-none"
+              title="免拖曳直接排入指定天數">
+              <option value="">＋排入</option>
+              ${quickAssignOptions}
+            </select>
+            <button type="button" onclick="focusMapOnSpot('${spot.id}')" class="p-0.5 text-ai-slate hover:text-ai-indigo" title="在地圖定位">
               <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
             </button>
           </div>
@@ -873,7 +999,7 @@ function renderKanbanDays(daysList) {
     const nextDayObj = daysList[dayIdx + 1] || null;
 
     return `
-      <div id="day-col-${day.dateStr}" class="w-[285px] sm:w-[300px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0 transition-shadow">
+      <div id="day-col-${day.dateStr}" class="w-[275px] sm:w-[290px] bg-slate-100/90 rounded-2xl border border-slate-200/80 flex flex-col max-h-full shrink-0 transition-shadow">
         <div class="px-3 py-2 border-b border-slate-200 bg-white rounded-t-2xl space-y-1.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
@@ -903,7 +1029,7 @@ function renderKanbanDays(daysList) {
         <div class="p-2 flex-1 overflow-y-auto space-y-1.5 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
           ${timelineItems.length > 0 
             ? timelineItems.map((item, idx) => buildScheduledCardHTML(item, idx + 1, timelineItems.length, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
-            : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫拖曳卡片至此</div>`
+            : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫拖曳或點「＋排入」</div>`
           }
         </div>
       </div>
@@ -1142,6 +1268,7 @@ function removeSpotOccurrenceFromDay(spotId, targetDateStr, globalOccIdx) {
   spot.sort_order = occs.length > 0 ? occs.map(o => o.order).join(',') : '99';
   spot.status = occs.length > 0 ? (rev ? 'scheduled|revisit' : 'scheduled') : (rev ? 'pocket|revisit' : 'pocket');
 
+  resolvedLegCache = {};
   saveLocalState();
   renderAll();
   showToast(`已將「${spot.name}」移出該時段（仍保留於左側資料庫）`);
@@ -1172,6 +1299,7 @@ function appendReturnStopToDay(spotId, dateStr) {
   spot.sort_order = occs.map(o => o.order).join(',');
   spot.status = rev ? 'scheduled|revisit' : 'scheduled';
 
+  resolvedLegCache = {};
   saveLocalState();
   renderAll();
   showToast(`↩️ 已將「${spot.name}」加入當日最後一站（返回飯店/機場）！`);
@@ -1198,6 +1326,7 @@ function extendHotelToDay(spotId, nextDateStr, nextDayLabel) {
     spot.sort_order = occs.map(o => o.order).join(',');
     const rev = isSpotRevisit(spot);
     spot.status = rev ? 'scheduled|revisit' : 'scheduled';
+    resolvedLegCache = {};
     saveLocalState();
     renderAll();
     scrollToDayColumn(nextDateStr);
@@ -1268,6 +1397,7 @@ function handleDragEnd() {
     updates.push({ id: spot.id, assigned_day: newAssigned, sort_order: newOrder, is_revisit: rev });
   });
 
+  resolvedLegCache = {};
   saveLocalState();
   renderAll();
   showToast('已更新行程排程與時間軸！');
@@ -1285,20 +1415,20 @@ function setFilterCategory(cat) {
   currentCategoryFilter = cat;
   document.querySelectorAll('.cat-btn').forEach(btn => {
     btn.className = btn.textContent.includes(cat)
-      ? 'cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white shrink-0'
-      : 'cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0';
+      ? 'cat-btn active px-2 py-0.5 rounded-full text-[11px] font-medium bg-ai-indigo text-white'
+      : 'cat-btn px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200';
   });
   renderAll();
 }
 
 function setFilterDbStatus(st) {
   currentDbStatusFilter = st;
-  const mapLabel = { all: '全部資料庫', unscheduled: '未排入', scheduled: '已納入', revisit: '值得二訪' };
+  const mapLabel = { all: '全部', unscheduled: '未排入', scheduled: '已納入', revisit: '二訪' };
   document.querySelectorAll('.db-status-btn').forEach(btn => {
     const active = btn.textContent.includes(mapLabel[st]);
     btn.className = active
-      ? 'db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium shrink-0'
-      : 'db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 shrink-0';
+      ? 'db-status-btn px-2 py-0.5 rounded bg-slate-800 text-white font-medium'
+      : 'db-status-btn px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100';
   });
   renderAll();
 }
