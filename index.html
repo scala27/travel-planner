@@ -21,7 +21,6 @@
       theme: {
         extend: {
           colors: {
-            // 日式極簡「清透韌性」配色
             'washi-bg': '#F6F7F9',
             'washi-card': '#FFFFFF',
             'ai-indigo': '#2B4C7E',
@@ -280,7 +279,7 @@
 
   </main>
 
-  <!-- ==================== 視窗 1：卡片詳細資訊與 Google 圖文評論摘錄 Modal ==================== -->
+  <!-- ==================== 視窗 1：卡片詳細資訊 Modal（方案 B：純淨地址查詢＋Google 地圖連結） ==================== -->
   <div id="modal-card-detail" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-xl overflow-hidden">
       <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
@@ -296,7 +295,7 @@
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="block text-xs font-medium text-slate-600 mb-1">地點 / 店家 / 飯店 / 車站名稱 *</label>
-            <input type="text" id="field-name" required class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none" />
+            <input type="text" id="field-name" oninput="updateGoogleMapsPlaceLink()" required class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-ai-indigo focus:outline-none" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">分類</label>
@@ -310,44 +309,37 @@
           </div>
         </div>
 
-        <!-- Google Maps 圖片、簡介與網友評論一鍵摘錄區塊 -->
-        <div class="bg-sky-50/80 border border-sky-200 rounded-xl p-3 space-y-2">
-          <div class="flex items-center justify-between gap-2">
+        <!-- 方案 B：純淨地理編碼地址查詢與 Google 地圖實景評論捷徑 -->
+        <div class="bg-sky-50/70 border border-sky-200/90 rounded-xl p-3 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
-              <i data-lucide="sparkles" class="w-4 h-4 text-sky-600"></i>
-              <span>Google Maps 景點情報與網友評論参考</span>
+              <i data-lucide="map-pin" class="w-4 h-4 text-sky-600"></i>
+              <span>Google 地圖地址與評論捷徑</span>
             </div>
-            <button type="button" onclick="handleFetchGoogleInsights()" id="btn-fetch-insights"
-              class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-2xs shrink-0">
-              <i data-lucide="search" class="w-3.5 h-3.5"></i>
-              <span>擷取圖文與評論</span>
-            </button>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="handleLookupPlaceAddress()" id="btn-lookup-address"
+                class="bg-white hover:bg-sky-600 text-sky-800 hover:text-white border border-sky-300 text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs">
+                <i data-lucide="locate-fixed" class="w-3.5 h-3.5"></i>
+                <span>查詢精準地址</span>
+              </button>
+              <a id="btn-open-gmaps-place" href="https://www.google.com/maps" target="_blank"
+                class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs">
+                <span>開啟 Google 地圖</span>
+                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              </a>
+            </div>
           </div>
 
-          <!-- 擷取結果預覽區 -->
-          <div id="google-insights-result" class="hidden bg-white border border-sky-200/90 rounded-lg p-2.5 space-y-2 text-xs">
-            <div class="flex gap-2.5 items-start">
-              <img id="insight-photo-preview" src="" alt="景點預覽圖" class="w-20 h-20 rounded-lg object-cover bg-slate-100 shrink-0 hidden border border-slate-200" onerror="this.classList.add('hidden')" />
-              <div class="flex-1 min-w-0 space-y-1">
-                <div id="insight-rating-badge" class="font-bold text-amber-600 text-xs"></div>
-                <p id="insight-summary-text" class="text-slate-700 leading-snug"></p>
-                <p id="insight-address-text" class="text-[11px] text-slate-400 truncate"></p>
-              </div>
+          <div id="place-address-result" class="hidden bg-white border border-sky-200/80 rounded-lg p-2.5 text-xs space-y-1.5">
+            <div class="text-slate-700 leading-snug">
+              <span class="font-bold text-slate-900">📍 官方地址：</span>
+              <span id="place-address-text"></span>
             </div>
-
-            <div id="insight-reviews-box" class="hidden pt-1.5 border-t border-slate-100 space-y-1">
-              <div class="text-[11px] font-bold text-slate-600">💬 網友評論重點摘錄：</div>
-              <ul id="insight-reviews-list" class="space-y-1 text-[11px] text-slate-600 list-disc pl-4"></ul>
-            </div>
-
-            <div class="flex flex-wrap gap-1.5 pt-1 border-t border-slate-100">
-              <button type="button" onclick="applyInsightPhoto()" id="btn-apply-insight-photo"
-                class="hidden text-[11px] bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 font-medium px-2.5 py-1 rounded-md transition">
-                🖼️ 套用照片至卡片
-              </button>
-              <button type="button" onclick="applyInsightNotes()"
-                class="text-[11px] bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 font-medium px-2.5 py-1 rounded-md transition">
-                📝 將簡介與評論摘錄寫入說明
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100">
+              <span id="place-coords-text" class="text-[11px] text-slate-400"></span>
+              <button type="button" onclick="applyAddressToParking()"
+                class="text-[11px] bg-slate-100 hover:bg-ai-indigo hover:text-white text-slate-700 font-medium px-2.5 py-0.5 rounded transition">
+                📋 填入地址至下方欄位
               </button>
             </div>
           </div>
@@ -413,18 +405,18 @@
             <input type="text" id="field-hours" placeholder="例如：06:00-23:30 / 15:00入住" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🚗 停車 / 出口資訊 / MapCode</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🚗 地址 / 停車 / 出口 / MapCode</label>
             <input type="text" id="field-parking" placeholder="2號出口步行3分 / MapCode" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 訂房網 / 時刻表 / 參考連結</label>
-            <input type="url" id="field-source-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <label class="block text-xs font-medium text-slate-600 mb-1">🔗 Google 地圖 / 訂房 / 參考連結</label>
+            <input type="url" id="field-source-url" oninput="updateGoogleMapsPlaceLink()" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">🖼️ 照片連結 (自動擷取或手動貼上)</label>
+            <label class="block text-xs font-medium text-slate-600 mb-1">🖼️ 照片連結 (可右鍵複製地圖照片網址貼入)</label>
             <input type="url" id="field-photo-url" placeholder="https://..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
           </div>
         </div>
@@ -633,8 +625,8 @@
 
     let spots = [];
     let legModeOverrides = {};
-    let dayStartTimes = {}; // { "2027-02-18": "09:00" }
-    let latestFetchedInsights = null;
+    let dayStartTimes = {};
+    let latestPlaceAddress = '';
     let currentCategoryFilter = '全部';
     let currentAreaFilter = '全部';
     let currentDbStatusFilter = 'all';
@@ -765,20 +757,15 @@
     }
 
     function getMealWindowBadge(startMins, endMins) {
-      // 午餐時段 11:30 (690) ~ 13:30 (810)
       if (endMins >= 710 && startMins <= 795) {
         return `<span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-100 text-orange-800 font-bold">🍽️ 午餐時段</span>`;
       }
-      // 晚餐時段 17:30 (1050) ~ 19:30 (1170)
       if (endMins >= 1070 && startMins <= 1155) {
         return `<span class="text-[10px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-bold">🍽️ 晚餐時段</span>`;
       }
       return '';
     }
 
-    /**
-     * 為單日行程項目計算完整的時間軸（出發時間、路段移動時間、抵達時間、停留時間、離開時間）
-     */
     function buildDayTimeline(dateStr, dayItems) {
       const globalMode = document.getElementById('map-travel-mode')?.value || 'hybrid';
       let cursorMins = timeStrToMinutes(getDayStartTime(dateStr));
@@ -811,116 +798,85 @@
       });
     }
 
-    // ==================== Google Maps 景點圖文與網友評論摘錄 ====================
-    async function handleFetchGoogleInsights() {
+    // ==================== 方案 B：純淨地理編碼地址查詢與 Google 地圖連結 ====================
+    function updateGoogleMapsPlaceLink() {
       const name = document.getElementById('field-name').value.trim();
       const sourceUrl = document.getElementById('field-source-url').value.trim();
-      if (!name && !sourceUrl) {
-        showToast('請先輸入地點名稱或貼上 Google Maps 連結！');
+      const linkBtn = document.getElementById('btn-open-gmaps-place');
+      const navBtn = document.getElementById('btn-google-nav');
+
+      const gmapsUrl = (sourceUrl && sourceUrl.includes('google.com/maps'))
+        ? sourceUrl
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name ? '沖繩 ' + name : '沖繩')}`;
+
+      if (linkBtn) linkBtn.href = gmapsUrl;
+      if (navBtn) navBtn.href = gmapsUrl;
+    }
+
+    async function handleLookupPlaceAddress() {
+      const name = document.getElementById('field-name').value.trim();
+      const sourceUrl = document.getElementById('field-source-url').value.trim();
+      if (!name) {
+        showToast('請先輸入地點名稱！');
         return;
       }
       if (!appConfig.gasUrl) {
-        showToast('請先在右上角設定中連線 Google Apps Script 後端，即可擷取 Google 景點圖文與評論！');
+        showToast('請先在右上角設定中連線 Google Apps Script 後端，即可查詢精準地址！');
         return;
       }
 
-      const btn = document.getElementById('btn-fetch-insights');
+      const btn = document.getElementById('btn-lookup-address');
       btn.disabled = true;
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>擷取中...</span>`;
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>查詢中...</span>`;
       lucide.createIcons();
 
       try {
         const res = await fetch(appConfig.gasUrl, {
           method: 'POST',
           body: JSON.stringify({
-            action: 'fetch_place_insights',
+            action: 'fetch_place_info',
             name: name,
             source_url: sourceUrl
           })
         });
         const data = await res.json();
-        if (data.status === 'success' && data.insights) {
-          latestFetchedInsights = data.insights;
-          renderInsightsPreview(data.insights);
-          showToast('✅ 已擷取 Google 景點圖文與評論參考！');
+        if (data.status === 'success' && data.place_info) {
+          const info = data.place_info;
+          latestPlaceAddress = info.address || '';
+          const resBox = document.getElementById('place-address-result');
+          const addrEl = document.getElementById('place-address-text');
+          const coordEl = document.getElementById('place-coords-text');
+
+          resBox.classList.remove('hidden');
+          addrEl.textContent = info.address || '已定位座標（無詳細街道文字）';
+          coordEl.textContent = `座標：${Number(info.lat).toFixed(6)}, ${Number(info.lng).toFixed(6)}`;
+
+          document.getElementById('field-lat').value = info.lat;
+          document.getElementById('field-lng').value = info.lng;
+          if (info.maps_url) {
+            document.getElementById('btn-open-gmaps-place').href = info.maps_url;
+          }
+          showToast('✅ 已取得精準地址與經緯度！');
         } else {
-          throw new Error(data.message || '無法取得景點資訊');
+          throw new Error(data.message || '查詢失敗');
         }
       } catch (err) {
-        showToast('⚠️ 擷取失敗：' + err.message);
+        showToast('⚠️ 地址查詢失敗：' + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i> <span>擷取圖文與評論</span>`;
+        btn.innerHTML = `<i data-lucide="locate-fixed" class="w-3.5 h-3.5"></i> <span>查詢精準地址</span>`;
         lucide.createIcons();
       }
     }
 
-    function renderInsightsPreview(ins) {
-      const box = document.getElementById('google-insights-result');
-      const imgEl = document.getElementById('insight-photo-preview');
-      const ratingEl = document.getElementById('insight-rating-badge');
-      const sumEl = document.getElementById('insight-summary-text');
-      const addrEl = document.getElementById('insight-address-text');
-      const revBox = document.getElementById('insight-reviews-box');
-      const revList = document.getElementById('insight-reviews-list');
-      const applyPhotoBtn = document.getElementById('btn-apply-insight-photo');
-
-      box.classList.remove('hidden');
-
-      if (ins.photo_url) {
-        imgEl.src = ins.photo_url;
-        imgEl.classList.remove('hidden');
-        applyPhotoBtn.classList.remove('hidden');
-        // 若目前卡片照片欄為空，自動帶入
-        const photoInput = document.getElementById('field-photo-url');
-        if (!photoInput.value.trim()) {
-          photoInput.value = ins.photo_url;
-        }
-      } else {
-        imgEl.classList.add('hidden');
-        applyPhotoBtn.classList.add('hidden');
+    function applyAddressToParking() {
+      if (!latestPlaceAddress) return;
+      const parkingEl = document.getElementById('field-parking');
+      const cur = parkingEl.value.trim();
+      if (!cur.includes(latestPlaceAddress)) {
+        parkingEl.value = cur ? `${latestPlaceAddress} / ${cur}` : latestPlaceAddress;
       }
-
-      if (ins.rating) {
-        ratingEl.textContent = `⭐ ${ins.rating} 分 ${ins.review_count ? `(${ins.review_count} 則 Google 評論)` : ''}`;
-      } else {
-        ratingEl.textContent = '📍 Google 地點情報摘錄';
-      }
-
-      sumEl.textContent = ins.summary || '已比對到該地點基本情報。';
-      addrEl.textContent = ins.address ? `地址：${ins.address}` : '';
-
-      if (ins.reviews && ins.reviews.length > 0) {
-        revBox.classList.remove('hidden');
-        revList.innerHTML = ins.reviews.map(r => `<li>${r}</li>`).join('');
-      } else {
-        revBox.classList.add('hidden');
-      }
-    }
-
-    function applyInsightPhoto() {
-      if (latestFetchedInsights && latestFetchedInsights.photo_url) {
-        document.getElementById('field-photo-url').value = latestFetchedInsights.photo_url;
-        showToast('🖼️ 已套用景點照片網址！');
-      }
-    }
-
-    function applyInsightNotes() {
-      if (!latestFetchedInsights) return;
-      const descEl = document.getElementById('field-description');
-      const lines = [];
-      if (latestFetchedInsights.rating) {
-        lines.push(`【Google 評價 ${latestFetchedInsights.rating}★${latestFetchedInsights.review_count ? ` / ${latestFetchedInsights.review_count}則` : ''}】`);
-      }
-      if (latestFetchedInsights.summary) {
-        lines.push(latestFetchedInsights.summary);
-      }
-      if (latestFetchedInsights.reviews && latestFetchedInsights.reviews.length > 0) {
-        lines.push('網友評論重點：' + latestFetchedInsights.reviews.slice(0, 2).join('；'));
-      }
-      const addedText = lines.join('\n');
-      descEl.value = descEl.value.trim() ? `${descEl.value.trim()}\n\n${addedText}` : addedText;
-      showToast('📝 已將景點簡介與網友評論重點寫入說明欄！');
+      showToast('📋 已將官方地址填入欄位！');
     }
 
     // ==================== 版面空間調整 ====================
@@ -1482,7 +1438,7 @@
       const stB = findNearestYuiRailStation(latB, lngB);
 
       if (km <= 0.15) {
-        return 'walking'; // 同商場或緊鄰設施內移動
+        return 'walking';
       }
       if (stA.distKm <= 1.2 && stB.distKm <= 1.2 && stA.index !== stB.index) {
         return 'monorail';
@@ -1596,7 +1552,6 @@
 
       const canAddReturnToday = (isHotel || isTransport) && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
 
-      // 卡片時間軸標籤
       let timeBadgeHTML = '';
       if (orderNum === 1 && (isHotel || isTransport)) {
         timeBadgeHTML = `<span class="text-[11px] font-bold text-ai-indigo bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} 出發</span>`;
@@ -1610,7 +1565,6 @@
 
       const mealBadge = (!isHotel && !isTransport && !isReturnLeg) ? getMealWindowBadge(item.arriveMins, item.departMins) : '';
 
-      // 卡片上方的交通移動連接條
       const transitConnectorHTML = item.transitFromPrev ? `
         <div class="flex items-center justify-center py-0.5 select-none pointer-events-none">
           <span class="text-[10px] text-slate-500 bg-white/90 border border-slate-200/80 rounded-full px-2 py-0.2 shadow-2xs">
@@ -2236,15 +2190,13 @@
       document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = true; });
     }
 
-    function resetInsightsModalUI() {
-      latestFetchedInsights = null;
-      document.getElementById('google-insights-result').classList.add('hidden');
-      document.getElementById('insight-photo-preview').classList.add('hidden');
-      document.getElementById('insight-reviews-box').classList.add('hidden');
+    function resetAddressLookupUI() {
+      latestPlaceAddress = '';
+      document.getElementById('place-address-result').classList.add('hidden');
     }
 
     function openNewCardModal(prefillText = '') {
-      resetInsightsModalUI();
+      resetAddressLookupUI();
       document.getElementById('modal-card-title').textContent = '新增沖繩資料庫卡片';
       document.getElementById('card-form').reset();
       document.getElementById('field-id').value = '';
@@ -2253,6 +2205,7 @@
       document.getElementById('field-revisit').checked = false;
       document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = false; });
       toggleMultiDayStayUI();
+      updateGoogleMapsPlaceLink();
       document.getElementById('btn-delete-card').classList.add('hidden');
       document.getElementById('btn-google-nav').classList.add('hidden');
       openModal('modal-card-detail');
@@ -2262,7 +2215,7 @@
       const spot = spots.find(s => s.id === id);
       if (!spot) return;
 
-      resetInsightsModalUI();
+      resetAddressLookupUI();
       document.getElementById('modal-card-title').textContent = '編輯資料庫卡片詳情';
       document.getElementById('field-id').value = spot.id;
       document.getElementById('field-name').value = spot.name || '';
@@ -2287,10 +2240,9 @@
       document.getElementById('field-lat').value = spot.lat || '';
       document.getElementById('field-lng').value = spot.lng || '';
 
+      updateGoogleMapsPlaceLink();
       document.getElementById('btn-delete-card').classList.remove('hidden');
-      const navBtn = document.getElementById('btn-google-nav');
-      navBtn.classList.remove('hidden');
-      navBtn.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('沖繩 ' + spot.name)}`;
+      document.getElementById('btn-google-nav').classList.remove('hidden');
 
       openModal('modal-card-detail');
     }
