@@ -1,6 +1,6 @@
 // ==================== 地圖初始化與選單同步 ====================
 function initMap() {
-  mapInstance = L.map('world-map').setView([25.3, 124.2], 6);
+  mapInstance = L.map('world-map').setView([26.215, 127.685], 12);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19
@@ -12,7 +12,7 @@ function populateDaySelectors(daysList) {
   const mapSel = document.getElementById('map-day-selector');
   const currentVal = mapSel.value;
   mapSel.innerHTML = `
-    <option value="all">顯示全部資料庫地點</option>
+    <option value="all">顯示全部資料庫地點（可直接點圖排程）</option>
     <option value="scheduled_all">僅顯示已納入行程地點</option>
     ${daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate}) 路線</option>`).join('')}
   `;
@@ -194,7 +194,6 @@ function estimateSingleLegQuick(dateStr, itemA, itemB, globalMode) {
   const key = getLegKey(dateStr, itemA, itemB);
   const mode = resolveLegMode(dateStr, itemA, itemB, globalMode);
 
-  // 若右側地圖已算過此段實際路網時間且模式相符，優先回傳完全一致的結果！
   if (typeof resolvedLegCache === 'object' && resolvedLegCache[key] && resolvedLegCache[key].mode === mode) {
     return { ...resolvedLegCache[key], flightSched };
   }
@@ -242,7 +241,6 @@ async function fetchOsrmSegment(profile, latA, lngA, latB, lngB) {
     const data = await resp.json();
     if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
       const distKm = data.routes[0].distance / 1000;
-      // 步行模式不使用 OSRM 偏快的預設時間，一律採用旅遊慢活步行速度重新換算
       const durMins = profile === 'foot'
         ? calcSlowWalkMinutes(distKm)
         : Math.max(1, Math.round(data.routes[0].duration / 60));
@@ -314,7 +312,7 @@ function handleGlobalModeChange() {
   renderAll();
 }
 
-// ==================== 🧭 周邊口袋雷達（早餐 / 午餐 / 順遊景點） ====================
+// ==================== 🧭 周邊口袋雷達 ====================
 function checkSpotBusinessWindow(spot, radarMode) {
   const rawHours = String(spot.business_hours || '').trim();
   const textBlob = `${spot.name || ''} ${spot.description || ''} ${spot.must_buy || ''} ${rawHours}`;
@@ -326,8 +324,7 @@ function checkSpotBusinessWindow(spot, radarMode) {
     if (timeRange) {
       const openMins = parseInt(timeRange[1], 10) * 60 + parseInt(timeRange[2], 10);
       let closeMins = parseInt(timeRange[3], 10) * 60 + parseInt(timeRange[4], 10);
-      if (closeMins <= openMins) closeMins += 1440; // 跨午夜或 24 小時營業
-      // 早上 09:30 前即開始營業，且至少營業至 08:30 後
+      if (closeMins <= openMins) closeMins += 1440;
       return openMins <= 570 && closeMins >= 510;
     }
     if (/24小時|24H/i.test(rawHours)) return true;
@@ -341,10 +338,8 @@ function checkSpotBusinessWindow(spot, radarMode) {
       const openMins = parseInt(timeRange[1], 10) * 60 + parseInt(timeRange[2], 10);
       let closeMins = parseInt(timeRange[3], 10) * 60 + parseInt(timeRange[4], 10);
       if (closeMins <= openMins) closeMins += 1440;
-      // 午間 11:30 ~ 13:30 期間有營業（排除 17:00 才開的居酒屋）
       return openMins <= 750 && closeMins >= 720;
     }
-    // 未填營業時間的餐廳，若明顯為宵夜/居酒屋且無午餐字樣則排除
     if (/居酒屋|宵夜/.test(textBlob) && !/午餐|午間|定食|拉麵/.test(textBlob)) return false;
     return true;
   }
@@ -353,7 +348,6 @@ function checkSpotBusinessWindow(spot, radarMode) {
     return spot.category === '景點' || spot.category === '購物';
   }
 
-  // all_nearby
   return spot.category !== '住宿' && spot.category !== '交通';
 }
 
@@ -399,7 +393,6 @@ function renderNearbyPocketRadar(filterDay, dayRouteItems) {
     }
   }
 
-  // 自動模式：優先找當日「住宿飯店」，若無則找當日第 1 個有座標的地點
   if (centerLat === null) {
     const hotelItem = dayRouteItems.find(it => it.spot.category === '住宿' && it.spot.lat && it.spot.lng);
     const fallbackItem = dayRouteItems.find(it => it.spot.lat && it.spot.lng);
@@ -417,7 +410,6 @@ function renderNearbyPocketRadar(filterDay, dayRouteItems) {
     }
   }
 
-  // 繪製雷達半透明搜尋範圍圓圈
   L.circle([centerLat, centerLng], {
     radius: radiusMeters,
     color: '#D97706',
@@ -467,11 +459,11 @@ function renderNearbyPocketRadar(filterDay, dayRouteItems) {
            style="margin-top:6px;width:100%;background:#2B4C7E;color:#fff;border:none;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:bold;cursor:pointer;">
            ＋ 立即排入本日行程
          </button>`
-      : `<div style="margin-top:4px;font-size:10px;color:#64748B;">請先在上方選單指定天數，即可一鍵排入</div>`;
+      : buildDirectMapAssignHtml(s.id);
 
     const marker = L.marker([lat, lng], { icon: radarIcon }).addTo(mapLayerGroup);
     marker.bindPopup(`
-      <div class="text-xs" style="min-width:170px;">
+      <div class="text-xs" style="min-width:185px;">
         <div style="font-size:10px;color:#B45309;font-weight:bold;">🧭 雷達推薦 · 距${anchorLabel} ${distText} (慢步約${entry.walkMins}分)</div>
         <strong class="text-sm text-slate-800">${s.name}</strong><br/>
         <span style="color:${theme.hex};font-weight:bold;">● ${s.category}</span> · <span class="text-slate-500">${s.area}</span><br/>
@@ -487,6 +479,25 @@ function renderNearbyPocketRadar(filterDay, dayRouteItems) {
     : `⚠️「<strong>${anchorLabel}</strong>」${radiusMeters}m 內暫無符合條件的口袋卡片，可試著放寬半徑至 2km`;
 
   return radarBounds;
+}
+
+// ==================== 地圖點位「直接排入行程」氣泡控制元件 ====================
+function buildDirectMapAssignHtml(spotId) {
+  const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+  if (!daysList || daysList.length === 0) return '';
+  const optionsHtml = daysList.map(d => `<option value="${d.dateStr}">${d.label} (${d.shortDate.split(' ')[0]})</option>`).join('');
+  return `
+    <div style="margin-top:7px;padding-top:6px;border-top:1px solid #E2E8F0;display:flex;gap:4px;align-items:center;">
+      <select id="map-popup-day-${spotId}" style="flex:1;font-size:11px;border:1px solid #CBD5E1;border-radius:6px;padding:3px 5px;background:#F8FAFC;color:#1E293B;">
+        ${optionsHtml}
+      </select>
+      <button type="button"
+        onclick="quickAssignSpotToDay('${spotId}', document.getElementById('map-popup-day-${spotId}').value)"
+        style="background:#2B4C7E;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap;">
+        ＋ 排入
+      </button>
+    </div>
+  `;
 }
 
 // ==================== 地圖標記、跨海飛行弧線與多層次路網繪製 ====================
@@ -531,6 +542,7 @@ async function updateMapMarkers() {
     const isTransport = spot.category === '交通';
     const theme = CATEGORY_THEME[spot.category] || { hex: '#2B4C7E' };
     const isRoundTrip = isSingleDayRoute && item.totalDayOccs > 1;
+    const assignedDays = getSpotAssignedDays(spot);
 
     let markerHtml = '';
     if (isHotel) {
@@ -540,21 +552,23 @@ async function updateMapMarkers() {
     } else if (isSingleDayRoute) {
       markerHtml = `<div style="background:${theme.hex};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${index + 1}</div>`;
     } else {
-      markerHtml = `<div style="background:${theme.hex};width:18px;height:18px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>`;
+      const ringStyle = assignedDays.length > 0 ? 'border:2.5px solid #10B981;' : 'border:2.5px solid #fff;';
+      markerHtml = `<div style="background:${theme.hex};width:20px;height:20px;border-radius:50%;${ringStyle}box-shadow:0 2px 5px rgba(0,0,0,0.32);"></div>`;
     }
 
     const customIcon = L.divIcon({ html: markerHtml, className: '', iconSize: [28, 26], iconAnchor: [14, 13] });
     const marker = L.marker([lat, lng], { icon: customIcon }).addTo(mapLayerGroup);
     marker.bindPopup(`
-      <div class="text-xs">
+      <div class="text-xs" style="min-width:185px;">
         <strong class="text-sm text-slate-800">${spot.name}</strong>${isRoundTrip ? ' <span class="text-purple-700 font-bold">(當日出發＋回程)</span>' : ''}<br/>
         <span style="color:${theme.hex};font-weight:bold;">● ${spot.category}</span> · <span class="text-slate-500">${spot.area}</span><br/>
+        ${spot.business_hours ? `<span class="text-slate-600">⏰ ${spot.business_hours}</span><br/>` : ''}
         ${spot.must_buy ? `<span class="text-slate-700">${isHotel ? '備註' : '重點'}：${spot.must_buy}</span>` : ''}
+        ${buildDirectMapAssignHtml(spot.id)}
       </div>
     `);
   });
 
-  // 渲染周邊口袋雷達標記
   const radarBounds = renderNearbyPocketRadar(filterDay, dayRouteItems);
 
   if (isSingleDayRoute && dayRouteItems.length > 1) {
@@ -686,7 +700,6 @@ async function updateMapMarkers() {
         detailNote = `自駕行駛 (${legDistKm.toFixed(1)} km)`;
       }
 
-      // 同步回寫至全域路網快取，讓中間每日看板與右側地圖時間 100% 一致
       if (typeof resolvedLegCache === 'object') {
         const prevCached = resolvedLegCache[legKey];
         if (!prevCached || prevCached.mins !== legMins || prevCached.mode !== legMode) {
@@ -731,7 +744,6 @@ async function updateMapMarkers() {
     metricsEl.textContent = `🧭 當日移動總計：約 ${totalMins} 分 (${totalDistKm.toFixed(1)} km)`;
     breakdownEl.innerHTML = segmentCards.join('');
 
-    // 若實測路網分鐘數與初始估算不同，立即重繪中間每日看板使左右時間完全對齊
     if (anyLegChanged && typeof renderKanbanDays === 'function') {
       const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
       renderKanbanDays(daysList);
