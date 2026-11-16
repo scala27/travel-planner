@@ -1,11 +1,58 @@
 // ==================== 全域時間校準常數與快取 ====================
-// 旅遊慢活平均步行速度：3.6 km/h（每公里約 16.7 分鐘，0.9 km 約 15 分鐘）
 var WALK_SPEED_KMH = 3.6;
 var resolvedLegCache = {};
+var waitingForGmapsClipboard = false;
+var lastAutoPastedGmapsUrl = '';
 
 if (typeof uiState !== 'undefined') {
   uiState.inboxExpanded = false;
 }
+
+// ==================== 切回分頁自動偵測剪貼簿中的 Google 地圖網址 ====================
+function markWaitingForGoogleMapsClipboard() {
+  waitingForGmapsClipboard = true;
+}
+
+async function pasteGoogleMapsLinkFromClipboard(isManualClick = false) {
+  const modalEl = document.getElementById('modal-card-detail');
+  if (!modalEl || modalEl.classList.contains('hidden')) return;
+
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      if (isManualClick) showToast('瀏覽器不支援自動讀取剪貼簿，請直接在下方欄位按 Ctrl+V 貼上');
+      return;
+    }
+    const clipText = (await navigator.clipboard.readText() || '').trim();
+    const isGoogleMapsLink = /^(https?:\/\/)?(www\.)?(google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(clipText);
+
+    if (!isGoogleMapsLink) {
+      if (isManualClick) {
+        showToast('剪貼簿目前不是 Google 地圖網址，請先在 Google 地圖複製網址列');
+      }
+      return;
+    }
+
+    if (!isManualClick && clipText === lastAutoPastedGmapsUrl) return;
+    lastAutoPastedGmapsUrl = clipText;
+    waitingForGmapsClipboard = false;
+
+    const urlInput = document.getElementById('field-source-url');
+    if (urlInput) {
+      urlInput.value = clipText;
+      await handleSourceUrlInputChange();
+    }
+  } catch (err) {
+    if (isManualClick) {
+      showToast('請允許剪貼簿存取權限，或直接在下方「Google 地圖連結」欄位按 Ctrl+V 貼上');
+    }
+  }
+}
+
+window.addEventListener('focus', () => {
+  if (waitingForGmapsClipboard) {
+    pasteGoogleMapsLinkFromClipboard(false);
+  }
+});
 
 // ==================== 機票起迄時刻與時差解析器 ====================
 function parseFlightSchedule(hoursStr) {
@@ -158,18 +205,33 @@ async function handleSourceUrlInputChange() {
   if (!srcUrl) return;
 
   const parsed = extractCoordsFromGoogleMapsUrl(srcUrl);
-  if (parsed && parsed.lat && parsed.lng) {
-    document.getElementById('field-lat').value = parsed.lat;
-    document.getElementById('field-lng').value = parsed.lng;
-    const rev = await reverseGeocodeAdminArea(parsed.lat, parsed.lng);
-    if (rev && rev.adminArea) {
+  let targetLat = parsed && parsed.lat ? parsed.lat : '';
+  let targetLng = parsed && parsed.lng ? parsed.lng : '';
+
+  // 若貼上的是 Google 地圖搜尋列表網址（尚無 @緯度,經度），自動用解碼後的地標名稱補抓座標
+  if ((!targetLat || !targetLng) && parsed && parsed.placeName) {
+    showPlaceSyncBanner(`🔍 正在依網址地標「${parsed.placeName}」查詢精準座標...`);
+    const geo = await smartGeocodePlace(parsed.placeName);
+    if (geo && geo.lat && geo.lng) {
+      targetLat = geo.lat;
+      targetLng = geo.lng;
+    }
+  }
+
+  if (targetLat && targetLng) {
+    document.getElementById('field-lat').value = targetLat;
+    document.getElementById('field-lng').value = targetLng;
+    const rev = await reverseGeocodeAdminArea(targetLat, targetLng);
+    if (rev && rev.adminArea && rev.adminArea !== '未分類') {
       document.getElementById('field-area').value = rev.adminArea;
-      showPlaceSyncBanner(`✅ 已從 Google 地圖連結萃取座標 (${parsed.lat}, ${parsed.lng})，並自動辨識為「${rev.adminArea}」`);
+      showPlaceSyncBanner(`✅ 已自動取得座標 (${targetLat}, ${targetLng})，並辨識為「${rev.adminArea}」`);
     } else {
-      showPlaceSyncBanner(`✅ 已從 Google 地圖連結萃取座標 (${parsed.lat}, ${parsed.lng})`);
+      showPlaceSyncBanner(`✅ 已自動取得座標 (${targetLat}, ${targetLng})`);
     }
     const navBtn = document.getElementById('btn-google-nav');
-    if (navBtn) navBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${parsed.lat},${parsed.lng}`;
+    if (navBtn) navBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}`;
+  } else {
+    showPlaceSyncBanner('⚠️ 此網址尚未包含座標，請在 Google 地圖點選單一地標後再複製網址，或手動輸入經緯度');
   }
 }
 
@@ -191,6 +253,7 @@ function openNewCardModal(prefill = {}) {
   const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
   populateDaySelectors(daysList);
 
+  waitingForGmapsClipboard = false;
   document.getElementById('card-form').reset();
   document.getElementById('modal-card-title').textContent = '新增資料庫卡片';
   document.getElementById('field-id').value = '';
@@ -222,6 +285,7 @@ function openEditCardModal(id) {
   const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
   populateDaySelectors(daysList);
 
+  waitingForGmapsClipboard = false;
   document.getElementById('modal-card-title').textContent = '編輯資料庫卡片';
   document.getElementById('field-id').value = spot.id;
   document.getElementById('field-name').value = spot.name || '';
@@ -240,10 +304,11 @@ function openEditCardModal(id) {
   document.getElementById('field-lng').value = spot.lng || '';
 
   const assignedDays = getSpotAssignedDays(spot);
+  const actualStayDays = spot.category === '住宿' ? getHotelActualStayDays(spot) : assignedDays;
   document.getElementById('field-day').value = assignedDays[0] || 'pocket';
 
   document.querySelectorAll('input[name="stay_days"]').forEach(cb => {
-    cb.checked = assignedDays.includes(cb.value);
+    cb.checked = actualStayDays.includes(cb.value);
   });
 
   const navBtn = document.getElementById('btn-google-nav');
@@ -281,16 +346,20 @@ async function handleSaveCard(event) {
   let lat = document.getElementById('field-lat').value.trim();
   let lng = document.getElementById('field-lng').value.trim();
 
-  // 1. 若有貼入 Google 地圖連結，優先從連結解析出精準座標
   if (sourceUrl) {
     const parsedUrl = extractCoordsFromGoogleMapsUrl(sourceUrl);
     if (parsedUrl && parsedUrl.lat && parsedUrl.lng) {
       lat = parsedUrl.lat;
       lng = parsedUrl.lng;
+    } else if ((!lat || !lng) && parsedUrl && parsedUrl.placeName) {
+      const geoUrl = await smartGeocodePlace(parsedUrl.placeName);
+      if (geoUrl) {
+        lat = geoUrl.lat;
+        lng = geoUrl.lng;
+      }
     }
   }
 
-  // 2. 若仍無座標，自動進行地理編碼查詢
   if (!lat || !lng) {
     const geo = await smartGeocodePlace(name);
     if (geo) {
@@ -300,7 +369,6 @@ async function handleSaveCard(event) {
     }
   }
 
-  // 3. 只要有經緯度，若行政區未填、為舊格式（無「·」分隔）或經緯度已變更，自動依座標校準覆蓋行政區
   const coordsChanged = existingSpot && (String(existingSpot.lat || '') !== String(lat) || String(existingSpot.lng || '') !== String(lng));
   const areaUnchangedFromOld = existingSpot && area === existingSpot.area && !area.includes('·');
   if (lat && lng && (!area || area === '未分類' || coordsChanged || areaUnchangedFromOld)) {
@@ -317,8 +385,20 @@ async function handleSaveCard(event) {
   if (category === '住宿') {
     const checkedDays = [...document.querySelectorAll('input[name="stay_days"]:checked')].map(cb => cb.value);
     if (checkedDays.length > 0) {
-      assigned_day = checkedDays.join(',');
-      sort_order = checkedDays.map(() => '1').join(',');
+      // 保留既有同一天早晚往返（如第 2 天早上出發＋晚上返回）的紀錄
+      const prevOccs = existingSpot ? getSpotOccurrences(existingSpot) : [];
+      const nextOccs = [];
+      checkedDays.forEach(dStr => {
+        const sameDayPrev = prevOccs.filter(o => o.dateStr === dStr);
+        if (sameDayPrev.length > 0) {
+          sameDayPrev.forEach(o => nextOccs.push({ dateStr: dStr, order: o.order }));
+        } else {
+          nextOccs.push({ dateStr: dStr, order: 90 });
+        }
+      });
+      nextOccs.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.order - b.order);
+      assigned_day = nextOccs.map(o => o.dateStr).join(',');
+      sort_order = nextOccs.map(o => o.order).join(',');
     }
   } else {
     const selectedDay = document.getElementById('field-day').value;
@@ -405,6 +485,30 @@ function handleDeleteCard() {
       body: JSON.stringify({ action: 'delete_spot', id })
     }).catch(err => console.error('雲端刪除失敗', err));
   }
+}
+
+// ==================== 換飯店邏輯與實際過夜天數計算 ====================
+function getHotelActualStayDays(hotelSpot) {
+  const uniqueDays = getSpotUniqueDays(hotelSpot).sort();
+  if (uniqueDays.length === 0) return [];
+
+  // 若同一天（例如 Day 3）同時存在另一間不同飯店，且本飯店在該天排在前面（即早上退房出發），則該天不計入本飯店的過夜晚數
+  return uniqueDays.filter(dStr => {
+    const dayHotels = spots.filter(s => s.category === '住宿' && getSpotUniqueDays(s).includes(dStr));
+    if (dayHotels.length <= 1) return true;
+
+    const firstOccOnDay = getSpotOccurrences(hotelSpot).find(o => o.dateStr === dStr);
+    const myOrder = firstOccOnDay ? firstOccOnDay.order : 99;
+
+    const hasOtherLaterHotelOnSameDay = dayHotels.some(other => {
+      if (other.id === hotelSpot.id) return false;
+      const otherOccs = getSpotOccurrences(other).filter(o => o.dateStr === dStr);
+      const otherMaxOrder = Math.max(...otherOccs.map(o => o.order));
+      return otherMaxOrder > myOrder;
+    });
+
+    return !hasOtherLaterHotelOnSameDay;
+  });
 }
 
 // ==================== 資料庫快捷排入與地圖點位直接排程 ====================
@@ -633,7 +737,7 @@ function scrollToDayColumn(dateStr) {
   }
 }
 
-// ==================== 多時段排程解析與機票錨定時間軸 ====================
+// ==================== 多時段排程解析與自動銜接前晚住宿退房 ====================
 function isSpotRevisit(spot) {
   return String(spot.status || '').includes('revisit');
 }
@@ -669,15 +773,48 @@ function getDayItems(dateStr) {
           spot,
           order: occ.order,
           globalOccIdx,
-          dayOccNum: dayOccCounter
+          dayOccNum: dayOccCounter,
+          isCheckoutStart: false
         });
       }
     });
   });
+
+  // 自動銜接換飯店日：若前一天有住宿飯店，且今天尚未將該飯店排在第一位，自動在早上第一站帶出「退房出發」虛擬起點
+  const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
+  const dayIdx = daysList.findIndex(d => d.dateStr === dateStr);
+  if (dayIdx > 0) {
+    const prevDateStr = daysList[dayIdx - 1].dateStr;
+    const prevNightHotels = spots.filter(s => s.category === '住宿' && getHotelActualStayDays(s).includes(prevDateStr));
+    if (prevNightHotels.length > 0) {
+      const prevHotel = prevNightHotels[prevNightHotels.length - 1];
+      const alreadyHasHotelAtStart = items.some(it => it.spot.id === prevHotel.id && it.dayOccNum === 1);
+      if (!alreadyHasHotelAtStart) {
+        items.unshift({
+          spot: prevHotel,
+          order: 0,
+          globalOccIdx: -1,
+          dayOccNum: 1,
+          isCheckoutStart: true
+        });
+      }
+    }
+  }
+
   items.sort((a, b) => a.order - b.order);
+
+  // 標記同一天內出現兩間不同飯店時的「退房出發」狀態
+  const hotelsInDay = items.filter(it => it.spot.category === '住宿');
+  const uniqueHotelIdsInDay = [...new Set(hotelsInDay.map(it => it.spot.id))];
+
   const countBySpot = {};
   items.forEach(it => { countBySpot[it.spot.id] = (countBySpot[it.spot.id] || 0) + 1; });
-  items.forEach(it => { it.totalDayOccs = countBySpot[it.spot.id]; });
+  items.forEach((it, idx) => {
+    it.totalDayOccs = countBySpot[it.spot.id];
+    if (it.spot.category === '住宿' && uniqueHotelIdsInDay.length > 1 && idx === 0) {
+      it.isCheckoutStart = true;
+    }
+  });
   return items;
 }
 
@@ -851,7 +988,7 @@ function renderPocketList(daysList) {
       return true;
     })
     .filter(s => {
-      const assigned = getSpotAssignedDays(s);
+      const assigned = s.category === '住宿' ? getHotelActualStayDays(s) : getSpotAssignedDays(s);
       if (currentDbStatusFilter === 'unscheduled') return assigned.length === 0;
       if (currentDbStatusFilter === 'scheduled') return assigned.length > 0;
       if (currentDbStatusFilter === 'revisit') return isSpotRevisit(s);
@@ -901,17 +1038,19 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
   const isTransport = spot.category === '交通';
   const isRevisit = isSpotRevisit(spot);
   const flightSched = isTransport ? parseFlightSchedule(spot.business_hours) : null;
-  const assignedDays = getSpotAssignedDays(spot);
+  const assignedDays = isHotel ? getHotelActualStayDays(spot) : getSpotAssignedDays(spot);
   const isIncluded = assignedDays.length > 0;
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
   const areaObj = parseAreaHierarchy(spot);
 
   const dayCounts = {};
   assignedDays.forEach(d => { dayCounts[d] = (dayCounts[d] || 0) + 1; });
-  const dayNamesText = Object.keys(dayCounts).map(d => {
-    const lbl = dayLabelMap[d] || d.slice(5);
-    return dayCounts[d] > 1 ? `${lbl}(往返)` : lbl;
-  }).join(', ');
+  const dayNamesText = isHotel
+    ? `${Object.keys(dayCounts).map(d => dayLabelMap[d] || d.slice(5)).join(', ')} (連住${assignedDays.length}晚)`
+    : Object.keys(dayCounts).map(d => {
+        const lbl = dayLabelMap[d] || d.slice(5);
+        return dayCounts[d] > 1 ? `${lbl}(往返)` : lbl;
+      }).join(', ');
 
   const quickAssignOptions = (daysList || []).map(d => `<option value="${d.dateStr}">${d.label}</option>`).join('');
 
@@ -1057,22 +1196,27 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700', borderLeft: 'border-l-slate-400' };
   const areaObj = parseAreaHierarchy(spot);
 
-  const uniqueStayNights = getSpotUniqueDays(spot).length;
+  const uniqueStayNights = isHotel ? getHotelActualStayDays(spot).length : getSpotUniqueDays(spot).length;
+  const isCheckoutStart = Boolean(item.isCheckoutStart);
   const isReturnLeg = item.totalDayOccs > 1 && item.dayOccNum > 1;
   const isOutboundLeg = item.totalDayOccs > 1 && item.dayOccNum === 1;
 
-  const canExtendNextNight = isHotel && dayContext && dayContext.nextDay &&
-    !getSpotUniqueDays(spot).includes(dayContext.nextDay.dateStr);
+  const canExtendNextNight = isHotel && !isCheckoutStart && dayContext && dayContext.nextDay &&
+    !getHotelActualStayDays(spot).includes(dayContext.nextDay.dateStr);
 
-  const canAddReturnToday = (isHotel || isTransport) && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
+  const canAddReturnToday = (isHotel || isTransport) && !isCheckoutStart && item.totalDayOccs === 1 && totalItemsInDay > 1 && orderNum < totalItemsInDay;
 
   let timeBadgeHTML = '';
   if (item.flightSched) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">${item.arriveStr} 報到 ～ ${item.departStr} 起飛</span>`;
+  } else if (isCheckoutStart) {
+    timeBadgeHTML = `<span class="text-[11px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.2 rounded">${item.arriveStr} 退房出發</span>`;
   } else if (orderNum === 1 && (isHotel || isTransport)) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-ai-indigo bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} 出發/報到</span>`;
   } else if (isReturnLeg) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-purple-800 bg-purple-100 border border-purple-200 px-1.5 py-0.2 rounded">約 ${item.arriveStr} 返抵</span>`;
+  } else if (isHotel && orderNum > 1) {
+    timeBadgeHTML = `<span class="text-[11px] font-bold text-purple-800 bg-purple-100 border border-purple-200 px-1.5 py-0.2 rounded">約 ${item.arriveStr} 入住</span>`;
   } else if (item.stayMins > 0) {
     timeBadgeHTML = `<span class="text-[11px] font-bold text-slate-800 bg-slate-100 border border-slate-200/80 px-1.5 py-0.2 rounded">${item.arriveStr} ~ ${item.departStr}</span>`;
   } else {
@@ -1101,9 +1245,15 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
     </div>
   ` : '';
 
-  const roleTag = isReturnLeg
-    ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-600 text-white font-bold">回程</span>`
-    : (isOutboundLeg ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-bold">出發</span>` : '');
+  const roleTag = isCheckoutStart
+    ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-600 text-white font-bold">退房</span>`
+    : (isReturnLeg
+        ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-600 text-white font-bold">回程</span>`
+        : (isOutboundLeg ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-bold">出發</span>` : ''));
+
+  const hotelSubDesc = isCheckoutStart
+    ? `前晚住宿退房出發（共連住 ${uniqueStayNights} 晚）`
+    : (isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`);
 
   if (uiState.boardCompact) {
     return `
@@ -1128,9 +1278,9 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
 
         <div class="flex items-center justify-between gap-1.5">
           <div class="flex items-center gap-1.5 min-w-0">
-            <span style="background-color: ${theme.hex};"
+            <span style="background-color: ${isCheckoutStart ? '#D97706' : theme.hex};"
               class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 shadow-2xs">
-              ${isHotel ? '宿' : (isTransport ? '行' : orderNum)}
+              ${isCheckoutStart ? '退' : (isHotel ? '宿' : (isTransport ? '行' : orderNum))}
             </span>
             <h4 class="font-bold text-xs text-ink-dark truncate" title="${spot.name}">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
           </div>
@@ -1141,12 +1291,12 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
 
         <div class="text-[11px] text-slate-400 mt-1 pl-6 truncate">
           ${isHotel 
-            ? `<span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店休息' : `連住 ${uniqueStayNights} 晚`}</span> · ${areaObj.shortBadge}`
+            ? `<span class="${isCheckoutStart ? 'text-amber-800' : 'text-purple-700'} font-medium">${hotelSubDesc}</span> · ${areaObj.shortBadge}`
             : (isTransport 
                 ? `<span class="text-sky-700 font-medium">${isReturnLeg ? '返回車站/機場' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span> · ${areaObj.shortBadge}`
                 : `${areaObj.shortBadge} · 停留${spot.estimated_duration || 60}分`)
           }
-          ${spot.must_buy && !isReturnLeg ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
+          ${spot.must_buy && !isReturnLeg && !isCheckoutStart ? ` · <span class="text-slate-600">${spot.must_buy.split(',')[0]}</span>` : ''}
         </div>
 
         ${(canAddReturnToday || (canExtendNextNight && !isReturnLeg)) ? `
@@ -1193,14 +1343,14 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
 
         <div class="flex items-start justify-between gap-1.5 mb-1">
           <div class="flex items-center gap-1.5">
-            <span style="background-color: ${theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isHotel ? '宿' : (isTransport ? '行' : orderNum)}</span>
+            <span style="background-color: ${isCheckoutStart ? '#D97706' : theme.hex};" class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0">${isCheckoutStart ? '退' : (isHotel ? '宿' : (isTransport ? '行' : orderNum))}</span>
             <h4 class="font-bold text-xs text-ink-dark leading-snug">${isRevisit ? '⭐ ' : ''}${spot.name}</h4>
           </div>
         </div>
 
         ${spot.description ? `<p class="text-[11px] text-slate-500 line-clamp-2 mb-1.5">${spot.description}</p>` : ''}
 
-        ${spot.must_buy ? `
+        ${spot.must_buy && !isCheckoutStart ? `
           <div class="${isHotel ? 'bg-purple-100/60 border-purple-200 text-purple-950' : (isTransport ? 'bg-sky-50 border-sky-200 text-sky-900' : 'bg-amber-50/70 border-amber-100 text-amber-900')} border rounded-lg px-2 py-1 mb-1.5 text-[11px]">
             <span class="font-bold">${isHotel ? '🛏️ 備註：' : (isTransport ? '🚉 重點：' : '🛍️ 必買/吃：')}</span>${spot.must_buy}
           </div>
@@ -1226,7 +1376,7 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
         <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
           <span class="flex items-center gap-1 truncate">
             ${isHotel 
-              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i> <span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店' : `已排 ${uniqueStayNights} 晚`}</span>` 
+              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i> <span class="${isCheckoutStart ? 'text-amber-800' : 'text-purple-700'} font-medium">${hotelSubDesc}</span>` 
               : (isTransport
                   ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span>`
                   : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
@@ -1267,6 +1417,11 @@ function toggleSpotRevisit(spotId) {
 function removeSpotOccurrenceFromDay(spotId, targetDateStr, globalOccIdx) {
   const spot = spots.find(s => s.id === spotId);
   if (!spot) return;
+
+  if (globalOccIdx === -1) {
+    showToast('此為前晚住宿自動銜接的退房起點，請直接調整前晚住宿天數即可');
+    return;
+  }
 
   const occs = getSpotOccurrences(spot);
   if (globalOccIdx !== undefined && occs[globalOccIdx] && occs[globalOccIdx].dateStr === targetDateStr) {
@@ -1390,6 +1545,8 @@ function handleDragEnd() {
   document.querySelectorAll('.day-dropzone').forEach(zone => {
     const dayStr = zone.dataset.day;
     zone.querySelectorAll('.spot-card').forEach((card, idx) => {
+      // 忽略自動生成的退房虛擬卡片（occ === '-1'），除非使用者刻意拖移順序
+      if (card.dataset.occ === '-1' && idx === 0) return;
       const id = card.dataset.id;
       if (!cardOccMap[id]) cardOccMap[id] = [];
       cardOccMap[id].push({ dateStr: dayStr, order: idx + 1 });
