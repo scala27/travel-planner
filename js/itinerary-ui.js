@@ -1,7 +1,6 @@
 // ==================== 全域時間校準常數與快取 ====================
 // 旅遊慢活平均步行速度：3.6 km/h（每公里約 16.7 分鐘，0.9 km 約 15 分鐘）
 var WALK_SPEED_KMH = 3.6;
-// 儲存右側地圖實測路網結果，確保中間看板與右側地圖時間 100% 一致
 var resolvedLegCache = {};
 
 if (typeof uiState !== 'undefined') {
@@ -130,7 +129,7 @@ function handleCategoryFieldChange() {
   }
 }
 
-// ==================== 卡片新增、編修、儲存與刪除視窗控制 ====================
+// ==================== 卡片座標精準重抓與 Google 地圖連結解析 ====================
 function updateGoogleMapsPlaceLink() {
   const name = document.getElementById('field-name')?.value.trim() || '';
   const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
@@ -146,31 +145,52 @@ function updateGoogleMapsPlaceLink() {
   }
 }
 
-async function handleLookupPlaceAddress() {
+async function handleSourceUrlInputChange() {
+  updateGoogleMapsPlaceLink();
+  const srcUrl = document.getElementById('field-source-url')?.value.trim() || '';
+  if (!srcUrl) return;
+
+  const parsed = extractCoordsFromGoogleMapsUrl(srcUrl);
+  if (parsed && parsed.lat && parsed.lng) {
+    document.getElementById('field-lat').value = parsed.lat;
+    document.getElementById('field-lng').value = parsed.lng;
+    const rev = await reverseGeocodeAdminArea(parsed.lat, parsed.lng);
+    if (rev && rev.adminArea) {
+      document.getElementById('field-area').value = rev.adminArea;
+    }
+    showToast(`📍 已從 Google 地圖連結自動萃取精準座標 (${parsed.lat}, ${parsed.lng})！`);
+  }
+}
+
+async function handleLookupPlaceAddress(forceOverwrite = true) {
   const name = document.getElementById('field-name')?.value.trim();
   if (!name) {
-    showToast('請先輸入地點名稱再查詢地址');
+    showToast('請先輸入地點名稱再查詢座標');
     return;
   }
   const btn = document.getElementById('btn-lookup-address');
   const origHtml = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = `<span>查詢中...</span>`;
+  btn.innerHTML = `<span>定位中...</span>`;
 
   try {
-    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW,ja,en&q=${encodeURIComponent(name)}`);
-    const data = await resp.json();
-    if (data && data.length > 0) {
-      const hit = data[0];
-      latestPlaceAddress = hit.display_name || '';
+    const geo = await smartGeocodePlace(name);
+    if (geo) {
+      latestPlaceAddress = geo.displayName || '';
       document.getElementById('place-address-text').textContent = latestPlaceAddress;
-      document.getElementById('place-coords-text').textContent = `座標：${parseFloat(hit.lat).toFixed(5)}, ${parseFloat(hit.lon).toFixed(5)}`;
+      document.getElementById('place-coords-text').textContent = `新座標：${geo.lat}, ${geo.lng} (${geo.adminArea || ''})`;
       document.getElementById('place-address-result').classList.remove('hidden');
 
-      if (!document.getElementById('field-lat').value) document.getElementById('field-lat').value = hit.lat;
-      if (!document.getElementById('field-lng').value) document.getElementById('field-lng').value = hit.lon;
+      if (forceOverwrite || !document.getElementById('field-lat').value) {
+        document.getElementById('field-lat').value = geo.lat;
+        document.getElementById('field-lng').value = geo.lng;
+      }
+      if (geo.adminArea && (forceOverwrite || !document.getElementById('field-area').value)) {
+        document.getElementById('field-area').value = geo.adminArea;
+      }
+      showToast(`✅ 已依地圖視野重新定位「${name}」並更新行政區！`);
     } else {
-      showToast('找不到精準地址，建議直接點擊右側「開啟 Google 地圖」複製');
+      showToast('找不到精準座標，建議點右側「開啟 Google 地圖」複製網址貼入連結欄');
     }
   } catch (e) {
     showToast('地址查詢暫時無法連線，請稍後再試');
@@ -197,12 +217,7 @@ function openNewCardModal(prefill = {}) {
   document.getElementById('field-id').value = '';
   document.getElementById('field-name').value = prefill.name || '';
   document.getElementById('field-category').value = prefill.category || document.getElementById('quick-category')?.value || '景點';
-
-  const areaSel = document.getElementById('field-area');
-  const defaultArea = prefill.area || document.getElementById('quick-area')?.value || (appConfig.areas && appConfig.areas[0]) || '未分類';
-  if ([...areaSel.options].some(o => o.value === defaultArea)) {
-    areaSel.value = defaultArea;
-  }
+  document.getElementById('field-area').value = prefill.area || '';
 
   document.getElementById('field-duration').value = prefill.estimated_duration !== undefined ? prefill.estimated_duration : 60;
   document.getElementById('field-day').value = prefill.assigned_day || 'pocket';
@@ -230,15 +245,7 @@ function openEditCardModal(id) {
   document.getElementById('field-id').value = spot.id;
   document.getElementById('field-name').value = spot.name || '';
   document.getElementById('field-category').value = spot.category || '景點';
-
-  const areaSel = document.getElementById('field-area');
-  if (spot.area && ![...areaSel.options].some(o => o.value === spot.area)) {
-    const opt = document.createElement('option');
-    opt.value = spot.area;
-    opt.textContent = spot.area;
-    areaSel.appendChild(opt);
-  }
-  areaSel.value = spot.area || (areaSel.options[0] ? areaSel.options[0].value : '');
+  document.getElementById('field-area').value = spot.area || '';
 
   document.getElementById('field-duration').value = spot.estimated_duration !== undefined ? spot.estimated_duration : 60;
   document.getElementById('field-revisit').checked = isSpotRevisit(spot);
@@ -282,23 +289,39 @@ async function handleSaveCard(event) {
   if (!name) return;
 
   const category = document.getElementById('field-category').value;
-  const area = document.getElementById('field-area').value;
+  let area = document.getElementById('field-area').value.trim();
   const estimated_duration = Number(document.getElementById('field-duration').value) || 0;
   const isRevisit = document.getElementById('field-revisit').checked;
+  const sourceUrl = document.getElementById('field-source-url').value.trim();
 
   let lat = document.getElementById('field-lat').value.trim();
   let lng = document.getElementById('field-lng').value.trim();
 
-  if (!lat || !lng) {
-    try {
-      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name)}`);
-      const geo = await resp.json();
-      if (geo && geo.length > 0) {
-        lat = geo[0].lat;
-        lng = geo[0].lon;
-      }
-    } catch (e) {}
+  // 若有貼入 Google 地圖網址且尚未填座標，優先從網址解析
+  if ((!lat || !lng) && sourceUrl) {
+    const parsedUrl = extractCoordsFromGoogleMapsUrl(sourceUrl);
+    if (parsedUrl && parsedUrl.lat && parsedUrl.lng) {
+      lat = parsedUrl.lat;
+      lng = parsedUrl.lng;
+    }
   }
+
+  // 若仍無座標，則以目前地圖視野為權重自動查詢
+  if (!lat || !lng) {
+    const geo = await smartGeocodePlace(name);
+    if (geo) {
+      lat = geo.lat;
+      lng = geo.lng;
+      if (!area && geo.adminArea) area = geo.adminArea;
+    }
+  }
+
+  // 若有座標但尚未有標準化行政區，自動反查並填入
+  if (lat && lng && (!area || area === '未分類')) {
+    const rev = await reverseGeocodeAdminArea(lat, lng);
+    if (rev && rev.adminArea) area = rev.adminArea;
+  }
+  if (!area) area = '未分類';
 
   let assigned_day = 'pocket';
   let sort_order = '99';
@@ -342,7 +365,7 @@ async function handleSaveCard(event) {
     must_buy: document.getElementById('field-must-buy').value.trim(),
     business_hours: document.getElementById('field-hours').value.trim(),
     parking_info: document.getElementById('field-parking').value.trim(),
-    source_url: document.getElementById('field-source-url').value.trim(),
+    source_url: sourceUrl,
     photo_url: document.getElementById('field-photo-url').value.trim(),
     lat,
     lng
@@ -357,9 +380,10 @@ async function handleSaveCard(event) {
 
   resolvedLegCache = {};
   saveLocalState();
+  renderDynamicAreaControls();
   renderAll();
   closeModal('modal-card-detail');
-  showToast(idx > -1 ? `✅ 已更新「${name}」` : `✅ 已新增「${name}」至資料庫`);
+  showToast(idx > -1 ? `✅ 已更新「${name}」(${area})` : `✅ 已新增「${name}」(${area})`);
 
   if (appConfig.gasUrl) {
     fetch(appConfig.gasUrl, {
@@ -383,6 +407,7 @@ function handleDeleteCard() {
   spots = spots.filter(s => String(s.id) !== id);
   resolvedLegCache = {};
   saveLocalState();
+  renderDynamicAreaControls();
   renderAll();
   closeModal('modal-card-detail');
   showToast(`🗑️ 已刪除「${spot.name}」`);
@@ -395,7 +420,7 @@ function handleDeleteCard() {
   }
 }
 
-// ==================== 資料庫快捷排入與雷達插隊排入 ====================
+// ==================== 資料庫快捷排入與地圖點位直接排程 ====================
 function quickAssignSpotToDay(spotId, targetDateStr) {
   if (!targetDateStr) return;
   const spot = spots.find(s => String(s.id) === String(spotId));
@@ -424,13 +449,7 @@ function quickAssignSpotToDay(spotId, targetDateStr) {
   saveLocalState();
   renderAll();
   scrollToDayColumn(targetDateStr);
-
-  // 自動切換右側地圖至該日以同步實測路網時間
-  const mapSel = document.getElementById('map-day-selector');
-  if (mapSel && [...mapSel.options].some(o => o.value === targetDateStr)) {
-    mapSel.value = targetDateStr;
-    updateMapMarkers();
-  }
+  if (mapInstance) mapInstance.closePopup();
 
   const daysList = getDateRangeArray(appConfig.startDate, appConfig.endDate);
   const dayLabel = (daysList.find(d => d.dateStr === targetDateStr) || {}).label || targetDateStr;
@@ -447,7 +466,6 @@ function quickAssignSpotToDay(spotId, targetDateStr) {
   }
 }
 
-// 從地圖「周邊口袋雷達」直接插隊排入（緊接在基準點如飯店之後）
 function quickInsertRadarSpotToDay(spotId, targetDateStr, anchorSpotId) {
   const spot = spots.find(s => String(s.id) === String(spotId));
   if (!spot || !targetDateStr) return;
@@ -459,7 +477,6 @@ function quickInsertRadarSpotToDay(spotId, targetDateStr, anchorSpotId) {
     if (foundIdx > -1) insertAfterIdx = foundIdx;
   }
 
-  // 重建當日順序，將新卡片插入基準點正後方
   const orderedIds = dayItems.map(it => ({ spot: it.spot, occIdx: it.globalOccIdx }));
   orderedIds.splice(insertAfterIdx + 1, 0, { spot, occIdx: -1 });
 
@@ -839,7 +856,12 @@ function renderPocketList(daysList) {
 
   const dbSpots = spots
     .filter(s => currentCategoryFilter === '全部' || s.category === currentCategoryFilter)
-    .filter(s => currentAreaFilter === '全部' || s.area === currentAreaFilter)
+    .filter(s => {
+      const h = parseAreaHierarchy(s.area);
+      if (currentRegionL1Filter !== '全部' && h.l1 !== currentRegionL1Filter) return false;
+      if (currentRegionL2Filter !== '全部' && h.l2 !== currentRegionL2Filter) return false;
+      return true;
+    })
     .filter(s => {
       const assigned = getSpotAssignedDays(s);
       if (currentDbStatusFilter === 'unscheduled') return assigned.length === 0;
@@ -849,6 +871,7 @@ function renderPocketList(daysList) {
     })
     .filter(s => !keyword || 
       (s.name && s.name.toLowerCase().includes(keyword)) ||
+      (s.area && s.area.toLowerCase().includes(keyword)) ||
       (s.must_buy && s.must_buy.toLowerCase().includes(keyword)) ||
       (s.description && s.description.toLowerCase().includes(keyword)) ||
       (s.business_hours && s.business_hours.toLowerCase().includes(keyword))
@@ -877,7 +900,7 @@ function renderPocketList(daysList) {
     container.innerHTML = presetBanner + `
       <div class="text-center py-8 px-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs">
         <p class="mb-1 font-medium">目前資料庫沒有符合條件的卡片</p>
-        <p>點擊上方「＋ 新增卡片」或「批次匯入」即可建立！</p>
+        <p>點擊上方「＋ 新增卡片」或「智慧入庫」即可建立！</p>
       </div>`;
     return;
   }
@@ -893,6 +916,8 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
   const assignedDays = getSpotAssignedDays(spot);
   const isIncluded = assignedDays.length > 0;
   const theme = CATEGORY_THEME[spot.category] || { hex: '#64748B', badge: 'bg-slate-100 text-slate-700' };
+  const areaObj = parseAreaHierarchy(spot.area);
+  const shortAreaTag = areaObj.l2 !== '未分類' && areaObj.l2 !== '其他' ? `${areaObj.l1.split('·').pop().trim()} · ${areaObj.l2}` : areaObj.full;
 
   const dayCounts = {};
   assignedDays.forEach(d => { dayCounts[d] = (dayCounts[d] || 0) + 1; });
@@ -909,7 +934,7 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
       ${spot.photo_url ? `
         <div class="w-full bg-slate-200 overflow-hidden relative" style="height: 74px;">
           <img src="${spot.photo_url}" alt="${spot.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'"/>
-          <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs">${spot.area}</span>
+          <span class="absolute top-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/90 text-slate-700 shadow-2xs max-w-[85%] truncate">${shortAreaTag}</span>
           ${isIncluded ? `<span class="absolute bottom-1.5 left-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">✅ ${dayNamesText}</span>` : ''}
         </div>
       ` : ''}
@@ -958,12 +983,12 @@ function buildPocketDatabaseCardHTML(spot, dayLabelMap, daysList) {
         <div class="flex items-center justify-between gap-1 text-[10px] text-slate-400 pt-1.5 border-t border-slate-100">
           <span class="flex items-center gap-1 truncate">
             ${isHotel 
-              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i> 住宿` 
+              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i>` 
               : (isTransport
-                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i> 交通`
+                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i>`
                   : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
             }
-            ${!spot.photo_url ? `· ${spot.area}` : ''}
+            <span class="truncate" title="${spot.area}">· ${shortAreaTag}</span>
           </span>
 
           <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
@@ -1029,7 +1054,7 @@ function renderKanbanDays(daysList) {
         <div class="p-2 flex-1 overflow-y-auto space-y-1.5 min-h-[180px] day-dropzone" data-day="${day.dateStr}">
           ${timelineItems.length > 0 
             ? timelineItems.map((item, idx) => buildScheduledCardHTML(item, idx + 1, timelineItems.length, { currentDay: day.dateStr, nextDay: nextDayObj })).join('') 
-            : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫拖曳或點「＋排入」</div>`
+            : `<div class="h-28 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-xs text-slate-400 pointer-events-none">從左側資料庫或右側地圖圖釘排入</div>`
           }
         </div>
       </div>
@@ -1211,16 +1236,16 @@ function buildScheduledCardHTML(item, orderNum, totalItemsInDay, dayContext) {
         ` : ''}
 
         <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
-          <span class="flex items-center gap-1">
+          <span class="flex items-center gap-1 truncate">
             ${isHotel 
-              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600"></i> <span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店' : `已排 ${uniqueStayNights} 晚`}</span>` 
+              ? `<i data-lucide="bed-double" class="w-3 h-3 text-purple-600 shrink-0"></i> <span class="text-purple-700 font-medium">${isReturnLeg ? '返回飯店' : `已排 ${uniqueStayNights} 晚`}</span>` 
               : (isTransport
-                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span>`
-                  : `<i data-lucide="clock" class="w-3 h-3"></i> ${spot.estimated_duration || 60}分`)
+                  ? `<i data-lucide="plane-takeoff" class="w-3 h-3 text-sky-600 shrink-0"></i> <span class="text-sky-700 font-medium">${isReturnLeg ? '返回交通節點' : (item.flightSched ? `起飛前 ${spot.estimated_duration || 0}分報到` : `報到/轉乘 ${spot.estimated_duration || 30}分`)}</span>`
+                  : `<i data-lucide="clock" class="w-3 h-3 shrink-0"></i> ${spot.estimated_duration || 60}分`)
             }
-            · ${spot.area}
+            <span class="truncate">· ${spot.area}</span>
           </span>
-          <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo" title="在地圖定位">
+          <button type="button" onclick="event.stopPropagation(); focusMapOnSpot('${spot.id}')" class="text-ai-slate hover:text-ai-indigo shrink-0" title="在地圖定位">
             <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -1433,12 +1458,6 @@ function setFilterDbStatus(st) {
   renderAll();
 }
 
-function setFilterArea(area) {
-  currentAreaFilter = area;
-  renderDynamicAreaControls();
-  renderAll();
-}
-
 function selectAllStayDays() {
   document.querySelectorAll('input[name="stay_days"]').forEach(cb => { cb.checked = true; });
 }
@@ -1489,5 +1508,5 @@ function showToast(msg) {
   const toast = document.getElementById('toast');
   document.getElementById('toast-msg').textContent = msg;
   toast.classList.remove('translate-y-20', 'opacity-0');
-  setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
+  setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4200);
 }
