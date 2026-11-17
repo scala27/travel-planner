@@ -21,7 +21,6 @@ let mapInstance = null;
 let mapMarkersLayer = null;
 let mapRouteLayer = null;
 let markerLookup = {};
-// 非同步渲染版本鎖，避免快速切換日期時舊日期的查詢結果覆蓋新日期
 let currentRenderToken = 0;
 
 export function getMapInstance() {
@@ -61,11 +60,11 @@ function createColoredPinIcon(color, labelText, isGhost = false, isWideBadge = f
   });
 }
 
-function createStopMiniMarker(lat, lng, stopName, isMonorail = false) {
+function createStopMiniMarker(lat, lng, stopName, isMonorail = false, ringColor = '#7c3aed') {
   return L.circleMarker([lat, lng], {
-    radius: isMonorail ? 5.5 : 4.5,
+    radius: isMonorail ? 5.5 : 5,
     fillColor: '#ffffff',
-    color: isMonorail ? '#dc2626' : '#7c3aed',
+    color: ringColor,
     weight: 2.5,
     fillOpacity: 1
   }).bindTooltip(`${isMonorail ? '🚝' : '🚏'} ${stopName}`, {
@@ -149,7 +148,9 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
       const walkData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'walk');
       if (renderToken !== currentRenderToken) return null;
       legKm = walkData.distanceKm || legKm;
-      legMin = computeWalkingMinutes(legKm, isHotelTransfer);
+      legMin = isHotelTransfer
+        ? computeWalkingMinutes(legKm, true)
+        : (walkData.durationMin || computeWalkingMinutes(legKm, false));
       L.polyline(walkData.latLngs, {
         color: dayColorOverride || '#10b981',
         weight: 4.5,
@@ -166,13 +167,13 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
       }
 
       if (multiSeg.hasStopSplit) {
+        const rideColor = dayColorOverride || multiSeg.routeColor || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
         L.polyline(multiSeg.walk1Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
-        const rideColor = dayColorOverride || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
         L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.92 }).addTo(mapRouteLayer);
         L.polyline(multiSeg.walk2Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
 
-        createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail).addTo(mapRouteLayer);
-        createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail).addTo(mapRouteLayer);
+        createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
+        createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
       } else {
         L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
       }
