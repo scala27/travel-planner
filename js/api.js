@@ -109,7 +109,6 @@ export function normalizeSheetRowToCard(row, index) {
   };
 }
 
-// 同時相容 "Day 1"、"1"、"2027-02-17" 與 Google 試算表自動轉型的 ISO 時區字串（如 "2027-02-16T16:00:00.000Z"）
 export function resolveAssignedDayNumbers(assignedRaw) {
   if (!assignedRaw || assignedRaw === 'pocket' || assignedRaw === 'unscheduled') return [];
   const totalDays = Number(state.settings.totalDays) || 6;
@@ -121,7 +120,6 @@ export function resolveAssignedDayNumbers(assignedRaw) {
   const result = [];
   const rawStr = String(assignedRaw).trim();
 
-  // 先抓取明確的 "Day 1" / "D1" 標記
   const dayTagMatches = [...rawStr.matchAll(/(?:day|d)\s*(\d+)/gi)];
   if (dayTagMatches.length > 0) {
     dayTagMatches.forEach(m => {
@@ -198,7 +196,6 @@ export function serializeCardToSheetRow(card, index) {
     source_url: card.mapUrl || '',
     photo_url: card.image || '',
     status: isScheduled ? 'scheduled' : 'pocket',
-    // 以 "Day 1" 純文字格式儲存，徹底避免 Google 試算表自動轉成日期物件
     assigned_day: isScheduled ? scheduledDays.map(d => `Day ${d}`).join(',') : 'pocket',
     sort_order: index + 1,
     lat: card.lat ?? '',
@@ -206,7 +203,6 @@ export function serializeCardToSheetRow(card, index) {
   };
 }
 
-// 計算每張卡片在當日行程中的順序權重，確保重新載入後 Day 內的卡片順序不變
 function getItinerarySequenceWeight(cardId) {
   const totalDays = Number(state.settings.totalDays) || 6;
   for (let d = 1; d <= totalDays; d++) {
@@ -282,7 +278,8 @@ export async function pullFromGoogleSheets(showNotification = true) {
                 cardId: c.id,
                 customNote: c.businessHours || '',
                 isCheckout: c.category === '住宿' && dIdx > 0,
-                transitMode: 'transit',
+                // 統一設為 'auto'，載入後立即依「智慧混搭」自動判斷步行或大眾運輸
+                transitMode: 'auto',
                 transitMin: 0
               });
             }
@@ -332,7 +329,6 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
   setSyncPillStatus('syncing', '正在覆蓋寫入試算表...');
 
   try {
-    // 依當日行程順序賦予 sort_order，確保下次重新載入時排序完全一致
     const orderedCards = state.cards
       .map((card, origIdx) => ({
         card,
