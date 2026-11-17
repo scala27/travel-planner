@@ -10,6 +10,9 @@ export const DEFAULT_SETTINGS = {
 // 智慧混搭自動判定為「步行」的最大距離門檻（公里）
 export const WALK_THRESHOLD_KM = 1.2;
 
+// 換宿移動（拖帶大型行李）自動判定為「步行」的最大距離門檻（公里）
+export const LUGGAGE_WALK_THRESHOLD_KM = 0.5;
+
 // 多日同顯模式下的每日專屬路線色系
 export const DAY_ROUTE_COLORS = [
   '#2563eb', // Day 1: 寶藍色
