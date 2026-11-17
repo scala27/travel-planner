@@ -44,6 +44,22 @@
       border-radius: 12px;
       padding: 2px;
     }
+    /* 地圖點位游標懸浮名稱標籤樣式 */
+    .leaflet-tooltip.spot-hover-tooltip {
+      background-color: rgba(15, 23, 42, 0.92);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 8px;
+      padding: 4px 9px;
+      font-family: 'Noto Sans TC', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      white-space: nowrap;
+    }
+    .leaflet-tooltip-top.spot-hover-tooltip::before {
+      border-top-color: rgba(15, 23, 42, 0.92);
+    }
     /* 可自由拖曳調整寬度的分隔線 */
     .split-resizer {
       width: 6px;
@@ -224,7 +240,7 @@
           </div>
         </div>
 
-        <!-- 模式 2 專屬：精簡快速篩選條 -->
+        <!-- 模式 2 專屬：精簡快速篩選條（完整包含 7 大分類與未排入/全部） -->
         <div id="planQuickFilterBar" class="hidden flex-wrap items-center gap-1">
           <button onclick="setPlanQuickFilter('unscheduled')" data-plan-q="unscheduled"
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">未排入</button>
@@ -236,6 +252,12 @@
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
           <button onclick="setPlanQuickFilter('住宿')" data-plan-q="住宿"
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+          <button onclick="setPlanQuickFilter('機場')" data-plan-q="機場"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
+          <button onclick="setPlanQuickFilter('交通')" data-plan-q="交通"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+          <button onclick="setPlanQuickFilter('體驗')" data-plan-q="體驗"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
           <button onclick="setPlanQuickFilter('all')" data-plan-q="all"
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">全部</button>
         </div>
@@ -627,7 +649,6 @@
       '臺中市・清水區', '臺中市・西屯區', '桃園市・大園區', '臺北市・松山區'
     ];
 
-    // 日文漢字與簡體/異體字轉標準繁體中文對照表
     const KANJI_TO_TRADITIONAL_MAP = [
       ['沖縄県', '沖繩縣'], ['沖縄市', '沖繩市'], ['沖縄', '沖繩'],
       ['那覇市', '那霸市'], ['那覇', '那霸'],
@@ -709,21 +730,18 @@
       let text = normalizeTraditionalText(rawArea);
       if (!text) return country || '未分類';
 
-      // 移除國家前綴
       text = text
         .replace(/^日本\s*[・\/-]\s*/, '')
         .replace(/^台灣\s*[・\/-]\s*/, '')
         .replace(/^臺灣\s*[・\/-]\s*/, '')
         .trim();
 
-      // 拆解以「/」或「、」分隔的多段重複字串（例如：沖縄県 / 沖繩縣・那霸市）
       if (text.includes('/')) {
         const segments = text
           .split('/')
           .map(s => normalizeTraditionalText(s).trim())
           .filter(Boolean);
 
-        // 過濾掉已被更完整片段包含的重複前綴（例如「沖繩縣」已包含在「沖繩縣・那霸市」內）
         const uniqueSegments = segments.filter((seg, idx) => {
           return !segments.some((other, oIdx) => oIdx !== idx && other.length > seg.length && other.includes(seg));
         });
@@ -733,14 +751,10 @@
           : segments[segments.length - 1];
       }
 
-      // 統一縣市與町村之間的分隔符號為「・」
       text = text.replace(/\s*[•·．]\s*/g, '・');
-
-      // 若是「沖繩縣那霸市」中間缺少「・」，自動補上「・」
       text = text.replace(/^(沖繩縣)(?!・)(.+)$/, '$1・$2');
       text = text.replace(/^(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣)(?!・)(.+)$/, '$1・$2');
 
-      // 再次消除同段內重複的縣名（例如：沖繩縣・沖繩縣・那霸市 -> 沖繩縣・那霸市）
       const dotParts = text.split('・').map(s => s.trim()).filter(Boolean);
       const dedupedDotParts = dotParts.filter((part, idx) => idx === 0 || part !== dotParts[idx - 1]);
       text = dedupedDotParts.join('・');
@@ -1910,7 +1924,7 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // ==================== 7. 地理編碼與座標反查（自動轉標準繁體中文） ====================
+    // ==================== 7. 地理編碼與座標反查 ====================
     function parseNominatimAddress(addr = {}) {
       let country = addr.country || '日本';
       if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
@@ -2456,7 +2470,7 @@
       renderDatabaseCards();
     }
 
-    // ==================== 9. 行程規劃區（預設單日聚焦、清爽版面、順序調整） ====================
+    // ==================== 9. 行程規劃區 ====================
     function getFormattedDateInfo(dayNum) {
       const start = new Date(state.settings.startDate + 'T00:00:00');
       if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
@@ -2993,13 +3007,29 @@
             icon: createColoredPinIcon(meta.color, meta.pinChar || card.category[0])
           });
 
+          // 游標靠近自動顯示點位名稱
+          marker.bindTooltip(`${meta.emoji} ${card.title}`, {
+            direction: 'top',
+            offset: [0, -14],
+            className: 'spot-hover-tooltip'
+          });
+
+          // 彈窗按鈕改用高對比圖示符號（解決藍底綠字問題）
           marker.bindPopup(`
-            <div class="text-xs space-y-1 min-w-[180px]">
-              <div class="font-bold text-slate-800">${card.title}</div>
+            <div class="text-xs space-y-1.5 min-w-[175px]">
+              <div class="font-bold text-slate-800 leading-snug">${card.title}</div>
               <div class="text-[11px] text-slate-500">${cleanDist}・${card.category}</div>
-              <div class="pt-1 flex gap-1.5">
-                <a href="${gmapsUrl}" target="_blank" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">Google Maps</a>
-                <button onclick="openCardModal('${card.id}')" class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">編輯</button>
+              <div class="pt-1 flex items-center gap-1.5">
+                <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps 導航"
+                  style="color:#ffffff !important;"
+                  class="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs inline-flex items-center gap-1 shadow-2xs transition">
+                  <i class="fa-solid fa-diamond-turn-right"></i>
+                  <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                </a>
+                <button onclick="openCardModal('${card.id}')" title="編輯卡片"
+                  class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-amber-50 hover:text-amber-600 text-slate-700 text-xs inline-flex items-center justify-center transition">
+                  <i class="fa-solid fa-pen"></i>
+                </button>
               </div>
             </div>
           `);
@@ -3033,6 +3063,7 @@
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
           const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
+          const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
 
           if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
           const label = card.category === '住宿' ? '宿' : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
@@ -3048,7 +3079,32 @@
               visiblePinCount++;
               const marker = L.marker([card.lat, card.lng], {
                 icon: createColoredPinIcon(meta.color, label)
-              }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${cleanDist}</div>`);
+              });
+
+              marker.bindTooltip(`${label}. ${card.title}`, {
+                direction: 'top',
+                offset: [0, -14],
+                className: 'spot-hover-tooltip'
+              });
+
+              marker.bindPopup(`
+                <div class="text-xs space-y-1.5 min-w-[165px]">
+                  <div class="font-bold text-slate-800">${label}. ${card.title}</div>
+                  <div class="text-[11px] text-slate-500">${cleanDist}</div>
+                  <div class="pt-0.5 flex items-center gap-1.5">
+                    <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps"
+                      style="color:#ffffff !important;"
+                      class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs inline-flex items-center gap-1">
+                      <i class="fa-solid fa-diamond-turn-right"></i>
+                    </a>
+                    <button onclick="openCardModal('${card.id}')" title="編輯卡片"
+                      class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                      <i class="fa-solid fa-pen"></i>
+                    </button>
+                  </div>
+                </div>
+              `);
+
               marker.addTo(mapMarkersLayer);
               markerLookup[card.id] = marker;
             }
@@ -3093,7 +3149,7 @@
               <div class="flex items-center justify-between bg-slate-50 px-2 py-1 rounded border border-slate-100">
                 <span class="truncate flex-1 pr-1">${idx + 1}→${idx + 2} ${iconPrefix}${nextCard.title}</span>
                 <span class="font-bold text-blue-700 shrink-0 mr-1.5">約 ${legMin} 分</span>
-                <a href="${gdir}" target="_blank" class="text-blue-600 underline shrink-0">導航</a>
+                <a href="${gdir}" target="_blank" title="開啟路線導航" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
               </div>
             `);
           }
@@ -3109,18 +3165,28 @@
             visiblePinCount++;
             const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
             const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
-            L.marker([c.lat, c.lng], {
+            const pocketMarker = L.marker([c.lat, c.lng], {
               icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true)
-            }).bindPopup(`
-              <div class="text-xs space-y-1 min-w-[170px]">
+            });
+
+            pocketMarker.bindTooltip(`${meta.emoji} ${c.title}`, {
+              direction: 'top',
+              offset: [0, -14],
+              className: 'spot-hover-tooltip'
+            });
+
+            pocketMarker.bindPopup(`
+              <div class="text-xs space-y-1.5 min-w-[170px]">
                 <div class="font-bold text-slate-800">${c.title}</div>
-                <div class="text-[11px] text-slate-500">${cleanDist}・${c.category}（口袋點位）</div>
+                <div class="text-[11px] text-slate-500">${cleanDist}・${c.category}</div>
                 <button onclick="addCardToDay('${c.id}', ${d})"
-                  class="w-full mt-1 px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-bold">
-                  + 直接排入 Day ${d}
+                  class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold">
+                  + Day ${d}
                 </button>
               </div>
-            `).addTo(mapMarkersLayer);
+            `);
+
+            pocketMarker.addTo(mapMarkersLayer);
           });
         }
 
