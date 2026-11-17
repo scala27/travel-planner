@@ -1,6 +1,7 @@
-import { KANJI_TO_TRADITIONAL_MAP } from './config.js';
+import { KANJI_TO_TRADITIONAL_MAP, WALK_THRESHOLD_KM } from './config.js';
 
 const osrmRouteCache = {};
+const transitStopCache = {};
 
 export function normalizeTraditionalText(str) {
   let result = String(str || '').trim();
@@ -134,6 +135,23 @@ export function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+export function formatDistanceLabel(km) {
+  const val = Number(km) || 0;
+  if (val <= 0) return '';
+  if (val < 1) {
+    const meters = Math.max(10, Math.round((val * 1000) / 10) * 10);
+    return `${meters} 公尺`;
+  }
+  return `${val.toFixed(1)} 公里`;
+}
+
+export function getTransitModeDisplay(mode, hasStopSplit = false) {
+  if (mode === 'flight') return '✈️ 航空飛航';
+  if (mode === 'walk') return '🚶 步行';
+  if (mode === 'drive') return '🚗 自駕道路';
+  return hasStopSplit ? '🚆 單軌/公車 + 🚶 步行' : '🚆 單軌/公車';
+}
+
 export function isFlightLeg(cardA, cardB, km) {
   if (!cardA || !cardB) return false;
   const isBothAirport = cardA.category === '機場' && cardB.category === '機場';
@@ -142,36 +160,68 @@ export function isFlightLeg(cardA, cardB, km) {
   return isBothAirport || hasAirportKeyword || isCrossCountry || km > 150;
 }
 
-export function estimateTransit(cardA, cardB) {
+// 統一判定兩點間的交通方式（支援手動覆蓋與「智慧混搭」1.2 km 步行自動判定）
+export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0 };
-  const km = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+  const straightKm = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
 
-  if (isFlightLeg(cardA, cardB, km)) {
-    const airMin = km > 0 ? Math.max(60, Math.round(km / 8.2)) : 90;
-    return { mode: 'flight', min: airMin, km };
+  if (isFlightLeg(cardA, cardB, straightKm)) {
+    const airMin = straightKm > 0 ? Math.max(60, Math.round(straightKm / 8.2)) : 90;
+    return { mode: 'flight', min: airMin, km: straightKm };
   }
 
+  // 考慮實際道路曲折度（約 1.25 倍）判斷步行距離
+  const approxRoadKm = straightKm * 1.25;
   const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
-  if (km === 0) return { mode: 'transit', min: 20, km: 0 };
 
-  if (profile === 'walk' || (profile === 'smart' && km <= 1.1)) {
-    return { mode: 'walk', min: Math.max(5, Math.round(km * 14)), km };
+  let resolvedMode = manualMode;
+  if (!resolvedMode || resolvedMode === 'auto') {
+    if (profile === 'walk') {
+      resolvedMode = 'walk';
+    } else if (profile === 'drive') {
+      resolvedMode = 'drive';
+    } else if (profile === 'transit') {
+      resolvedMode = 'transit';
+    } else {
+      // 智慧混搭：1.2 公里以內自動切換為步行
+      resolvedMode = (straightKm > 0 && approxRoadKm <= WALK_THRESHOLD_KM) ? 'walk' : 'transit';
+    }
   }
-  if (profile === 'drive') {
-    return { mode: 'drive', min: Math.max(8, Math.round(km * 2.2 + 5)), km };
+
+  if (straightKm === 0) {
+    return { mode: resolvedMode, min: resolvedMode === 'walk' ? 5 : 15, km: 0 };
   }
-  return { mode: 'transit', min: Math.max(10, Math.round(km * 3.5 + 10)), km };
+
+  if (resolvedMode === 'walk') {
+    return {
+      mode: 'walk',
+      min: Math.max(2, Math.round(approxRoadKm * 13.5)),
+      km: approxRoadKm
+    };
+  }
+  if (resolvedMode === 'drive') {
+    return {
+      mode: 'drive',
+      min: Math.max(5, Math.round(approxRoadKm * 2.1 + 4)),
+      km: approxRoadKm
+    };
+  }
+  return {
+    mode: 'transit',
+    min: Math.max(8, Math.round(approxRoadKm * 3.2 + 8)),
+    km: approxRoadKm
+  };
 }
 
-export async function fetchRealRoadPath(cardA, cardB, mode) {
+export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') {
   const osrmProfile = mode === 'walk' ? 'foot' : 'driving';
-  const cacheKey = `${osrmProfile}_${cardA.lat.toFixed(5)},${cardA.lng.toFixed(5)}_${cardB.lat.toFixed(5)},${cardB.lng.toFixed(5)}`;
+  const cacheKey = `${osrmProfile}_${Number(lat1).toFixed(5)},${Number(lng1).toFixed(5)}_${Number(lat2).toFixed(5)},${Number(lng2).toFixed(5)}`;
   if (osrmRouteCache[cacheKey]) {
     return osrmRouteCache[cacheKey];
   }
 
   try {
-    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${cardA.lng},${cardA.lat};${cardB.lng},${cardB.lat}?overview=full&geometries=geojson`;
+    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
     const res = await fetch(url);
     const data = await res.json();
     if (data && data.code === 'Ok' && data.routes && data.routes.length > 0) {
@@ -180,7 +230,7 @@ export async function fetchRealRoadPath(cardA, cardB, mode) {
       const result = {
         latLngs,
         distanceKm: route.distance / 1000,
-        durationMin: Math.max(3, Math.round(route.duration / 60))
+        durationMin: Math.max(2, Math.round(route.duration / 60))
       };
       osrmRouteCache[cacheKey] = result;
       return result;
@@ -188,9 +238,96 @@ export async function fetchRealRoadPath(cardA, cardB, mode) {
   } catch (e) {}
 
   return {
-    latLngs: [[cardA.lat, cardA.lng], [cardB.lat, cardB.lng]],
-    distanceKm: haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng),
+    latLngs: [[lat1, lng1], [lat2, lng2]],
+    distanceKm: haversineKm(lat1, lng1, lat2, lng2) * 1.25,
     durationMin: null
+  };
+}
+
+// 查詢距離指定座標最近的公車站牌或單軌車站（OpenStreetMap Overpass API）
+export async function fetchNearestTransitStop(lat, lng) {
+  const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
+  if (transitStopCache[key] !== undefined) {
+    return transitStopCache[key];
+  }
+
+  try {
+    const query = `[out:json][timeout:6];(node(around:650,${lat},${lng})["highway"="bus_stop"];node(around:800,${lat},${lng})["railway"="station"];node(around:800,${lat},${lng})["station"="monorail"];);out body 5;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: query
+    });
+    const data = await res.json();
+    if (data && Array.isArray(data.elements) && data.elements.length > 0) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const el of data.elements) {
+        const d = haversineKm(lat, lng, el.lat, el.lon);
+        if (d < bestDist) {
+          bestDist = d;
+          best = {
+            lat: el.lat,
+            lng: el.lon,
+            name: el.tags?.['name:zh'] || el.tags?.name || (el.tags?.railway ? '單軌車站' : '公車站牌'),
+            isRail: Boolean(el.tags?.railway || el.tags?.station),
+            walkKm: d
+          };
+        }
+      }
+      transitStopCache[key] = best;
+      return best;
+    }
+  } catch (e) {}
+
+  transitStopCache[key] = null;
+  return null;
+}
+
+// 建構「起點步行至站牌 → 大眾運輸乘車 → 下車站牌步行至終點」分段路徑
+export async function buildMultiModalTransitSegments(cardA, cardB) {
+  const [stopA, stopB] = await Promise.all([
+    fetchNearestTransitStop(cardA.lat, cardA.lng),
+    fetchNearestTransitStop(cardB.lat, cardB.lng)
+  ]);
+
+  const directRoad = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
+
+  // 若兩端皆找到不同站牌，且站牌間距離大於 300 公尺，則拆分為三段路徑
+  if (stopA && stopB && haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) > 0.3) {
+    const [walk1, ride, walk2] = await Promise.all([
+      fetchRealRoadPath(cardA.lat, cardA.lng, stopA.lat, stopA.lng, 'walk'),
+      fetchRealRoadPath(stopA.lat, stopA.lng, stopB.lat, stopB.lng, 'drive'),
+      fetchRealRoadPath(stopB.lat, stopB.lng, cardB.lat, cardB.lng, 'walk')
+    ]);
+
+    const totalKm = (walk1.distanceKm || 0) + (ride.distanceKm || 0) + (walk2.distanceKm || 0);
+    const walk1Min = walk1.durationMin || Math.max(1, Math.round((walk1.distanceKm || 0) * 13.5));
+    const walk2Min = walk2.durationMin || Math.max(1, Math.round((walk2.distanceKm || 0) * 13.5));
+    const rideMin = Math.max(5, Math.round((ride.durationMin || 8) * 1.25 + 4));
+
+    return {
+      hasStopSplit: true,
+      stopA,
+      stopB,
+      walk1Path: walk1.latLngs,
+      ridePath: ride.latLngs,
+      walk2Path: walk2.latLngs,
+      totalKm: totalKm || directRoad.distanceKm,
+      totalMin: walk1Min + rideMin + walk2Min,
+      walkKm: (walk1.distanceKm || 0) + (walk2.distanceKm || 0)
+    };
+  }
+
+  return {
+    hasStopSplit: false,
+    stopA: null,
+    stopB: null,
+    walk1Path: [],
+    ridePath: directRoad.latLngs,
+    walk2Path: [],
+    totalKm: directRoad.distanceKm,
+    totalMin: directRoad.durationMin ? Math.max(8, Math.round(directRoad.durationMin * 1.25 + 5)) : null,
+    walkKm: 0
   };
 }
 
