@@ -13,6 +13,33 @@ export const WALK_THRESHOLD_KM = 1.2;
 // 換宿移動（拖帶大型行李）自動判定為「步行」的最大距離門檻（公里）
 export const LUGGAGE_WALK_THRESHOLD_KM = 0.5;
 
+// 步行計算速度（公里/小時）：一般步行 4.5 km/h（約 13.3 分/km），拖行李 3.6 km/h（約 16.7 分/km）
+export const WALK_SPEED_KMH = 4.5;
+export const LUGGAGE_WALK_SPEED_KMH = 3.6;
+
+// 沖繩都市單軌電車（Yui Rail）全線 19 站精確座標與自那霸機場起算之累計行駛分鐘數
+export const YUI_RAIL_STATIONS = [
+  { name: '那霸機場站', lat: 26.2065, lng: 127.6523, cumMin: 0 },
+  { name: '赤嶺站', lat: 26.1932, lng: 127.6606, cumMin: 3 },
+  { name: '小祿站', lat: 26.1965, lng: 127.6670, cumMin: 5 },
+  { name: '奧武山公園站', lat: 26.2008, lng: 127.6754, cumMin: 7 },
+  { name: '壺川站', lat: 26.2059, lng: 127.6787, cumMin: 9 },
+  { name: '旭橋站', lat: 26.2119, lng: 127.6754, cumMin: 11 },
+  { name: '縣廳前站', lat: 26.2144, lng: 127.6793, cumMin: 13 },
+  { name: '美榮橋站', lat: 26.2194, lng: 127.6844, cumMin: 15 },
+  { name: '牧志站', lat: 26.2173, lng: 127.6924, cumMin: 17 },
+  { name: '安里站', lat: 26.2167, lng: 127.6958, cumMin: 19 },
+  { name: 'おもろまち站', lat: 26.2229, lng: 127.6986, cumMin: 21 },
+  { name: '古島站', lat: 26.2307, lng: 127.7031, cumMin: 23 },
+  { name: '市立醫院前站', lat: 26.2275, lng: 127.7103, cumMin: 25 },
+  { name: '儀保站', lat: 26.2248, lng: 127.7192, cumMin: 27 },
+  { name: '首里站', lat: 26.2192, lng: 127.7254, cumMin: 29 },
+  { name: '石嶺站', lat: 26.2286, lng: 127.7289, cumMin: 31 },
+  { name: '經塚站', lat: 26.2367, lng: 127.7284, cumMin: 34 },
+  { name: '浦添前田站', lat: 26.2442, lng: 127.7317, cumMin: 36 },
+  { name: 'てだこ浦西站', lat: 26.2419, lng: 127.7418, cumMin: 38 }
+];
+
 // 多日同顯模式下的每日專屬路線色系
 export const DAY_ROUTE_COLORS = [
   '#2563eb', // Day 1: 寶藍色
