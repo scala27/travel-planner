@@ -7,6 +7,21 @@ export const DEFAULT_SETTINGS = {
   gasUrl: ''
 };
 
+// 智慧混搭自動判定為「步行」的最大距離門檻（公里）
+export const WALK_THRESHOLD_KM = 1.2;
+
+// 多日同顯模式下的每日專屬路線色系
+export const DAY_ROUTE_COLORS = [
+  '#2563eb', // Day 1: 寶藍色
+  '#7c3aed', // Day 2: 亮紫色
+  '#059669', // Day 3: 翠綠色
+  '#ea580c', // Day 4: 暖橘色
+  '#db2777', // Day 5: 玫紅色
+  '#0891b2', // Day 6: 湖水青
+  '#4f46e5', // Day 7: 靛藍色
+  '#ca8a04'  // Day 8: 琥珀金
+];
+
 export const PRESET_DISTRICTS = [
   '沖繩縣・那霸市', '沖繩縣・浦添市', '沖繩縣・宜野灣市', '沖繩縣・北谷町',
   '沖繩縣・嘉手納町', '沖繩縣・讀谷村', '沖繩縣・恩納村', '沖繩縣・名護市',
