@@ -1,4 +1,8 @@
-import { KANJI_TO_TRADITIONAL_MAP, WALK_THRESHOLD_KM } from './config.js';
+import {
+  KANJI_TO_TRADITIONAL_MAP,
+  WALK_THRESHOLD_KM,
+  LUGGAGE_WALK_THRESHOLD_KM
+} from './config.js';
 
 const osrmRouteCache = {};
 const transitStopCache = {};
@@ -160,19 +164,26 @@ export function isFlightLeg(cardA, cardB, km) {
   return isBothAirport || hasAirportKeyword || isCrossCountry || km > 150;
 }
 
-// 統一判定兩點間的交通方式（支援手動覆蓋與「智慧混搭」1.2 km 步行自動判定）
+// 判斷是否為「換宿移動」（兩張不同飯店之間的移動）
+export function isHotelTransferLeg(cardA, cardB) {
+  if (!cardA || !cardB) return false;
+  return cardA.category === '住宿' && cardB.category === '住宿' && cardA.id !== cardB.id;
+}
+
+// 統一判定兩點間的交通方式（支援換宿行李門檻 500m 與一般步行門檻 1.2km）
 export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
-  if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0 };
+  if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0, isHotelTransfer: false };
   const straightKm = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+  const isHotelTransfer = isHotelTransferLeg(cardA, cardB);
 
   if (isFlightLeg(cardA, cardB, straightKm)) {
     const airMin = straightKm > 0 ? Math.max(60, Math.round(straightKm / 8.2)) : 90;
-    return { mode: 'flight', min: airMin, km: straightKm };
+    return { mode: 'flight', min: airMin, km: straightKm, isHotelTransfer };
   }
 
-  // 考慮實際道路曲折度（約 1.25 倍）判斷步行距離
   const approxRoadKm = straightKm * 1.25;
   const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
+  const walkLimitKm = isHotelTransfer ? LUGGAGE_WALK_THRESHOLD_KM : WALK_THRESHOLD_KM;
 
   let resolvedMode = manualMode;
   if (!resolvedMode || resolvedMode === 'auto') {
@@ -183,33 +194,37 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
     } else if (profile === 'transit') {
       resolvedMode = 'transit';
     } else {
-      // 智慧混搭：1.2 公里以內自動切換為步行
-      resolvedMode = (straightKm > 0 && approxRoadKm <= WALK_THRESHOLD_KM) ? 'walk' : 'transit';
+      // 智慧混搭：換宿拖行李限 500m 內步行，一般景點限 1.2km 內步行
+      resolvedMode = (straightKm > 0 && approxRoadKm <= walkLimitKm) ? 'walk' : 'transit';
     }
   }
 
   if (straightKm === 0) {
-    return { mode: resolvedMode, min: resolvedMode === 'walk' ? 5 : 15, km: 0 };
+    return { mode: resolvedMode, min: resolvedMode === 'walk' ? 5 : 15, km: 0, isHotelTransfer };
   }
 
   if (resolvedMode === 'walk') {
+    const paceMinPerKm = isHotelTransfer ? 16 : 13.5;
     return {
       mode: 'walk',
-      min: Math.max(2, Math.round(approxRoadKm * 13.5)),
-      km: approxRoadKm
+      min: Math.max(2, Math.round(approxRoadKm * paceMinPerKm)),
+      km: approxRoadKm,
+      isHotelTransfer
     };
   }
   if (resolvedMode === 'drive') {
     return {
       mode: 'drive',
       min: Math.max(5, Math.round(approxRoadKm * 2.1 + 4)),
-      km: approxRoadKm
+      km: approxRoadKm,
+      isHotelTransfer
     };
   }
   return {
     mode: 'transit',
     min: Math.max(8, Math.round(approxRoadKm * 3.2 + 8)),
-    km: approxRoadKm
+    km: approxRoadKm,
+    isHotelTransfer
   };
 }
 
@@ -244,7 +259,6 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
   };
 }
 
-// 查詢距離指定座標最近的公車站牌或單軌車站（OpenStreetMap Overpass API）
 export async function fetchNearestTransitStop(lat, lng) {
   const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
   if (transitStopCache[key] !== undefined) {
@@ -283,7 +297,6 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-// 建構「起點步行至站牌 → 大眾運輸乘車 → 下車站牌步行至終點」分段路徑
 export async function buildMultiModalTransitSegments(cardA, cardB) {
   const [stopA, stopB] = await Promise.all([
     fetchNearestTransitStop(cardA.lat, cardA.lng),
@@ -292,7 +305,6 @@ export async function buildMultiModalTransitSegments(cardA, cardB) {
 
   const directRoad = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
 
-  // 若兩端皆找到不同站牌，且站牌間距離大於 300 公尺，則拆分為三段路徑
   if (stopA && stopB && haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) > 0.3) {
     const [walk1, ride, walk2] = await Promise.all([
       fetchRealRoadPath(cardA.lat, cardA.lng, stopA.lat, stopA.lng, 'walk'),
