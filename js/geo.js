@@ -7,11 +7,147 @@ import {
   YUI_RAIL_STATIONS
 } from './config.js';
 
-const osrmRouteCache = {};
+const roadRouteCache = {};
 const transitStopCache = {};
-const YUI_RAIL_OSM_CACHE_KEY = 'yui_rail_osm_geom_v1';
-let yuiRailGraphPromise = null;
-let cachedYuiRailGraph = null;
+let transitDbPromise = null;
+let cachedTransitDb = null;
+
+// 讀取靜態 GTFS 大眾運輸路線庫（data/okinawa_transit.json）
+async function getOkinawaTransitDatabase() {
+  if (cachedTransitDb) return cachedTransitDb;
+  if (!transitDbPromise) {
+    transitDbPromise = (async () => {
+      try {
+        const res = await fetch('./data/okinawa_transit.json');
+        if (res.ok) {
+          const data = await res.json();
+          cachedTransitDb = data;
+          return data;
+        }
+      } catch (e) {}
+      // 備援內建單軌資料（避免本機 file:// 開啟時 fetch 受限）
+      const fallbackDb = {
+        yui_rail: {
+          id: 'yui_rail',
+          name: '沖繩都市單軌電車 (Yui Rail)',
+          color: '#dc2626',
+          waitMin: 3,
+          stations: YUI_RAIL_STATIONS.map((st, idx) => ({
+            id: `YR${idx + 1}`,
+            name: st.name,
+            lat: st.lat,
+            lng: st.lng,
+            cumMin: st.cumMin
+          })),
+          shape: YUI_RAIL_STATIONS.flatMap(st => [...(st.viaPrev || []), [st.lat, st.lng]])
+        },
+        buses: []
+      };
+      cachedTransitDb = fallbackDb;
+      return fallbackDb;
+    })();
+  }
+  return transitDbPromise;
+}
+
+// 解碼 Valhalla 精度 6（1e6）的 Polyline 折線
+function decodeValhallaPolyline6(encoded) {
+  if (!encoded || typeof encoded !== 'string') return [];
+  const coords = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const factor = 1e6;
+
+  while (index < encoded.length) {
+    let b;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    coords.push([lat / factor, lng / factor]);
+  }
+  return coords;
+}
+
+// 利用 Turf.js 將上、下車站吸附到連續路線折線上並精準切片（[lat, lng] <-> [lng, lat] 自動轉換）
+function sliceTransitShapeWithTurf(shapeLatLngs, stopA, stopB) {
+  if (!Array.isArray(shapeLatLngs) || shapeLatLngs.length < 2) {
+    return {
+      coords: [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]],
+      km: haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng)
+    };
+  }
+
+  if (typeof window !== 'undefined' && window.turf) {
+    try {
+      const lineCoordsLngLat = shapeLatLngs.map(([lat, lng]) => [lng, lat]);
+      const line = window.turf.lineString(lineCoordsLngLat);
+      const ptStart = window.turf.point([stopA.lng, stopA.lat]);
+      const ptEnd = window.turf.point([stopB.lng, stopB.lat]);
+
+      const snappedStart = window.turf.nearestPointOnLine(line, ptStart);
+      const snappedEnd = window.turf.nearestPointOnLine(line, ptEnd);
+      const sliced = window.turf.lineSlice(snappedStart, snappedEnd, line);
+
+      if (sliced && sliced.geometry && Array.isArray(sliced.geometry.coordinates) && sliced.geometry.coordinates.length >= 2) {
+        const slicedLatLngs = sliced.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        const sliceKm = window.turf.length(sliced, { units: 'kilometers' });
+        return {
+          coords: [[stopA.lat, stopA.lng], ...slicedLatLngs, [stopB.lat, stopB.lng]],
+          km: Math.max(0.1, sliceKm)
+        };
+      }
+    } catch (e) {}
+  }
+
+  // 若 Turf.js 尚未載入的備援切片
+  let bestIdxA = 0;
+  let bestIdxB = shapeLatLngs.length - 1;
+  let minDA = Infinity;
+  let minDB = Infinity;
+  shapeLatLngs.forEach(([lat, lng], idx) => {
+    const dA = haversineKm(stopA.lat, stopA.lng, lat, lng);
+    if (dA < minDA) {
+      minDA = dA;
+      bestIdxA = idx;
+    }
+    const dB = haversineKm(stopB.lat, stopB.lng, lat, lng);
+    if (dB < minDB) {
+      minDB = dB;
+      bestIdxB = idx;
+    }
+  });
+
+  const sub = bestIdxA <= bestIdxB
+    ? shapeLatLngs.slice(bestIdxA, bestIdxB + 1)
+    : shapeLatLngs.slice(bestIdxB, bestIdxA + 1).reverse();
+
+  let km = 0;
+  for (let i = 1; i < sub.length; i++) {
+    km += haversineKm(sub[i - 1][0], sub[i - 1][1], sub[i][0], sub[i][1]);
+  }
+  return {
+    coords: [[stopA.lat, stopA.lng], ...sub, [stopB.lat, stopB.lng]],
+    km: km || haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng)
+  };
+}
 
 export function normalizeTraditionalText(str) {
   let result = String(str || '').trim();
@@ -145,7 +281,6 @@ export function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// 依真實步速換算步行分鐘數（不依賴 OSRM 汽車時速）
 export function computeWalkingMinutes(km, hasLuggage = false) {
   const val = Number(km) || 0;
   if (val <= 0) return 2;
@@ -185,11 +320,10 @@ export function isHotelTransferLeg(cardA, cardB) {
   return cardA.category === '住宿' && cardB.category === '住宿' && cardA.id !== cardB.id;
 }
 
-export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || lat === 0) return null;
+function findNearestStopInList(stops, lat, lng, maxKm) {
   let bestIdx = -1;
   let bestDist = Infinity;
-  YUI_RAIL_STATIONS.forEach((st, idx) => {
+  stops.forEach((st, idx) => {
     const d = haversineKm(lat, lng, st.lat, st.lng);
     if (d < bestDist) {
       bestDist = d;
@@ -197,195 +331,9 @@ export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
     }
   });
   if (bestIdx >= 0 && bestDist <= maxKm) {
-    return { index: bestIdx, station: YUI_RAIL_STATIONS[bestIdx], straightKm: bestDist };
+    return { index: bestIdx, stop: stops[bestIdx], straightKm: bestDist };
   }
   return null;
-}
-
-// 從 OpenStreetMap Overpass API 抓取真實沖繩單軌電車軌道幾何（way["railway"="monorail"]）並建立連通圖
-function buildMonorailGraphFromWays(ways) {
-  const nodes = [];
-  const adj = [];
-
-  function getOrCreateNode(lat, lng) {
-    for (let i = 0; i < nodes.length; i++) {
-      if (Math.abs(nodes[i][0] - lat) < 0.00018 && Math.abs(nodes[i][1] - lng) < 0.00018) {
-        return i;
-      }
-    }
-    const id = nodes.length;
-    nodes.push([lat, lng]);
-    adj.push([]);
-    return id;
-  }
-
-  for (const pts of ways) {
-    if (!Array.isArray(pts) || pts.length < 2) continue;
-    let prevId = getOrCreateNode(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) {
-      const currId = getOrCreateNode(pts[i][0], pts[i][1]);
-      if (currId !== prevId) {
-        const w = haversineKm(nodes[prevId][0], nodes[prevId][1], nodes[currId][0], nodes[currId][1]);
-        adj[prevId].push({ to: currId, w });
-        adj[currId].push({ to: prevId, w });
-        prevId = currId;
-      }
-    }
-  }
-
-  // 橋接上下行雙軌間隙（< 35 公尺），確保全線 19 站完全連通
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (Math.abs(nodes[i][0] - nodes[j][0]) < 0.00035 && Math.abs(nodes[i][1] - nodes[j][1]) < 0.00035) {
-        const w = haversineKm(nodes[i][0], nodes[i][1], nodes[j][0], nodes[j][1]);
-        if (w > 0 && w <= 0.035) {
-          adj[i].push({ to: j, w });
-          adj[j].push({ to: i, w });
-        }
-      }
-    }
-  }
-
-  return nodes.length > 30 ? { nodes, adj } : null;
-}
-
-async function getRealYuiRailOsmGraph() {
-  if (cachedYuiRailGraph) return cachedYuiRailGraph;
-
-  try {
-    const rawCache = localStorage.getItem(YUI_RAIL_OSM_CACHE_KEY);
-    if (rawCache) {
-      const parsedWays = JSON.parse(rawCache);
-      const graph = buildMonorailGraphFromWays(parsedWays);
-      if (graph) {
-        cachedYuiRailGraph = graph;
-        return graph;
-      }
-    }
-  } catch (e) {}
-
-  if (!yuiRailGraphPromise) {
-    yuiRailGraphPromise = (async () => {
-      try {
-        const query = '[out:json][timeout:10];way["railway"="monorail"](26.185,127.645,26.250,127.750);out geom;';
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query
-        });
-        const data = await res.json();
-        if (data && Array.isArray(data.elements) && data.elements.length > 0) {
-          const ways = data.elements
-            .filter(el => Array.isArray(el.geometry) && el.geometry.length >= 2)
-            .map(el => el.geometry.map(pt => [Number(pt.lat.toFixed(5)), Number(pt.lon.toFixed(5))]));
-          const graph = buildMonorailGraphFromWays(ways);
-          if (graph) {
-            cachedYuiRailGraph = graph;
-            try {
-              localStorage.setItem(YUI_RAIL_OSM_CACHE_KEY, JSON.stringify(ways));
-            } catch (e) {}
-            return graph;
-          }
-        }
-      } catch (e) {}
-      return null;
-    })();
-  }
-
-  return yuiRailGraphPromise;
-}
-
-function findShortestTrackOnOsmGraph(graph, stA, stB) {
-  if (!graph) return null;
-  const { nodes, adj } = graph;
-
-  let startNode = -1;
-  let endNode = -1;
-  let bestStartD = Infinity;
-  let bestEndD = Infinity;
-
-  for (let i = 0; i < nodes.length; i++) {
-    const dA = haversineKm(stA.lat, stA.lng, nodes[i][0], nodes[i][1]);
-    if (dA < bestStartD) {
-      bestStartD = dA;
-      startNode = i;
-    }
-    const dB = haversineKm(stB.lat, stB.lng, nodes[i][0], nodes[i][1]);
-    if (dB < bestEndD) {
-      bestEndD = dB;
-      endNode = i;
-    }
-  }
-
-  if (startNode < 0 || endNode < 0 || bestStartD > 0.25 || bestEndD > 0.25) return null;
-
-  const n = nodes.length;
-  const dist = new Float64Array(n).fill(Infinity);
-  const prev = new Int32Array(n).fill(-1);
-  const visited = new Uint8Array(n);
-  dist[startNode] = 0;
-
-  for (let iter = 0; iter < n; iter++) {
-    let u = -1;
-    let minD = Infinity;
-    for (let i = 0; i < n; i++) {
-      if (!visited[i] && dist[i] < minD) {
-        minD = dist[i];
-        u = i;
-      }
-    }
-    if (u === -1 || u === endNode) break;
-    visited[u] = 1;
-
-    for (const edge of adj[u]) {
-      const alt = dist[u] + edge.w;
-      if (alt < dist[edge.to]) {
-        dist[edge.to] = alt;
-        prev[edge.to] = u;
-      }
-    }
-  }
-
-  if (!Number.isFinite(dist[endNode])) return null;
-
-  const path = [];
-  let curr = endNode;
-  while (curr !== -1) {
-    path.push(nodes[curr]);
-    curr = prev[curr];
-  }
-  path.reverse();
-  return path.length >= 2 ? path : null;
-}
-
-// 備援高密度單軌高架軌道折線座標
-function buildFallbackYuiRailTrackCoordinates(startIndex, endIndex) {
-  const coords = [];
-  if (startIndex === endIndex) {
-    const st = YUI_RAIL_STATIONS[startIndex];
-    return [[st.lat, st.lng]];
-  }
-
-  if (startIndex < endIndex) {
-    coords.push([YUI_RAIL_STATIONS[startIndex].lat, YUI_RAIL_STATIONS[startIndex].lng]);
-    for (let i = startIndex + 1; i <= endIndex; i++) {
-      const st = YUI_RAIL_STATIONS[i];
-      if (Array.isArray(st.viaPrev) && st.viaPrev.length > 0) {
-        st.viaPrev.forEach(pt => coords.push([pt[0], pt[1]]));
-      }
-      coords.push([st.lat, st.lng]);
-    }
-  } else {
-    coords.push([YUI_RAIL_STATIONS[startIndex].lat, YUI_RAIL_STATIONS[startIndex].lng]);
-    for (let i = startIndex; i > endIndex; i--) {
-      const currSt = YUI_RAIL_STATIONS[i];
-      const prevSt = YUI_RAIL_STATIONS[i - 1];
-      if (Array.isArray(currSt.viaPrev) && currSt.viaPrev.length > 0) {
-        [...currSt.viaPrev].reverse().forEach(pt => coords.push([pt[0], pt[1]]));
-      }
-      coords.push([prevSt.lat, prevSt.lng]);
-    }
-  }
-  return coords;
 }
 
 export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
@@ -453,14 +401,56 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   };
 }
 
+// 優先呼叫 Valhalla 開源多模式路網（支援真實步行階梯與步道），若連線逾時則無縫退回 OSRM
 export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') {
-  const osrmProfile = mode === 'walk' ? 'foot' : 'driving';
-  const cacheKey = `${osrmProfile}_${Number(lat1).toFixed(5)},${Number(lng1).toFixed(5)}_${Number(lat2).toFixed(5)},${Number(lng2).toFixed(5)}`;
-  if (osrmRouteCache[cacheKey]) {
-    return osrmRouteCache[cacheKey];
+  const isWalk = mode === 'walk';
+  const cacheKey = `${isWalk ? 'ped' : 'auto'}_${Number(lat1).toFixed(5)},${Number(lng1).toFixed(5)}_${Number(lat2).toFixed(5)},${Number(lng2).toFixed(5)}`;
+  if (roadRouteCache[cacheKey]) {
+    return roadRouteCache[cacheKey];
   }
 
+  // 1. 嘗試 Valhalla API (valhalla1.openstreetmap.de)
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4500);
+    const valhallaRes = await fetch('https://valhalla1.openstreetmap.de/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        locations: [
+          { lat: Number(lat1), lon: Number(lng1) },
+          { lat: Number(lat2), lon: Number(lng2) }
+        ],
+        costing: isWalk ? 'pedestrian' : 'auto',
+        units: 'kilometers'
+      })
+    });
+    clearTimeout(timer);
+
+    if (valhallaRes.ok) {
+      const vData = await valhallaRes.json();
+      const leg = vData?.trip?.legs?.[0];
+      const summary = vData?.trip?.summary;
+      if (leg && leg.shape && summary) {
+        const latLngs = decodeValhallaPolyline6(leg.shape);
+        const distanceKm = Number(summary.length) || haversineKm(lat1, lng1, lat2, lng2);
+        const durationMin = isWalk
+          ? Math.max(2, Math.round((Number(summary.time) || 0) / 60))
+          : Math.max(3, Math.round((Number(summary.time) || 0) / 60));
+
+        if (latLngs.length >= 2) {
+          const result = { latLngs, distanceKm, durationMin, engine: 'valhalla' };
+          roadRouteCache[cacheKey] = result;
+          return result;
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 2. 備援：OSRM 路網幾何 ＋ 真實步速換算
+  try {
+    const osrmProfile = isWalk ? 'foot' : 'driving';
     const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
     const res = await fetch(url);
     const data = await res.json();
@@ -468,12 +458,12 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
       const route = data.routes[0];
       const latLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       const distanceKm = route.distance / 1000;
-      const durationMin = mode === 'walk'
+      const durationMin = isWalk
         ? computeWalkingMinutes(distanceKm, false)
         : Math.max(3, Math.round(route.duration / 60));
 
-      const result = { latLngs, distanceKm, durationMin };
-      osrmRouteCache[cacheKey] = result;
+      const result = { latLngs, distanceKm, durationMin, engine: 'osrm' };
+      roadRouteCache[cacheKey] = result;
       return result;
     }
   } catch (e) {}
@@ -482,7 +472,8 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
   return {
     latLngs: [[lat1, lng1], [lat2, lng2]],
     distanceKm: fallbackKm,
-    durationMin: mode === 'walk' ? computeWalkingMinutes(fallbackKm, false) : null
+    durationMin: isWalk ? computeWalkingMinutes(fallbackKm, false) : null,
+    engine: 'fallback'
   };
 }
 
@@ -493,7 +484,7 @@ export async function fetchNearestTransitStop(lat, lng) {
   }
 
   try {
-    const query = `[out:json][timeout:6];(node(around:650,${lat},${lng})["highway"="bus_stop"];node(around:800,${lat},${lng})["railway"="station"];node(around:800,${lat},${lng})["station"="monorail"];);out body 5;`;
+    const query = `[out:json][timeout:6];(node(around:650,${lat},${lng})["highway"="bus_stop"];node(around:800,${lat},${lng})["railway"="station"];);out body 5;`;
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: query
@@ -509,8 +500,7 @@ export async function fetchNearestTransitStop(lat, lng) {
           best = {
             lat: el.lat,
             lng: el.lon,
-            name: el.tags?.['name:zh'] || el.tags?.name || (el.tags?.railway ? '單軌車站' : '公車站牌'),
-            isRail: Boolean(el.tags?.railway || el.tags?.station),
+            name: el.tags?.['name:zh'] || el.tags?.name || '公車站牌',
             walkKm: d
           };
         }
@@ -524,47 +514,95 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-// 優先使用 OpenStreetMap 真實單軌軌道圖資＋站間時刻表，若不在單軌沿線則自動切換為公車站牌接駁＋步行
+// 結合 GTFS 路線庫 ＋ Turf.js 精準切片 ＋ Valhalla 兩端步行的多模式 대중運輸規劃
 export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer = false) {
-  const railA = findNearestYuiRailStation(cardA.lat, cardA.lng, 1.25);
-  const railB = findNearestYuiRailStation(cardB.lat, cardB.lng, 1.25);
+  const db = await getOkinawaTransitDatabase();
 
-  if (railA && railB && Math.abs(railA.index - railB.index) >= 2) {
-    const [walk1, walk2, osmGraph] = await Promise.all([
-      fetchRealRoadPath(cardA.lat, cardA.lng, railA.station.lat, railA.station.lng, 'walk'),
-      fetchRealRoadPath(railB.station.lat, railB.station.lng, cardB.lat, cardB.lng, 'walk'),
-      getRealYuiRailOsmGraph()
-    ]);
+  // 第一順位：沖繩都市單軌電車（Yui Rail）
+  if (db && db.yui_rail && Array.isArray(db.yui_rail.stations)) {
+    const railA = findNearestStopInList(db.yui_rail.stations, cardA.lat, cardA.lng, 1.25);
+    const railB = findNearestStopInList(db.yui_rail.stations, cardB.lat, cardB.lng, 1.25);
 
-    const exactOsmTrack = findShortestTrackOnOsmGraph(osmGraph, railA.station, railB.station);
-    const railCoords = exactOsmTrack || buildFallbackYuiRailTrackCoordinates(railA.index, railB.index);
+    if (railA && railB && Math.abs(railA.index - railB.index) >= 1) {
+      const [walk1, walk2] = await Promise.all([
+        fetchRealRoadPath(cardA.lat, cardA.lng, railA.stop.lat, railA.stop.lng, 'walk'),
+        fetchRealRoadPath(railB.stop.lat, railB.stop.lng, cardB.lat, cardB.lng, 'walk')
+      ]);
 
-    let railTrackKm = 0;
-    for (let i = 1; i < railCoords.length; i++) {
-      railTrackKm += haversineKm(railCoords[i - 1][0], railCoords[i - 1][1], railCoords[i][0], railCoords[i][1]);
+      const slicedRail = sliceTransitShapeWithTurf(db.yui_rail.shape, railA.stop, railB.stop);
+      const walk1Min = railA.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+      const walk2Min = railB.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+      const railRideMin = Math.abs(railB.stop.cumMin - railA.stop.cumMin);
+      const waitMin = Number(db.yui_rail.waitMin) || 3;
+      const totalKm = (walk1.distanceKm || 0) + slicedRail.km + (walk2.distanceKm || 0);
+
+      return {
+        isMonorail: true,
+        routeColor: db.yui_rail.color || '#dc2626',
+        hasStopSplit: true,
+        stopA: railA.stop,
+        stopB: railB.stop,
+        walk1Path: walk1.latLngs,
+        ridePath: slicedRail.coords,
+        walk2Path: walk2.latLngs,
+        totalKm,
+        totalMin: walk1Min + railRideMin + waitMin + walk2Min,
+        transitDetailLabel: `🚝 單軌(${railA.stop.name.replace('站', '')}→${railB.stop.name.replace('站', '')}) + 🚶步行`
+      };
     }
-
-    const walk1Min = railA.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
-    const walk2Min = railB.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
-    const railRideMin = Math.abs(railB.station.cumMin - railA.station.cumMin);
-    const waitAndGateMin = 3;
-    const totalKm = (walk1.distanceKm || 0) + railTrackKm + (walk2.distanceKm || 0);
-
-    return {
-      isMonorail: true,
-      hasStopSplit: true,
-      stopA: { lat: railA.station.lat, lng: railA.station.lng, name: railA.station.name },
-      stopB: { lat: railB.station.lat, lng: railB.station.lng, name: railB.station.name },
-      walk1Path: walk1.latLngs,
-      ridePath: railCoords,
-      walk2Path: walk2.latLngs,
-      totalKm,
-      totalMin: walk1Min + railRideMin + waitAndGateMin + walk2Min,
-      transitDetailLabel: `🚝 單軌(${railA.station.name.replace('站', '')}→${railB.station.name.replace('站', '')}) + 🚶步行`
-    };
   }
 
-  // 非單軌沿線（例如北谷美國村、浦添 PARCO CITY）：搜尋最近公車站牌接駁＋步行
+  // 第二順位：沖繩主要觀光幹線公車（GTFS 路線比對 ＋ Turf.js 精準公路切片）
+  if (db && Array.isArray(db.buses) && db.buses.length > 0) {
+    let bestBusMatch = null;
+    let bestWalkSum = Infinity;
+
+    for (const bus of db.buses) {
+      const stA = findNearestStopInList(bus.stops, cardA.lat, cardA.lng, 1.35);
+      const stB = findNearestStopInList(bus.stops, cardB.lat, cardB.lng, 1.35);
+      if (stA && stB && stA.index !== stB.index) {
+        const walkSum = stA.straightKm + stB.straightKm;
+        if (walkSum < bestWalkSum) {
+          bestWalkSum = walkSum;
+          bestBusMatch = { bus, stA, stB };
+        }
+      }
+    }
+
+    if (bestBusMatch) {
+      const { bus, stA, stB } = bestBusMatch;
+      const [walk1, walk2] = await Promise.all([
+        fetchRealRoadPath(cardA.lat, cardA.lng, stA.stop.lat, stA.stop.lng, 'walk'),
+        fetchRealRoadPath(stB.stop.lat, stB.stop.lng, cardB.lat, cardB.lng, 'walk')
+      ]);
+
+      const slicedBus = sliceTransitShapeWithTurf(bus.shape, stA.stop, stB.stop);
+      const walk1Min = stA.straightKm < 0.1 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+      const walk2Min = stB.straightKm < 0.1 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+      const busRideMin = Math.max(5, Math.abs(stB.stop.cumMin - stA.stop.cumMin));
+      const waitMin = Number(bus.waitMin) || 7;
+      const totalKm = (walk1.distanceKm || 0) + slicedBus.km + (walk2.distanceKm || 0);
+
+      const shortStopA = stA.stop.name.replace(/（.*?）|\(.*?\)/g, '');
+      const shortStopB = stB.stop.name.replace(/（.*?）|\(.*?\)/g, '');
+
+      return {
+        isMonorail: false,
+        routeColor: bus.color || '#7c3aed',
+        hasStopSplit: true,
+        stopA: stA.stop,
+        stopB: stB.stop,
+        walk1Path: walk1.latLngs,
+        ridePath: slicedBus.coords,
+        walk2Path: walk2.latLngs,
+        totalKm,
+        totalMin: walk1Min + busRideMin + waitMin + walk2Min,
+        transitDetailLabel: `🚌 ${bus.routeNo}(${shortStopA}→${shortStopB}) + 🚶步行`
+      };
+    }
+  }
+
+  // 第三順位（備援）：區域短程支線公車（OSM 站牌 ＋ Valhalla 步行接駁）
   const [stopA, stopB] = await Promise.all([
     fetchNearestTransitStop(cardA.lat, cardA.lng),
     fetchNearestTransitStop(cardB.lat, cardB.lng)
@@ -586,6 +624,7 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
 
     return {
       isMonorail: false,
+      routeColor: '#7c3aed',
       hasStopSplit: true,
       stopA,
       stopB,
@@ -594,12 +633,13 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
       walk2Path: walk2.latLngs,
       totalKm: totalKm || directRoad.distanceKm,
       totalMin: walk1Min + busRideMin + walk2Min,
-      transitDetailLabel: '🚌 公車 + 🚶 步行'
+      transitDetailLabel: '🚌 區間公車 + 🚶 步行'
     };
   }
 
   return {
     isMonorail: false,
+    routeColor: '#7c3aed',
     hasStopSplit: false,
     stopA: null,
     stopB: null,
