@@ -12,39 +12,172 @@ const transitStopCache = {};
 let transitDbPromise = null;
 let cachedTransitDb = null;
 
-// 讀取靜態 GTFS 大眾運輸路線庫（data/okinawa_transit.json）
+const EXACT_SHAPE_CACHE_KEY = 'okinawa_exact_osm_shapes_v1';
+
+// 從 OpenStreetMap 抓取單軌電車真實高密度軌道頂點，並用單向向量接龍法串成單一連續中心線
+async function fetchAndStitchExactMonorailShape(stations) {
+  try {
+    const cachedRaw = localStorage.getItem(EXACT_SHAPE_CACHE_KEY);
+    if (cachedRaw) {
+      const parsed = JSON.parse(cachedRaw);
+      if (Array.isArray(parsed) && parsed.length > 150) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const query = `[out:json][timeout:10];way["railway"="monorail"](26.185,127.645,26.255,127.755);out geom;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: query
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.elements) || data.elements.length === 0) return null;
+
+    const ways = data.elements
+      .filter(el => el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2)
+      .map(el => el.geometry.map(pt => [pt.lat, pt.lon]));
+
+    if (ways.length === 0) return null;
+
+    const startPt = [stations[0].lat, stations[0].lng]; // 那霸機場站
+    const endPt = [stations[stations.length - 1].lat, stations[stations.length - 1].lng]; // てだこ浦西站
+
+    // 1. 找出距離那霸機場站最近的一段軌道作為起點
+    let bestWayIdx = -1;
+    let bestReverse = false;
+    let minStartDist = Infinity;
+
+    ways.forEach((pts, idx) => {
+      const dFirst = haversineKm(startPt[0], startPt[1], pts[0][0], pts[0][1]);
+      const dLast = haversineKm(startPt[0], startPt[1], pts[pts.length - 1][0], pts[pts.length - 1][1]);
+      if (dFirst < minStartDist) {
+        minStartDist = dFirst;
+        bestWayIdx = idx;
+        bestReverse = false;
+      }
+      if (dLast < minStartDist) {
+        minStartDist = dLast;
+        bestWayIdx = idx;
+        bestReverse = true;
+      }
+    });
+
+    if (bestWayIdx < 0) return null;
+
+    const used = new Set([bestWayIdx]);
+    const stitched = bestReverse ? [...ways[bestWayIdx]].reverse() : [...ways[bestWayIdx]];
+
+    // 2. 沿前進向量接龍下一段軌道（排除對向平行雙軌的折返段）
+    let guard = 0;
+    while (guard++ < ways.length + 5) {
+      const tail = stitched[stitched.length - 1];
+      const prev = stitched[Math.max(0, stitched.length - 2)];
+      const dirLat = tail[0] - prev[0];
+      const dirLng = tail[1] - prev[1];
+
+      if (haversineKm(tail[0], tail[1], endPt[0], endPt[1]) < 0.08) {
+        break;
+      }
+
+      let nextIdx = -1;
+      let nextReverse = false;
+      let bestScore = Infinity;
+
+      ways.forEach((pts, idx) => {
+        if (used.has(idx)) return;
+        const p0 = pts[0];
+        const p1 = pts[pts.length - 1];
+
+        const d0 = haversineKm(tail[0], tail[1], p0[0], p0[1]);
+        if (d0 < 0.12) {
+          const nextStep = pts[1] || p1;
+          const vLat = nextStep[0] - p0[0];
+          const vLng = nextStep[1] - p0[1];
+          const dot = dirLat * vLat + dirLng * vLng;
+          if (dot >= -1e-9 && d0 < bestScore) {
+            bestScore = d0;
+            nextIdx = idx;
+            nextReverse = false;
+          }
+        }
+
+        const d1 = haversineKm(tail[0], tail[1], p1[0], p1[1]);
+        if (d1 < 0.12) {
+          const nextStep = pts[pts.length - 2] || p0;
+          const vLat = nextStep[0] - p1[0];
+          const vLng = nextStep[1] - p1[1];
+          const dot = dirLat * vLat + dirLng * vLng;
+          if (dot >= -1e-9 && d1 < bestScore) {
+            bestScore = d1;
+            nextIdx = idx;
+            nextReverse = true;
+          }
+        }
+      });
+
+      if (nextIdx < 0) break;
+      used.add(nextIdx);
+      const seg = nextReverse ? [...ways[nextIdx]].reverse() : [...ways[nextIdx]];
+      stitched.push(...seg.slice(1));
+    }
+
+    if (stitched.length > 150) {
+      try {
+        localStorage.setItem(EXACT_SHAPE_CACHE_KEY, JSON.stringify(stitched));
+      } catch (e) {}
+      return stitched;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+// 讀取靜態 GTFS 大眾運輸路線庫（data/okinawa_transit.json）並自動升級高密度軌道幾何
 async function getOkinawaTransitDatabase() {
   if (cachedTransitDb) return cachedTransitDb;
   if (!transitDbPromise) {
     transitDbPromise = (async () => {
+      let db = null;
       try {
         const res = await fetch('./data/okinawa_transit.json');
         if (res.ok) {
-          const data = await res.json();
-          cachedTransitDb = data;
-          return data;
+          db = await res.json();
         }
       } catch (e) {}
-      // 備援內建單軌資料（避免本機 file:// 開啟時 fetch 受限）
-      const fallbackDb = {
-        yui_rail: {
-          id: 'yui_rail',
-          name: '沖繩都市單軌電車 (Yui Rail)',
-          color: '#dc2626',
-          waitMin: 3,
-          stations: YUI_RAIL_STATIONS.map((st, idx) => ({
-            id: `YR${idx + 1}`,
-            name: st.name,
-            lat: st.lat,
-            lng: st.lng,
-            cumMin: st.cumMin
-          })),
-          shape: YUI_RAIL_STATIONS.flatMap(st => [...(st.viaPrev || []), [st.lat, st.lng]])
-        },
-        buses: []
-      };
-      cachedTransitDb = fallbackDb;
-      return fallbackDb;
+
+      if (!db) {
+        db = {
+          yui_rail: {
+            id: 'yui_rail',
+            name: '沖繩都市單軌電車 (Yui Rail)',
+            color: '#dc2626',
+            waitMin: 3,
+            stations: YUI_RAIL_STATIONS.map((st, idx) => ({
+              id: `YR${idx + 1}`,
+              name: st.name,
+              lat: st.lat,
+              lng: st.lng,
+              cumMin: st.cumMin
+            })),
+            shape: YUI_RAIL_STATIONS.flatMap(st => [...(st.viaPrev || []), [st.lat, st.lng]])
+          },
+          buses: []
+        };
+      }
+
+      // 若目前單軌 shape 點數較疏（< 150 點），自動從底圖抓取真實高密度軌道並快取
+      if (db.yui_rail && Array.isArray(db.yui_rail.stations) && (!db.yui_rail.shape || db.yui_rail.shape.length < 150)) {
+        const exactShape = await fetchAndStitchExactMonorailShape(db.yui_rail.stations);
+        if (exactShape && exactShape.length >= 150) {
+          db.yui_rail.shape = exactShape;
+        }
+      }
+
+      cachedTransitDb = db;
+      return db;
     })();
   }
   return transitDbPromise;
@@ -110,7 +243,7 @@ function sliceTransitShapeWithTurf(shapeLatLngs, stopA, stopB) {
         const slicedLatLngs = sliced.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
         const sliceKm = window.turf.length(sliced, { units: 'kilometers' });
         return {
-          coords: [[stopA.lat, stopA.lng], ...slicedLatLngs, [stopB.lat, stopB.lng]],
+          coords: slicedLatLngs,
           km: Math.max(0.1, sliceKm)
         };
       }
@@ -144,7 +277,7 @@ function sliceTransitShapeWithTurf(shapeLatLngs, stopA, stopB) {
     km += haversineKm(sub[i - 1][0], sub[i - 1][1], sub[i][0], sub[i][1]);
   }
   return {
-    coords: [[stopA.lat, stopA.lng], ...sub, [stopB.lat, stopB.lng]],
+    coords: sub.length >= 2 ? sub : [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]],
     km: km || haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng)
   };
 }
@@ -514,7 +647,7 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-// 結合 GTFS 路線庫 ＋ Turf.js 精準切片 ＋ Valhalla 兩端步行的多模式 대중運輸規劃
+// 結合 GTFS 路線庫 ＋ Turf.js 精準切片 ＋ Valhalla 兩端步行的多模式大眾運輸規劃
 export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer = false) {
   const db = await getOkinawaTransitDatabase();
 
@@ -552,7 +685,7 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
     }
   }
 
-  // 第二順位：沖繩主要觀光幹線公車（GTFS 路線比對 ＋ Turf.js 精準公路切片）
+  // 第二順位：沖繩主要觀光幹線公車（GTFS 路線比對 ＋ 道路真實折線貼合）
   if (db && Array.isArray(db.buses) && db.buses.length > 0) {
     let bestBusMatch = null;
     let bestWalkSum = Infinity;
@@ -571,12 +704,17 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
 
     if (bestBusMatch) {
       const { bus, stA, stB } = bestBusMatch;
-      const [walk1, walk2] = await Promise.all([
+      const [walk1, busRoad, walk2] = await Promise.all([
         fetchRealRoadPath(cardA.lat, cardA.lng, stA.stop.lat, stA.stop.lng, 'walk'),
+        fetchRealRoadPath(stA.stop.lat, stA.stop.lng, stB.stop.lat, stB.stop.lng, 'drive'),
         fetchRealRoadPath(stB.stop.lat, stB.stop.lng, cardB.lat, cardB.lng, 'walk')
       ]);
 
-      const slicedBus = sliceTransitShapeWithTurf(bus.shape, stA.stop, stB.stop);
+      const useRoadPath = busRoad && Array.isArray(busRoad.latLngs) && busRoad.latLngs.length >= 4;
+      const slicedBus = useRoadPath
+        ? { coords: busRoad.latLngs, km: busRoad.distanceKm }
+        : sliceTransitShapeWithTurf(bus.shape, stA.stop, stB.stop);
+
       const walk1Min = stA.straightKm < 0.1 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
       const walk2Min = stB.straightKm < 0.1 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
       const busRideMin = Math.max(5, Math.abs(stB.stop.cumMin - stA.stop.cumMin));
