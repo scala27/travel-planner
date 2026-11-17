@@ -21,6 +21,8 @@ let mapInstance = null;
 let mapMarkersLayer = null;
 let mapRouteLayer = null;
 let markerLookup = {};
+// 非同步渲染版本鎖，避免快速切換日期時舊日期的查詢結果覆蓋新日期
+let currentRenderToken = 0;
 
 export function getMapInstance() {
   return mapInstance;
@@ -38,6 +40,13 @@ export function initLeafletMap() {
 
   mapMarkersLayer = L.layerGroup().addTo(mapInstance);
   mapRouteLayer = L.layerGroup().addTo(mapInstance);
+}
+
+function hasValidCoords(card) {
+  if (!card) return false;
+  const lat = Number(card.lat);
+  const lng = Number(card.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
 }
 
 function createColoredPinIcon(color, labelText, isGhost = false, isWideBadge = false) {
@@ -120,7 +129,7 @@ export function toggleOverlayPocketOnPlanMap() {
   renderMapMarkers();
 }
 
-async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = null) {
+async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, renderToken) {
   const est = resolveLegModeAndEstimate(cardA, cardB, item.transitMode || 'auto');
   const activeMode = est.mode;
   const isHotelTransfer = est.isHotelTransfer;
@@ -128,15 +137,17 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
   let legKm = est.km;
   let transitDetailLabel = '';
 
-  const hasCoordsA = Number.isFinite(Number(cardA.lat)) && Number.isFinite(Number(cardA.lng)) && Number(cardA.lat) !== 0;
-  const hasCoordsB = Number.isFinite(Number(cardB.lat)) && Number.isFinite(Number(cardB.lng)) && Number(cardB.lat) !== 0;
+  const hasCoordsA = hasValidCoords(cardA);
+  const hasCoordsB = hasValidCoords(cardB);
 
   if (hasCoordsA && hasCoordsB) {
     if (activeMode === 'flight') {
+      if (renderToken !== currentRenderToken) return null;
       const arcPts = buildCurvedFlightArc(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
       L.polyline(arcPts, { color: dayColorOverride || '#0284c7', weight: 3, opacity: 0.78, dashArray: '8, 8' }).addTo(mapRouteLayer);
     } else if (activeMode === 'walk') {
       const walkData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'walk');
+      if (renderToken !== currentRenderToken) return null;
       legKm = walkData.distanceKm || legKm;
       legMin = computeWalkingMinutes(legKm, isHotelTransfer);
       L.polyline(walkData.latLngs, {
@@ -147,6 +158,7 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
       }).addTo(mapRouteLayer);
     } else if (activeMode === 'transit') {
       const multiSeg = await buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer);
+      if (renderToken !== currentRenderToken) return null;
       transitDetailLabel = multiSeg.transitDetailLabel;
       legKm = multiSeg.totalKm || legKm;
       if (multiSeg.totalMin) {
@@ -154,12 +166,9 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
       }
 
       if (multiSeg.hasStopSplit) {
-        // 起點 → 上車站（綠色步行虛線）
         L.polyline(multiSeg.walk1Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
-        // 單軌電車採沖繩單軌代表紅紫色實線，一般公車採紫色實線
         const rideColor = dayColorOverride || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
-        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.9 }).addTo(mapRouteLayer);
-        // 下車站 → 終點（綠色步行虛線）
+        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.92 }).addTo(mapRouteLayer);
         L.polyline(multiSeg.walk2Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
 
         createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail).addTo(mapRouteLayer);
@@ -168,8 +177,8 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
         L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
       }
     } else {
-      // 計程車（點對點）與自駕（含停車取車緩衝 6 分鐘）
       const driveData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
+      if (renderToken !== currentRenderToken) return null;
       legKm = driveData.distanceKm || legKm;
       if (driveData.durationMin) {
         legMin = activeMode === 'taxi'
@@ -181,7 +190,8 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
     }
   }
 
-  // 若使用者有手動鎖定 Google Maps 查到的精準分鐘數或路線備註，優先套用
+  if (renderToken !== currentRenderToken) return null;
+
   const hasCustomLock = Number(item.transitMin) > 0;
   if (hasCustomLock) {
     legMin = Number(item.transitMin);
@@ -194,9 +204,10 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
   const modeLabel = `${transferTag}${baseModeLabel}`;
   const distText = formatDistanceLabel(legKm);
   const lockBadge = hasCustomLock ? ' 🔒' : '';
+  const missingCoordTag = (!hasCoordsA || !hasCoordsB) ? '⚠️ 缺座標・' : '';
   const summaryText = distText
-    ? `${modeLabel}｜約 ${distText}・${legMin} 分${lockBadge}`
-    : `${modeLabel}｜約 ${legMin} 分${lockBadge}`;
+    ? `${missingCoordTag}${modeLabel}｜約 ${distText}・${legMin} 分${lockBadge}`
+    : `${missingCoordTag}${modeLabel}｜約 ${legMin} 分${lockBadge}`;
 
   const cacheKey = `${cardA.id}_${cardB.id}_${item.transitMode || 'auto'}_${item.transitMin || 0}_${item.customTransitNote || ''}_${document.getElementById('transitProfileSelect')?.value || 'smart'}`;
   const prevCached = state.routeMetricsCache[cacheKey];
@@ -215,21 +226,22 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
     legKm,
     legMin,
     summaryText,
+    hasMissingCoords: !hasCoordsA || !hasCoordsB,
     changed: !prevCached || prevCached.summaryText !== summaryText
   };
 }
 
 function buildPreciseGoogleMapsDirUrl(cardA, cardB, activeMode) {
   const gdirMode = activeMode === 'walk' ? 'walking' : ((activeMode === 'drive' || activeMode === 'taxi') ? 'driving' : 'transit');
-  const hasA = Number.isFinite(Number(cardA.lat)) && Number.isFinite(Number(cardA.lng)) && Number(cardA.lat) !== 0;
-  const hasB = Number.isFinite(Number(cardB.lat)) && Number.isFinite(Number(cardB.lng)) && Number(cardB.lat) !== 0;
-  const originParam = hasA ? `${cardA.lat},${cardA.lng}` : encodeURIComponent(cardA.title);
-  const destParam = hasB ? `${cardB.lat},${cardB.lng}` : encodeURIComponent(cardB.title);
+  const originParam = hasValidCoords(cardA) ? `${cardA.lat},${cardA.lng}` : encodeURIComponent(cardA.title);
+  const destParam = hasValidCoords(cardB) ? `${cardB.lat},${cardB.lng}` : encodeURIComponent(cardB.title);
   return `https://www.google.com/maps/dir/?api=1&origin=${originParam}&destination=${destParam}&travelmode=${gdirMode}`;
 }
 
 export async function renderMapMarkers(filteredCardsProvider = null) {
   if (!mapInstance) return;
+  const renderToken = ++currentRenderToken;
+
   mapMarkersLayer.clearLayers();
   mapRouteLayer.clearLayers();
   markerLookup = {};
@@ -241,9 +253,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     if (legendBox) legendBox.classList.add('hidden');
     const rawList = typeof filteredCardsProvider === 'function' ? filteredCardsProvider() : state.cards;
     const cards = rawList.filter(c =>
-      Number.isFinite(Number(c.lat)) &&
-      Number.isFinite(Number(c.lng)) &&
-      Number(c.lat) !== 0 &&
+      hasValidCoords(c) &&
       state.mapVisibleCategories[c.category] !== false
     );
     document.getElementById('mapPinCounter').textContent = `${cards.length} 釘`;
@@ -306,6 +316,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     let visiblePinCount = 0;
 
     for (let d = 1; d <= totalDays; d++) {
+      if (renderToken !== currentRenderToken) return;
       const items = state.itinerary[d]?.items || [];
       if (items.length === 0) continue;
 
@@ -322,10 +333,11 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
 
       let stopIndex = 0;
       for (let idx = 0; idx < items.length; idx++) {
+        if (renderToken !== currentRenderToken) return;
         const item = items[idx];
         const card = state.cards.find(c => c.id === item.cardId);
         if (!card) continue;
-        const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+        const cardHasCoords = hasValidCoords(card);
         const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
         const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
         const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
@@ -334,7 +346,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         const hotelTag = item.isCheckout ? `D${d}退` : `D${d}宿`;
         const shortTag = card.category === '住宿' ? hotelTag : (card.category === '機場' ? `D${d}機` : `${d}-${stopIndex}`);
 
-        if (hasCoords) {
+        if (cardHasCoords) {
           allCoords.push([card.lat, card.lng]);
           const isTaiwanOriginAirport = card.category === '機場' && ((card.country || '').includes('台') || (card.country || '').includes('臺'));
           if (!isTaiwanOriginAirport) {
@@ -380,7 +392,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         const nextItem = items[idx + 1];
         const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
         if (nextCard) {
-          const legRes = await drawAndComputeLegRoute(card, nextCard, item, dayColor);
+          const legRes = await drawAndComputeLegRoute(card, nextCard, item, dayColor, renderToken);
+          if (!legRes || renderToken !== currentRenderToken) return;
           grandTotalMin += legRes.legMin;
           grandTotalKm += legRes.legKm;
 
@@ -394,6 +407,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         }
       }
     }
+
+    if (renderToken !== currentRenderToken) return;
 
     if (legendBox) {
       legendBox.classList.remove('hidden');
@@ -422,17 +437,19 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
   }
 
   // ==================== 模式 2：單日聚焦路線檢核模式 ====================
+  const d = state.selectedMapDay;
   if (legendBox) legendBox.classList.add('hidden');
   if (drawerTitle) {
-    drawerTitle.innerHTML = `<i class="fa-solid fa-route text-blue-600 mr-1"></i>當日路線分段明細`;
+    drawerTitle.innerHTML = `<i class="fa-solid fa-route text-blue-600 mr-1"></i>Day ${d} 路線分段明細`;
   }
 
-  const d = state.selectedMapDay;
   const items = state.itinerary[d]?.items || [];
   const dayCardIds = new Set(items.map(it => it.cardId));
   const allCoords = [];
   const localDestinationCoords = [];
   const legsHtml = [];
+  const hiddenLayerStops = [];
+  const missingCoordStops = [];
   let totalMin = 0;
   let totalKm = 0;
   let stopIndex = 0;
@@ -440,10 +457,11 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
   let anyMetricUpdated = false;
 
   for (let idx = 0; idx < items.length; idx++) {
+    if (renderToken !== currentRenderToken) return;
     const item = items[idx];
     const card = state.cards.find(c => c.id === item.cardId);
     if (!card) continue;
-    const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+    const cardHasCoords = hasValidCoords(card);
     const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
     const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
     const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
@@ -454,14 +472,18 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
       ? (item.isCheckout ? '退' : '宿')
       : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
 
-    if (hasCoords) {
+    if (!cardHasCoords) {
+      missingCoordStops.push({ card, label });
+    } else {
       allCoords.push([card.lat, card.lng]);
       const isTaiwanOriginAirport = card.category === '機場' && ((card.country || '').includes('台') || (card.country || '').includes('臺'));
       if (!isTaiwanOriginAirport) {
         localDestinationCoords.push([card.lat, card.lng]);
       }
 
-      if (isLayerVisible) {
+      if (!isLayerVisible) {
+        hiddenLayerStops.push({ card, label });
+      } else {
         visiblePinCount++;
         const pinBgColor = (card.category === '住宿' && item.isCheckout) ? '#6b21a8' : meta.color;
         const marker = L.marker([card.lat, card.lng], {
@@ -500,35 +522,40 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     const nextItem = items[idx + 1];
     const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
     if (nextCard) {
-      const legRes = await drawAndComputeLegRoute(card, nextCard, item, null);
+      const legRes = await drawAndComputeLegRoute(card, nextCard, item, null, renderToken);
+      if (!legRes || renderToken !== currentRenderToken) return;
       if (legRes.changed) anyMetricUpdated = true;
 
       totalMin += legRes.legMin;
       totalKm += legRes.legKm;
 
       const gdir = buildPreciseGoogleMapsDirUrl(card, nextCard, legRes.activeMode);
-      const badgeTextColor = legRes.isHotelTransfer
-        ? 'text-purple-700'
-        : (legRes.activeMode === 'walk'
-          ? 'text-emerald-700'
-          : (legRes.activeMode === 'taxi' ? 'text-amber-700' : 'text-blue-700'));
+      const badgeTextColor = legRes.hasMissingCoords
+        ? 'text-rose-600'
+        : (legRes.isHotelTransfer
+          ? 'text-purple-700'
+          : (legRes.activeMode === 'walk'
+            ? 'text-emerald-700'
+            : (legRes.activeMode === 'taxi' ? 'text-amber-700' : 'text-blue-700')));
 
       legsHtml.push(`
-        <div class="flex items-center justify-between ${legRes.isHotelTransfer ? 'bg-purple-50/70 border-purple-200' : 'bg-slate-50 border-slate-100'} px-2 py-1 rounded border gap-1.5">
+        <div class="flex items-center justify-between ${legRes.hasMissingCoords ? 'bg-rose-50/80 border-rose-200' : (legRes.isHotelTransfer ? 'bg-purple-50/70 border-purple-200' : 'bg-slate-50 border-slate-100')} px-2 py-1 rounded border gap-1.5">
           <span class="truncate flex-1 font-medium text-slate-700">${idx + 1}→${idx + 2} ${nextCard.title}</span>
           <span class="font-bold ${badgeTextColor} shrink-0">${legRes.summaryText}</span>
+          ${!hasValidCoords(nextCard) ? `<button onclick="openCardModal('${nextCard.id}')" title="補齊經緯度座標" class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[10px] font-bold shrink-0">補座標</button>` : ''}
           <a href="${gdir}" target="_blank" title="以精確經緯度開啟 Google Maps 路線比對" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
         </div>
       `);
     }
   }
 
+  if (renderToken !== currentRenderToken) return;
+
   if (state.overlayPocketOnPlan) {
     state.cards.forEach(c => {
       if (dayCardIds.has(c.id)) return;
       if (state.mapVisibleCategories[c.category] === false) return;
-      const hasCoords = Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) && Number(c.lat) !== 0;
-      if (!hasCoords) return;
+      if (!hasValidCoords(c)) return;
 
       visiblePinCount++;
       const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
@@ -564,14 +591,23 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     : allCoords;
 
   if (zoomTargetCoords.length > 0) {
-    mapInstance.fitBounds(zoomTargetCoords, { padding: [45, 45], maxZoom: 14 });
+    mapInstance.fitBounds(zoomTargetCoords, { padding: [50, 50], maxZoom: 14 });
+  }
+
+  const noticesHtml = [];
+  if (missingCoordStops.length > 0) {
+    const names = missingCoordStops.map(s => `<button onclick="openCardModal('${s.card.id}')" class="underline font-bold hover:text-rose-900">${s.label}. ${s.card.title}</button>`).join('、');
+    noticesHtml.push(`<div class="px-2 py-1 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px]">⚠️ 尚未設定座標（無法顯示釘子）：${names}</div>`);
+  }
+  if (hiddenLayerStops.length > 0) {
+    noticesHtml.push(`<div class="px-2 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] flex items-center justify-between"><span>👁️ 有 ${hiddenLayerStops.length} 個當日點位因上方「分類圖層」關閉而隱藏</span><button onclick="setAllMapLayersVisible(true)" class="px-1.5 py-0.2 rounded bg-amber-600 text-white font-bold">全部顯示</button></div>`);
   }
 
   document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
   document.getElementById('dailyTransitBadge').textContent = `${totalMin} 分 (${totalKm.toFixed(1)} km)`;
-  document.getElementById('dailyTransitLegsList').innerHTML = legsHtml.length > 0
+  document.getElementById('dailyTransitLegsList').innerHTML = noticesHtml.join('') + (legsHtml.length > 0
     ? legsHtml.join('')
-    : `<div class="text-slate-400 text-center py-1">當日尚無跨點移動段次</div>`;
+    : `<div class="text-slate-400 text-center py-1">當日尚無跨點移動段次</div>`);
 
   if (anyMetricUpdated && state.mode === 'plan') {
     hooks.renderKanbanBoard();
@@ -594,7 +630,7 @@ export function focusCardOnMap(cardId, warnIfMissing = true) {
   }
   hooks.renderDatabaseCards();
 
-  if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0 && mapInstance) {
+  if (hasValidCoords(card) && mapInstance) {
     if (state.mapVisibleCategories[card.category] === false) {
       state.mapVisibleCategories[card.category] = true;
       renderMapCategoryToggles();
@@ -602,7 +638,7 @@ export function focusCardOnMap(cardId, warnIfMissing = true) {
     }
     mapInstance.setView([card.lat, card.lng], 15, { animate: true });
   } else if (warnIfMissing) {
-    showToast('此卡片尚未設定座標，可點擊編輯填入經緯度', 'amber');
+    showToast('此卡片尚未設定座標，請在編輯視窗填入經緯度', 'amber');
   }
 }
 
