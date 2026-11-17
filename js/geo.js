@@ -200,6 +200,37 @@ export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
   return null;
 }
 
+// 組裝貼合真實單軌高架軌道的連續折線座標（含站間轉彎控制點）
+function buildYuiRailTrackCoordinates(startIndex, endIndex) {
+  const coords = [];
+  if (startIndex === endIndex) {
+    const st = YUI_RAIL_STATIONS[startIndex];
+    return [[st.lat, st.lng]];
+  }
+
+  if (startIndex < endIndex) {
+    coords.push([YUI_RAIL_STATIONS[startIndex].lat, YUI_RAIL_STATIONS[startIndex].lng]);
+    for (let i = startIndex + 1; i <= endIndex; i++) {
+      const st = YUI_RAIL_STATIONS[i];
+      if (Array.isArray(st.viaPrev) && st.viaPrev.length > 0) {
+        st.viaPrev.forEach(pt => coords.push([pt[0], pt[1]]));
+      }
+      coords.push([st.lat, st.lng]);
+    }
+  } else {
+    coords.push([YUI_RAIL_STATIONS[startIndex].lat, YUI_RAIL_STATIONS[startIndex].lng]);
+    for (let i = startIndex; i > endIndex; i--) {
+      const currSt = YUI_RAIL_STATIONS[i];
+      const prevSt = YUI_RAIL_STATIONS[i - 1];
+      if (Array.isArray(currSt.viaPrev) && currSt.viaPrev.length > 0) {
+        [...currSt.viaPrev].reverse().forEach(pt => coords.push([pt[0], pt[1]]));
+      }
+      coords.push([prevSt.lat, prevSt.lng]);
+    }
+  }
+  return coords;
+}
+
 export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0, isHotelTransfer: false };
   const straightKm = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
@@ -225,7 +256,6 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
     } else if (profile === 'transit') {
       resolvedMode = 'transit';
     } else {
-      // 智慧混搭：換宿拖行李限 500m 內步行，一般景點限 1.2km 內步行
       resolvedMode = (straightKm > 0 && approxRoadKm <= walkLimitKm) ? 'walk' : 'transit';
     }
   }
@@ -281,7 +311,6 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
       const route = data.routes[0];
       const latLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       const distanceKm = route.distance / 1000;
-      // 步行時間一律由真實步速計算，汽車/計程車時間才取 OSRM 路網秒數
       const durationMin = mode === 'walk'
         ? computeWalkingMinutes(distanceKm, false)
         : Math.max(3, Math.round(route.duration / 60));
@@ -349,23 +378,16 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
       fetchRealRoadPath(railB.station.lat, railB.station.lng, cardB.lat, cardB.lng, 'walk')
     ]);
 
-    const step = railA.index < railB.index ? 1 : -1;
-    const railCoords = [];
+    const railCoords = buildYuiRailTrackCoordinates(railA.index, railB.index);
     let railTrackKm = 0;
-    for (let i = railA.index; ; i += step) {
-      const st = YUI_RAIL_STATIONS[i];
-      railCoords.push([st.lat, st.lng]);
-      if (i !== railA.index) {
-        const prev = YUI_RAIL_STATIONS[i - step];
-        railTrackKm += haversineKm(prev.lat, prev.lng, st.lat, st.lng);
-      }
-      if (i === railB.index) break;
+    for (let i = 1; i < railCoords.length; i++) {
+      railTrackKm += haversineKm(railCoords[i - 1][0], railCoords[i - 1][1], railCoords[i][0], railCoords[i][1]);
     }
 
-    const walk1Min = computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
-    const walk2Min = computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+    const walk1Min = railA.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+    const walk2Min = railB.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
     const railRideMin = Math.abs(railB.station.cumMin - railA.station.cumMin);
-    const waitAndGateMin = 6; // 進站購票與單軌平均候車緩衝時間
+    const waitAndGateMin = 3; // 單軌班距約 6-8 分鐘，平均候車緩衝 3 分鐘
     const totalKm = (walk1.distanceKm || 0) + railTrackKm + (walk2.distanceKm || 0);
 
     return {
@@ -400,7 +422,7 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
     const totalKm = (walk1.distanceKm || 0) + (ride.distanceKm || 0) + (walk2.distanceKm || 0);
     const walk1Min = computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
     const walk2Min = computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
-    const busRideMin = Math.max(6, Math.round((ride.durationMin || 10) * 1.45 + 7)); // 含停靠站與候車緩衝
+    const busRideMin = Math.max(6, Math.round((ride.durationMin || 10) * 1.45 + 7));
 
     return {
       isMonorail: false,
