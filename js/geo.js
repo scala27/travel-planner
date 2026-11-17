@@ -9,6 +9,9 @@ import {
 
 const osrmRouteCache = {};
 const transitStopCache = {};
+const YUI_RAIL_OSM_CACHE_KEY = 'yui_rail_osm_geom_v1';
+let yuiRailGraphPromise = null;
+let cachedYuiRailGraph = null;
 
 export function normalizeTraditionalText(str) {
   let result = String(str || '').trim();
@@ -182,7 +185,6 @@ export function isHotelTransferLeg(cardA, cardB) {
   return cardA.category === '住宿' && cardB.category === '住宿' && cardA.id !== cardB.id;
 }
 
-// 尋找距離指定座標最近的沖繩都市單軌電車（Yui Rail）車站
 export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || lat === 0) return null;
   let bestIdx = -1;
@@ -200,8 +202,163 @@ export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
   return null;
 }
 
-// 組裝貼合真實單軌高架軌道的連續折線座標（含站間轉彎控制點）
-function buildYuiRailTrackCoordinates(startIndex, endIndex) {
+// 從 OpenStreetMap Overpass API 抓取真實沖繩單軌電車軌道幾何（way["railway"="monorail"]）並建立連通圖
+function buildMonorailGraphFromWays(ways) {
+  const nodes = [];
+  const adj = [];
+
+  function getOrCreateNode(lat, lng) {
+    for (let i = 0; i < nodes.length; i++) {
+      if (Math.abs(nodes[i][0] - lat) < 0.00018 && Math.abs(nodes[i][1] - lng) < 0.00018) {
+        return i;
+      }
+    }
+    const id = nodes.length;
+    nodes.push([lat, lng]);
+    adj.push([]);
+    return id;
+  }
+
+  for (const pts of ways) {
+    if (!Array.isArray(pts) || pts.length < 2) continue;
+    let prevId = getOrCreateNode(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const currId = getOrCreateNode(pts[i][0], pts[i][1]);
+      if (currId !== prevId) {
+        const w = haversineKm(nodes[prevId][0], nodes[prevId][1], nodes[currId][0], nodes[currId][1]);
+        adj[prevId].push({ to: currId, w });
+        adj[currId].push({ to: prevId, w });
+        prevId = currId;
+      }
+    }
+  }
+
+  // 橋接上下行雙軌間隙（< 35 公尺），確保全線 19 站完全連通
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (Math.abs(nodes[i][0] - nodes[j][0]) < 0.00035 && Math.abs(nodes[i][1] - nodes[j][1]) < 0.00035) {
+        const w = haversineKm(nodes[i][0], nodes[i][1], nodes[j][0], nodes[j][1]);
+        if (w > 0 && w <= 0.035) {
+          adj[i].push({ to: j, w });
+          adj[j].push({ to: i, w });
+        }
+      }
+    }
+  }
+
+  return nodes.length > 30 ? { nodes, adj } : null;
+}
+
+async function getRealYuiRailOsmGraph() {
+  if (cachedYuiRailGraph) return cachedYuiRailGraph;
+
+  try {
+    const rawCache = localStorage.getItem(YUI_RAIL_OSM_CACHE_KEY);
+    if (rawCache) {
+      const parsedWays = JSON.parse(rawCache);
+      const graph = buildMonorailGraphFromWays(parsedWays);
+      if (graph) {
+        cachedYuiRailGraph = graph;
+        return graph;
+      }
+    }
+  } catch (e) {}
+
+  if (!yuiRailGraphPromise) {
+    yuiRailGraphPromise = (async () => {
+      try {
+        const query = '[out:json][timeout:10];way["railway"="monorail"](26.185,127.645,26.250,127.750);out geom;';
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query
+        });
+        const data = await res.json();
+        if (data && Array.isArray(data.elements) && data.elements.length > 0) {
+          const ways = data.elements
+            .filter(el => Array.isArray(el.geometry) && el.geometry.length >= 2)
+            .map(el => el.geometry.map(pt => [Number(pt.lat.toFixed(5)), Number(pt.lon.toFixed(5))]));
+          const graph = buildMonorailGraphFromWays(ways);
+          if (graph) {
+            cachedYuiRailGraph = graph;
+            try {
+              localStorage.setItem(YUI_RAIL_OSM_CACHE_KEY, JSON.stringify(ways));
+            } catch (e) {}
+            return graph;
+          }
+        }
+      } catch (e) {}
+      return null;
+    })();
+  }
+
+  return yuiRailGraphPromise;
+}
+
+function findShortestTrackOnOsmGraph(graph, stA, stB) {
+  if (!graph) return null;
+  const { nodes, adj } = graph;
+
+  let startNode = -1;
+  let endNode = -1;
+  let bestStartD = Infinity;
+  let bestEndD = Infinity;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const dA = haversineKm(stA.lat, stA.lng, nodes[i][0], nodes[i][1]);
+    if (dA < bestStartD) {
+      bestStartD = dA;
+      startNode = i;
+    }
+    const dB = haversineKm(stB.lat, stB.lng, nodes[i][0], nodes[i][1]);
+    if (dB < bestEndD) {
+      bestEndD = dB;
+      endNode = i;
+    }
+  }
+
+  if (startNode < 0 || endNode < 0 || bestStartD > 0.25 || bestEndD > 0.25) return null;
+
+  const n = nodes.length;
+  const dist = new Float64Array(n).fill(Infinity);
+  const prev = new Int32Array(n).fill(-1);
+  const visited = new Uint8Array(n);
+  dist[startNode] = 0;
+
+  for (let iter = 0; iter < n; iter++) {
+    let u = -1;
+    let minD = Infinity;
+    for (let i = 0; i < n; i++) {
+      if (!visited[i] && dist[i] < minD) {
+        minD = dist[i];
+        u = i;
+      }
+    }
+    if (u === -1 || u === endNode) break;
+    visited[u] = 1;
+
+    for (const edge of adj[u]) {
+      const alt = dist[u] + edge.w;
+      if (alt < dist[edge.to]) {
+        dist[edge.to] = alt;
+        prev[edge.to] = u;
+      }
+    }
+  }
+
+  if (!Number.isFinite(dist[endNode])) return null;
+
+  const path = [];
+  let curr = endNode;
+  while (curr !== -1) {
+    path.push(nodes[curr]);
+    curr = prev[curr];
+  }
+  path.reverse();
+  return path.length >= 2 ? path : null;
+}
+
+// 備援高密度單軌高架軌道折線座標
+function buildFallbackYuiRailTrackCoordinates(startIndex, endIndex) {
   const coords = [];
   if (startIndex === endIndex) {
     const st = YUI_RAIL_STATIONS[startIndex];
@@ -367,18 +524,21 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-// 優先嘗試「沖繩都市單軌電車（Yui Rail）」真實高架軌道與時刻表，若不在單軌沿線則自動切換為「公車站牌接駁＋步行」
+// 優先使用 OpenStreetMap 真實單軌軌道圖資＋站間時刻表，若不在單軌沿線則自動切換為公車站牌接駁＋步行
 export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer = false) {
   const railA = findNearestYuiRailStation(cardA.lat, cardA.lng, 1.25);
   const railB = findNearestYuiRailStation(cardB.lat, cardB.lng, 1.25);
 
   if (railA && railB && Math.abs(railA.index - railB.index) >= 2) {
-    const [walk1, walk2] = await Promise.all([
+    const [walk1, walk2, osmGraph] = await Promise.all([
       fetchRealRoadPath(cardA.lat, cardA.lng, railA.station.lat, railA.station.lng, 'walk'),
-      fetchRealRoadPath(railB.station.lat, railB.station.lng, cardB.lat, cardB.lng, 'walk')
+      fetchRealRoadPath(railB.station.lat, railB.station.lng, cardB.lat, cardB.lng, 'walk'),
+      getRealYuiRailOsmGraph()
     ]);
 
-    const railCoords = buildYuiRailTrackCoordinates(railA.index, railB.index);
+    const exactOsmTrack = findShortestTrackOnOsmGraph(osmGraph, railA.station, railB.station);
+    const railCoords = exactOsmTrack || buildFallbackYuiRailTrackCoordinates(railA.index, railB.index);
+
     let railTrackKm = 0;
     for (let i = 1; i < railCoords.length; i++) {
       railTrackKm += haversineKm(railCoords[i - 1][0], railCoords[i - 1][1], railCoords[i][0], railCoords[i][1]);
@@ -387,7 +547,7 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
     const walk1Min = railA.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
     const walk2Min = railB.straightKm < 0.12 ? 2 : computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
     const railRideMin = Math.abs(railB.station.cumMin - railA.station.cumMin);
-    const waitAndGateMin = 3; // 單軌班距約 6-8 分鐘，平均候車緩衝 3 分鐘
+    const waitAndGateMin = 3;
     const totalKm = (walk1.distanceKm || 0) + railTrackKm + (walk2.distanceKm || 0);
 
     return {
