@@ -137,7 +137,6 @@
               <i class="fa-solid fa-database text-blue-600"></i>
               <span id="dbPanelTitleText">全球口袋資料庫</span>
             </span>
-            <!-- 僅在「景點蒐集與資料庫」顯示資料建置按鈕 -->
             <button id="btnAddCardCollect" onclick="openCardModal()"
               class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
               <i class="fa-solid fa-plus"></i> 新增卡片
@@ -150,7 +149,6 @@
           </div>
 
           <div class="flex items-center gap-1.5">
-            <!-- 模式 1 專屬：迷你卡片檢視切換 -->
             <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
               class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1 transition"
               title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
@@ -158,7 +156,6 @@
               <span id="miniCardBtnLabel">迷你卡片</span>
             </button>
 
-            <!-- 模式 2 專屬：收合口袋按鈕 -->
             <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
               class="hidden px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:bg-slate-200/70 items-center gap-1">
               <i class="fa-solid fa-angles-left"></i> 收合
@@ -186,7 +183,7 @@
             </div>
             <button onclick="batchUpdateAllDistricts()"
               class="text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1 transition">
-              <i class="fa-solid fa-compass"></i> 依座標補齊空白行政區
+              <i class="fa-solid fa-compass"></i> 補齊並統一全部行政區
             </button>
           </div>
 
@@ -227,7 +224,7 @@
           </div>
         </div>
 
-        <!-- 模式 2 專屬：精簡快速篩選條（應用端專用，不佔空間） -->
+        <!-- 模式 2 專屬：精簡快速篩選條 -->
         <div id="planQuickFilterBar" class="hidden flex-wrap items-center gap-1">
           <button onclick="setPlanQuickFilter('unscheduled')" data-plan-q="unscheduled"
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">未排入</button>
@@ -301,7 +298,7 @@
       <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40"></div>
     </section>
 
-    <!-- 分隔拖曳桿 1（區塊 A 與 B/C 之間） -->
+    <!-- 分隔拖曳桿 1 -->
     <div id="resizerLeft" class="split-resizer" title="按住左右拖曳可自由調整區塊寬度"></div>
 
     <!-- 模式2收合口袋後的展開浮動按鈕 -->
@@ -311,7 +308,7 @@
       <span>展開口袋</span>
     </button>
 
-    <!-- ==================== 區塊 B：行程規劃區（僅模式2顯示，預設單日清爽聚焦） ==================== -->
+    <!-- ==================== 區塊 B：行程規劃區（預設單日清爽聚焦） ==================== -->
     <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
         <div id="dayNavPills" class="flex items-center gap-1 overflow-x-auto py-0.5"></div>
@@ -332,7 +329,7 @@
       <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch"></div>
     </section>
 
-    <!-- 分隔拖曳桿 2（模式 2 的區塊 B 與區塊 C 之間） -->
+    <!-- 分隔拖曳桿 2 -->
     <div id="resizerRight" class="split-resizer hidden" title="按住左右拖曳可自由調整地圖寬度"></div>
 
     <!-- ==================== 區塊 C：地圖與路線檢核面板 ==================== -->
@@ -356,7 +353,7 @@
         </div>
       </div>
 
-      <!-- 模式 2 單行精簡控制列（把最大空間留給地圖，明細與圖層收納於抽屜） -->
+      <!-- 模式 2 單行精簡控制列 -->
       <div id="mapHeaderPlanMode" class="hidden px-2.5 py-2 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
         <div class="flex items-center gap-1.5 flex-wrap">
           <select id="mapDaySelect" onchange="onMapDayChange()"
@@ -390,9 +387,8 @@
         </div>
       </div>
 
-      <!-- 可收合抽屜：分類圖層開關 ＋ 路線明細（模式1預設展開、模式2預設隱藏） -->
+      <!-- 可收合抽屜：分類圖層開關 ＋ 路線明細 -->
       <div id="mapCollapsibleDrawer" class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-2 shrink-0">
-        <!-- 分類圖層開關 -->
         <div class="space-y-1">
           <div class="flex items-center justify-between text-[11px]">
             <span class="font-bold text-slate-700 flex items-center gap-1">
@@ -414,7 +410,6 @@
           <div id="mapCategoryToggleContainer" class="flex items-center gap-1 flex-wrap"></div>
         </div>
 
-        <!-- 路線分段明細（僅模式 2 展開抽屜時顯示） -->
         <div id="planRouteLegsDrawerSection" class="hidden pt-1.5 border-t border-slate-100 space-y-1.5">
           <div class="flex items-center justify-between text-[11px]">
             <span class="font-bold text-slate-700"><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日路線分段明細</span>
@@ -632,6 +627,24 @@
       '臺中市・清水區', '臺中市・西屯區', '桃園市・大園區', '臺北市・松山區'
     ];
 
+    // 日文漢字與簡體/異體字轉標準繁體中文對照表
+    const KANJI_TO_TRADITIONAL_MAP = [
+      ['沖縄県', '沖繩縣'], ['沖縄市', '沖繩市'], ['沖縄', '沖繩'],
+      ['那覇市', '那霸市'], ['那覇', '那霸'],
+      ['豊見城市', '豐見城市'], ['豊見城', '豐見城'],
+      ['糸満市', '糸滿市'], ['糸満', '糸滿'],
+      ['読谷村', '讀谷村'], ['読谷', '讀谷'],
+      ['今帰仁村', '今歸仁村'], ['今帰仁', '今歸仁'],
+      ['国頭村', '國頭村'], ['国頭郡', '國頭郡'],
+      ['中頭郡', '中頭郡'], ['島尻郡', '島尻郡'],
+      ['宜野湾市', '宜野灣市'], ['宜野湾', '宜野灣'],
+      ['与那原町', '與那原町'], ['与那原', '與那原'],
+      ['八重瀬町', '八重瀨町'], ['八重瀬', '八重瀨'],
+      ['うるま市', '宇流麻市'],
+      ['台北市', '臺北市'], ['台中市', '臺中市'], ['台南市', '臺南市'], ['台東縣', '臺東縣'],
+      ['県', '縣'], ['市', '市'], ['区', '區'], ['駅', '站']
+    ];
+
     const CATEGORY_LIST = ['景點', '美食', '購物', '住宿', '機場', '交通', '體驗'];
 
     const CATEGORY_META = {
@@ -648,9 +661,9 @@
       mode: 'collect',
       pocketCollapsed: false,
       miniCardView: false,
-      boardMultiDayMode: false,    // 預設 false：旅遊行程規劃僅顯示擬安排行程日（清爽聚焦）
-      mapDrawerOpenCollect: true,  // 模式 1 地圖分類圖層抽屜預設開啟
-      mapDrawerOpenPlan: false,    // 模式 2 地圖圖層與明細抽屜預設隱藏（把版面留給地圖）
+      boardMultiDayMode: false,
+      mapDrawerOpenCollect: true,
+      mapDrawerOpenPlan: false,
       overlayPocketOnPlan: false,
       selectedMapDay: 1,
       highlightedCardId: null,
@@ -681,7 +694,59 @@
     let mapRouteLayer = null;
     let markerLookup = {};
     let autoSyncTimer = null;
-    const osrmRouteCache = {}; // 快取真實道路/步行路徑幾何
+    const osrmRouteCache = {};
+
+    // ==================== 核心：行政區自動過濾與繁體中文統一引擎 ====================
+    function normalizeTraditionalText(str) {
+      let result = String(str || '').trim();
+      for (const [src, target] of KANJI_TO_TRADITIONAL_MAP) {
+        result = result.split(src).join(target);
+      }
+      return result;
+    }
+
+    function normalizeAdministrativeDistrict(rawArea, country = '') {
+      let text = normalizeTraditionalText(rawArea);
+      if (!text) return country || '未分類';
+
+      // 移除國家前綴
+      text = text
+        .replace(/^日本\s*[・\/-]\s*/, '')
+        .replace(/^台灣\s*[・\/-]\s*/, '')
+        .replace(/^臺灣\s*[・\/-]\s*/, '')
+        .trim();
+
+      // 拆解以「/」或「、」分隔的多段重複字串（例如：沖縄県 / 沖繩縣・那霸市）
+      if (text.includes('/')) {
+        const segments = text
+          .split('/')
+          .map(s => normalizeTraditionalText(s).trim())
+          .filter(Boolean);
+
+        // 過濾掉已被更完整片段包含的重複前綴（例如「沖繩縣」已包含在「沖繩縣・那霸市」內）
+        const uniqueSegments = segments.filter((seg, idx) => {
+          return !segments.some((other, oIdx) => oIdx !== idx && other.length > seg.length && other.includes(seg));
+        });
+
+        text = uniqueSegments.length > 0
+          ? uniqueSegments[uniqueSegments.length - 1]
+          : segments[segments.length - 1];
+      }
+
+      // 統一縣市與町村之間的分隔符號為「・」
+      text = text.replace(/\s*[•·．]\s*/g, '・');
+
+      // 若是「沖繩縣那霸市」中間缺少「・」，自動補上「・」
+      text = text.replace(/^(沖繩縣)(?!・)(.+)$/, '$1・$2');
+      text = text.replace(/^(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣)(?!・)(.+)$/, '$1・$2');
+
+      // 再次消除同段內重複的縣名（例如：沖繩縣・沖繩縣・那霸市 -> 沖繩縣・那霸市）
+      const dotParts = text.split('・').map(s => s.trim()).filter(Boolean);
+      const dedupedDotParts = dotParts.filter((part, idx) => idx === 0 || part !== dotParts[idx - 1]);
+      text = dedupedDotParts.join('・');
+
+      return text || country || '未分類';
+    }
 
     function discoverSavedGasUrl() {
       if (state.settings.gasUrl) return state.settings.gasUrl;
@@ -700,7 +765,10 @@
         try {
           const parsed = JSON.parse(saved);
           state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
-          state.cards = Array.isArray(parsed.cards) ? parsed.cards : [];
+          state.cards = Array.isArray(parsed.cards) ? parsed.cards.map(c => ({
+            ...c,
+            district: normalizeAdministrativeDistrict(c.district, c.country)
+          })) : [];
           state.itinerary = parsed.itinerary || {};
           state.deletedIds = Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [];
         } catch (e) {}
@@ -865,19 +933,6 @@
       return [];
     }
 
-    function cleanDistrictString(rawArea, country) {
-      let clean = String(rawArea || '').trim();
-      if (clean.includes('/')) {
-        const parts = clean.split('/').map(s => s.trim()).filter(Boolean);
-        clean = parts[parts.length - 1];
-      }
-      clean = clean
-        .replace(/^日本\s*[・\/-]\s*/, '')
-        .replace(/^台灣\s*[・\/-]\s*/, '')
-        .replace(/^臺灣\s*[・\/-]\s*/, '');
-      return clean || country || '未分類';
-    }
-
     function isTransportOrAirport(category) {
       return category === '機場' || category === '交通';
     }
@@ -888,14 +943,14 @@
       const rawArea = String(row.area || row.district || '').trim();
       let country = String(row.country || '').trim();
       if (!country) {
-        if (rawArea.includes('台灣') || rawArea.includes('臺灣') || rawArea.includes('臺中') || rawArea.includes('台北')) {
+        if (rawArea.includes('台灣') || rawArea.includes('臺灣') || rawArea.includes('臺中') || rawArea.includes('台中') || rawArea.includes('台北')) {
           country = '台灣';
         } else {
           country = '日本';
         }
       }
 
-      const cleanDistrict = cleanDistrictString(rawArea, country);
+      const cleanDistrict = normalizeAdministrativeDistrict(rawArea, country);
       let category = String(row.category || '景點').trim();
       if (!CATEGORY_META[category]) category = '景點';
 
@@ -1001,7 +1056,7 @@
         if (card.bookingRef) mustBuyCol = card.bookingRef;
       }
 
-      const cleanDist = cleanDistrictString(card.district, card.country);
+      const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
       const areaFormatted = cleanDist.startsWith(card.country) ? cleanDist : `${card.country}・${cleanDist}`;
 
       return {
@@ -1324,7 +1379,6 @@
         boardSection.style.width = '34%';
         resizerRight.classList.remove('hidden');
 
-        // 2D：規劃頁面為純應用端，隱藏資料建置按鈕
         dbTitleText.textContent = '口袋待排清單';
         btnAddCard.classList.add('hidden');
         btnBatch.classList.add('hidden');
@@ -1480,7 +1534,6 @@
     function getFilteredAndSortedCards() {
       const kw = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
 
-      // 模式 2 使用簡潔的快速篩選邏輯
       if (state.mode === 'plan') {
         return state.cards.filter(card => {
           const scheduledDays = getCardScheduledDays(card.id);
@@ -1609,7 +1662,6 @@
       const totalDays = Number(state.settings.totalDays) || 6;
       const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
-      // 模式 2：旅遊行程規劃的精簡應用口袋卡片（點擊直接定位或一鍵排入當前擬安排日期）
       if (state.mode === 'plan') {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
@@ -1618,6 +1670,7 @@
           const statusChip = isScheduled
             ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">D${scheduledDays.join(',')}</span>`
             : '';
+          const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
 
           return `
             <div id="db-card-${card.id}"
@@ -1635,7 +1688,7 @@
               </div>
 
               <div class="flex items-center justify-between gap-1 pt-0.5" onclick="event.stopPropagation()">
-                <span class="text-[10px] text-slate-500 truncate">${(card.district || '').replace(/^沖繩縣・/, '')}・${card.duration || 60}分</span>
+                <span class="text-[10px] text-slate-500 truncate">${cleanDist}・${card.duration || 60}分</span>
                 <button onclick="addCardToDay('${card.id}', state.selectedMapDay)"
                   class="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 text-[10px] font-bold shrink-0 transition">
                   + Day ${state.selectedMapDay}
@@ -1647,7 +1700,6 @@
         return;
       }
 
-      // 模式 1A：迷你卡片檢視
       if (state.miniCardView) {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
@@ -1655,6 +1707,7 @@
           const isScheduled = scheduledDays.length > 0;
           const isHighlighted = state.highlightedCardId === card.id;
           const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
+          const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
 
           return `
             <div id="db-card-${card.id}"
@@ -1673,7 +1726,7 @@
               <div class="flex items-center justify-between gap-1 pt-1 border-t border-slate-100 text-[10px]" onclick="event.stopPropagation()">
                 <div class="flex items-center gap-1 min-w-0">
                   ${!hasCoords ? `<span class="text-rose-600 font-bold" title="待補座標">⚠</span>` : ''}
-                  <span class="text-slate-500 truncate">${(card.district || '').replace(/^沖繩縣・/, '')}</span>
+                  <span class="text-slate-500 truncate">${cleanDist}</span>
                   ${isScheduled ? `<span class="px-1 rounded bg-emerald-600 text-white font-bold shrink-0">D${scheduledDays.join(',')}</span>` : ''}
                 </div>
                 <div class="flex items-center gap-0.5 shrink-0">
@@ -1693,12 +1746,12 @@
         return;
       }
 
-      // 模式 1B：標準等高整齊卡片設計
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
         const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
-        const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + (card.district || ''))}`;
+        const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
+        const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + cleanDist)}`;
 
         let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 shrink-0">未排入</span>`;
         if (scheduledDays.length > 0) {
@@ -1740,7 +1793,7 @@
                 <div class="flex items-center justify-between gap-1.5">
                   <div class="flex items-center gap-1 min-w-0">
                     ${newBadge}
-                    <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 truncate">${card.district || card.country || '未分類'}</span>
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 truncate">${cleanDist}</span>
                   </div>
                   ${statusBadge}
                 </div>
@@ -1839,14 +1892,14 @@
       const filteredForCities = countrySel.value === 'all'
         ? state.cards
         : state.cards.filter(c => (c.country || '未分類') === countrySel.value);
-      const cities = [...new Set(filteredForCities.map(c => c.district || '未分類'))];
+      const cities = [...new Set(filteredForCities.map(c => normalizeAdministrativeDistrict(c.district, c.country)))];
       citySel.innerHTML = `<option value="all">全部城市 / 町村</option>` +
         cities.map(d => `<option value="${d}">${d}</option>`).join('');
       if (cities.includes(prevCity)) citySel.value = prevCity;
 
       const distDatalist = document.getElementById('districtSuggestions');
       if (distDatalist) {
-        const allDist = [...new Set([...PRESET_DISTRICTS, ...state.cards.map(c => c.district).filter(d => d && !d.includes('待確認'))])];
+        const allDist = [...new Set([...PRESET_DISTRICTS, ...state.cards.map(c => normalizeAdministrativeDistrict(c.district, c.country)).filter(d => d && !d.includes('待確認'))])];
         distDatalist.innerHTML = allDist.map(d => `<option value="${d}"></option>`).join('');
       }
     }
@@ -1857,15 +1910,16 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // ==================== 7. 地理編碼與座標反查 ====================
+    // ==================== 7. 地理編碼與座標反查（自動轉標準繁體中文） ====================
     function parseNominatimAddress(addr = {}) {
       let country = addr.country || '日本';
       if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
       if (addr.country_code === 'jp' || country.includes('日本')) country = '日本';
 
-      const pref = addr.state || addr.province || addr.county || '';
-      const city = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '';
-      const district = [pref, city].filter(Boolean).join('・') || country;
+      const pref = normalizeTraditionalText(addr.state || addr.province || addr.county || '');
+      const city = normalizeTraditionalText(addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '');
+      const combined = [pref, city].filter(Boolean).join('・') || country;
+      const district = normalizeAdministrativeDistrict(combined, country);
       return { country, district };
     }
 
@@ -1978,7 +2032,7 @@
           title,
           category: defaultCat,
           country: geo ? geo.country : '日本',
-          district: geo ? geo.district : '沖繩縣・待確認行政區',
+          district: geo ? normalizeAdministrativeDistrict(geo.district, geo.country) : '沖繩縣・待確認行政區',
           duration: defaultCat === '購物' ? 90 : 60,
           lat: geo ? geo.lat : null,
           lng: geo ? geo.lng : null,
@@ -2014,35 +2068,33 @@
     }
 
     async function batchUpdateAllDistricts() {
-      const targets = state.cards.filter(c => (!c.district || c.district.includes('待確認') || c.district === '未分類'));
-      if (targets.length === 0) {
-        showToast('所有卡片皆已有行政區資訊！', 'blue');
-        return;
-      }
-      showToast(`正在為 ${targets.length} 筆卡片依座標／名稱補齊行政區...`, 'blue');
-      for (const card of targets) {
-        if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0) {
-          const rev = await reverseGeocodeCoords(card.lat, card.lng);
-          if (rev) {
-            card.country = rev.country;
-            card.district = rev.district;
-            continue;
+      showToast('正在整理並統一所有卡片的行政區格式...', 'blue');
+      for (const card of state.cards) {
+        card.district = normalizeAdministrativeDistrict(card.district, card.country);
+        if (!card.district || card.district.includes('待確認') || card.district === '未分類') {
+          if (Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0) {
+            const rev = await reverseGeocodeCoords(card.lat, card.lng);
+            if (rev) {
+              card.country = rev.country;
+              card.district = normalizeAdministrativeDistrict(rev.district, rev.country);
+              continue;
+            }
           }
-        }
-        if (card.title) {
-          const geo = await geocodePlaceName(card.title, card.country);
-          if (geo) {
-            card.lat = card.lat || geo.lat;
-            card.lng = card.lng || geo.lng;
-            card.country = geo.country;
-            card.district = geo.district;
+          if (card.title) {
+            const geo = await geocodePlaceName(card.title, card.country);
+            if (geo) {
+              card.lat = card.lat || geo.lat;
+              card.lng = card.lng || geo.lng;
+              card.country = geo.country;
+              card.district = normalizeAdministrativeDistrict(geo.district, geo.country);
+            }
           }
         }
       }
       persistState(true);
       populateRegionDropdowns();
       renderAll();
-      showToast('行政區與座標補齊完成，已自動寫入試算表！', 'emerald');
+      showToast('全部行政區已統一為標準繁體中文格式，並同步寫入試算表！', 'emerald');
     }
 
     // ==================== 8. 精簡編輯視窗邏輯 ====================
@@ -2076,9 +2128,10 @@
       }
       const rev = await reverseGeocodeCoords(lat, lng);
       if (rev) {
+        const cleanDist = normalizeAdministrativeDistrict(rev.district, rev.country);
         document.getElementById('fieldCountry').value = rev.country;
-        document.getElementById('fieldDistrict').value = rev.district;
-        showToast(`已自動帶入：${rev.country}・${rev.district}`, 'emerald');
+        document.getElementById('fieldDistrict').value = cleanDist;
+        showToast(`已自動帶入並統一格式：${rev.country}・${cleanDist}`, 'emerald');
       } else if (!silentIfEmpty) {
         showToast('無法反查此座標行政區，請手動從下拉選單選擇', 'amber');
       }
@@ -2224,12 +2277,13 @@
       if (cardId) {
         const card = state.cards.find(c => c.id === cardId);
         if (!card) return;
+        const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
         titleEl.textContent = '編輯卡片資料';
         document.getElementById('editCardId').value = card.id;
         document.getElementById('fieldTitle').value = card.title || '';
         document.getElementById('fieldCategory').value = CATEGORY_META[card.category] ? card.category : '景點';
         document.getElementById('fieldCountry').value = card.country || '日本';
-        document.getElementById('fieldDistrict').value = card.district || '';
+        document.getElementById('fieldDistrict').value = cleanDist;
         document.getElementById('fieldDuration').value = card.duration || 60;
         document.getElementById('fieldLat').value = card.lat || '';
         document.getElementById('fieldLng').value = card.lng || '';
@@ -2241,7 +2295,7 @@
         assignBox.classList.add('hidden');
         modal.classList.remove('hidden');
 
-        if (card.lat && card.lng && (!card.district || card.district.includes('待確認'))) {
+        if (card.lat && card.lng && (!cleanDist || cleanDist.includes('待確認'))) {
           reverseGeocodeModalCoords(true);
         }
       } else {
@@ -2280,7 +2334,7 @@
       let lat = parseFloat(document.getElementById('fieldLat').value);
       let lng = parseFloat(document.getElementById('fieldLng').value);
       let country = document.getElementById('fieldCountry').value.trim() || '日本';
-      let district = document.getElementById('fieldDistrict').value.trim();
+      let district = normalizeAdministrativeDistrict(document.getElementById('fieldDistrict').value.trim(), country);
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         const geo = await geocodePlaceName(title, country);
@@ -2328,7 +2382,7 @@
         title,
         category,
         country,
-        district: district || '沖繩縣',
+        district: normalizeAdministrativeDistrict(district || '沖繩縣', country),
         duration: parseInt(document.getElementById('fieldDuration').value, 10) || 60,
         lat: Number.isFinite(lat) ? lat : null,
         lng: Number.isFinite(lng) ? lng : null,
@@ -2349,7 +2403,7 @@
       if (id) {
         const idx = state.cards.findIndex(c => c.id === id);
         if (idx !== -1) state.cards[idx] = { ...state.cards[idx], ...payload };
-        showToast('卡片資料已更新，正在自動寫入試算表...', 'emerald');
+        showToast('卡片資料已更新並統一行政區格式，正在寫入試算表...', 'emerald');
       } else {
         const newCard = {
           id: 'spot_' + Date.now(),
@@ -2502,7 +2556,6 @@
           </button>`;
       }).join('');
 
-      // 2C：預設僅渲染擬安排行程日（單日聚焦），除非使用者手動點擊「多日並列」
       const daysToRender = state.boardMultiDayMode
         ? Array.from({ length: totalDays }, (_, i) => i + 1)
         : [state.selectedMapDay];
@@ -2533,6 +2586,7 @@
           if (!card) return '';
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const dur = Number(card.duration) || 60;
+          const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
 
           const depTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.departTime) : [];
           if (depTimes.length > 0 && idx === 0) {
@@ -2620,7 +2674,7 @@
                 <div class="min-w-0 flex-1">
                   <h5 class="font-bold text-xs text-slate-800 break-words">${card.title}</h5>
                   <p class="text-[11px] text-slate-500 mt-0.5">
-                    ${(card.district || '').replace(/^沖繩縣・/, '')}・停留 ${dur} 分${card.flightNo ? '・' + card.flightNo : ''}
+                    ${cleanDist}・停留 ${dur} 分${card.flightNo ? '・' + card.flightNo : ''}
                   </p>
                 </div>
               </div>
@@ -2865,7 +2919,6 @@
       });
     }
 
-    // 查詢真實路網幾何路徑（OSRM 公開服務，步行用 foot、車輛/單軌廊帶用 driving）
     async function fetchRealRoadPath(cardA, cardB, mode) {
       const osrmProfile = mode === 'walk' ? 'foot' : 'driving';
       const cacheKey = `${osrmProfile}_${cardA.lat.toFixed(5)},${cardA.lng.toFixed(5)}_${cardB.lat.toFixed(5)},${cardB.lng.toFixed(5)}`;
@@ -2890,7 +2943,6 @@
         }
       } catch (e) {}
 
-      // 若 OSRM 暫無回應則退回起訖座標連線
       return {
         latLngs: [[cardA.lat, cardA.lng], [cardB.lat, cardB.lng]],
         distanceKm: haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng),
@@ -2898,7 +2950,6 @@
       };
     }
 
-    // 繪製跨海航段優雅弧線
     function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
       const pts = [];
       const steps = 36;
@@ -2936,6 +2987,7 @@
         const bounds = [];
         cards.forEach(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
+          const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
           const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
           const marker = L.marker([card.lat, card.lng], {
             icon: createColoredPinIcon(meta.color, meta.pinChar || card.category[0])
@@ -2944,7 +2996,7 @@
           marker.bindPopup(`
             <div class="text-xs space-y-1 min-w-[180px]">
               <div class="font-bold text-slate-800">${card.title}</div>
-              <div class="text-[11px] text-slate-500">${card.district || ''}・${card.category}</div>
+              <div class="text-[11px] text-slate-500">${cleanDist}・${card.category}</div>
               <div class="pt-1 flex gap-1.5">
                 <a href="${gmapsUrl}" target="_blank" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">Google Maps</a>
                 <button onclick="openCardModal('${card.id}')" class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">編輯</button>
@@ -2966,7 +3018,7 @@
         const items = state.itinerary[d]?.items || [];
         const dayCardIds = new Set(items.map(it => it.cardId));
         const allCoords = [];
-        const localDestinationCoords = []; // 聚焦目的地（排除起飛的台灣端機場，避免視野縮太遠）
+        const localDestinationCoords = [];
         const legsHtml = [];
         let totalMin = 0;
         let totalKm = 0;
@@ -2980,6 +3032,7 @@
           const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
+          const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
 
           if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
           const label = card.category === '住宿' ? '宿' : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
@@ -2995,7 +3048,7 @@
               visiblePinCount++;
               const marker = L.marker([card.lat, card.lng], {
                 icon: createColoredPinIcon(meta.color, label)
-              }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${card.district || ''}</div>`);
+              }).bindPopup(`<div class="text-xs font-bold">${label}. ${card.title}</div><div class="text-[11px] text-slate-500">${cleanDist}</div>`);
               marker.addTo(mapMarkersLayer);
               markerLookup[card.id] = marker;
             }
@@ -3013,11 +3066,9 @@
 
             if (hasCoords && nextHasCoords) {
               if (activeMode === 'flight') {
-                // 跨海航段：繪製空中航線虛線弧線
                 const arcPts = buildCurvedFlightArc(card.lat, card.lng, nextCard.lat, nextCard.lng);
                 L.polyline(arcPts, { color: '#0284c7', weight: 3, opacity: 0.75, dashArray: '8, 8' }).addTo(mapRouteLayer);
               } else {
-                // 當地陸路移動：依據步行/自駕/單軌大眾運輸繪製真實道路幾何路徑
                 const roadData = await fetchRealRoadPath(card, nextCard, activeMode);
                 legKm = roadData.distanceKm || legKm;
                 if (!item.transitMin && roadData.durationMin) {
@@ -3025,10 +3076,10 @@
                 }
 
                 const routeStyle = activeMode === 'walk'
-                  ? { color: '#10b981', weight: 4.5, opacity: 0.88, dashArray: '5, 7' } // 步行：綠色圓點虛線
+                  ? { color: '#10b981', weight: 4.5, opacity: 0.88, dashArray: '5, 7' }
                   : (activeMode === 'drive'
-                    ? { color: '#2563eb', weight: 4.5, opacity: 0.85 } // 自駕：藍色實線
-                    : { color: '#7c3aed', weight: 4.5, opacity: 0.85 }); // 單軌/大眾運輸：紫色實線
+                    ? { color: '#2563eb', weight: 4.5, opacity: 0.85 }
+                    : { color: '#7c3aed', weight: 4.5, opacity: 0.85 });
 
                 L.polyline(roadData.latLngs, routeStyle).addTo(mapRouteLayer);
               }
@@ -3048,7 +3099,6 @@
           }
         }
 
-        // 若開啟「疊加口袋點位」
         if (state.overlayPocketOnPlan) {
           state.cards.forEach(c => {
             if (dayCardIds.has(c.id)) return;
@@ -3058,12 +3108,13 @@
 
             visiblePinCount++;
             const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
+            const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
             L.marker([c.lat, c.lng], {
               icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true)
             }).bindPopup(`
               <div class="text-xs space-y-1 min-w-[170px]">
                 <div class="font-bold text-slate-800">${c.title}</div>
-                <div class="text-[11px] text-slate-500">${c.district || ''}・${c.category}（口袋點位）</div>
+                <div class="text-[11px] text-slate-500">${cleanDist}・${c.category}（口袋點位）</div>
                 <button onclick="addCardToDay('${c.id}', ${d})"
                   class="w-full mt-1 px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-bold">
                   + 直接排入 Day ${d}
