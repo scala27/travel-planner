@@ -44,6 +44,34 @@
       border-radius: 12px;
       padding: 2px;
     }
+    /* 可自由拖曳調整寬度的分隔線 */
+    .split-resizer {
+      width: 6px;
+      cursor: col-resize;
+      background-color: #e2e8f0;
+      transition: background-color 0.15s ease;
+      position: relative;
+      z-index: 25;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .split-resizer:hover,
+    .split-resizer.is-dragging {
+      background-color: #3b82f6;
+    }
+    .split-resizer::after {
+      content: '';
+      width: 2px;
+      height: 28px;
+      border-radius: 9999px;
+      background-color: rgba(100, 116, 139, 0.45);
+    }
+    .split-resizer:hover::after,
+    .split-resizer.is-dragging::after {
+      background-color: #ffffff;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col select-none">
@@ -98,18 +126,19 @@
   </header>
 
   <!-- ==================== 主工作區容器 ==================== -->
-  <main class="flex-1 flex overflow-hidden relative min-h-0">
+  <main id="workspaceMain" class="flex-1 flex overflow-hidden relative min-h-0">
 
-    <!-- ==================== 區塊 A：全球口袋資料庫 ==================== -->
-    <section id="databasePanel" class="w-[65%] bg-white border-r border-slate-200 flex flex-col transition-all duration-200 shrink-0 z-20 min-h-0">
-      <div id="dbToolbarContainer" class="p-3 border-b border-slate-100 space-y-2 bg-slate-50/70 shrink-0">
+    <!-- ==================== 區塊 A：全球口袋資料庫 / 規劃待排口袋 ==================== -->
+    <section id="databasePanel" style="width: 62%;" class="bg-white flex flex-col shrink-0 z-20 min-h-0 min-w-[230px]">
+      <div id="dbToolbarContainer" class="p-2.5 border-b border-slate-100 space-y-2 bg-slate-50/70 shrink-0">
         <div class="flex items-center justify-between gap-1.5 flex-wrap">
           <div class="flex items-center gap-1.5">
             <span class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
               <i class="fa-solid fa-database text-blue-600"></i>
               <span id="dbPanelTitleText">全球口袋資料庫</span>
             </span>
-            <button onclick="openCardModal()"
+            <!-- 僅在「景點蒐集與資料庫」顯示資料建置按鈕 -->
+            <button id="btnAddCardCollect" onclick="openCardModal()"
               class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
               <i class="fa-solid fa-plus"></i> 新增卡片
             </button>
@@ -129,18 +158,15 @@
               <span id="miniCardBtnLabel">迷你卡片</span>
             </button>
 
-            <button id="btnTogglePlanFilters" onclick="togglePlanAdvancedFilters()"
-              class="hidden px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 items-center gap-1">
-              <i class="fa-solid fa-filter text-blue-600"></i> 篩選
-            </button>
+            <!-- 模式 2 專屬：收合口袋按鈕 -->
             <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
-              class="hidden px-2 py-1 rounded-md text-[11px] text-slate-500 hover:bg-slate-200/70 items-center gap-1">
+              class="hidden px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:bg-slate-200/70 items-center gap-1">
               <i class="fa-solid fa-angles-left"></i> 收合
             </button>
           </div>
         </div>
 
-        <!-- 批次自動定位並分類入庫面板 -->
+        <!-- 批次自動定位並分類入庫面板（僅模式1可用） -->
         <div id="batchImportBox" class="hidden bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2">
@@ -178,10 +204,10 @@
 
         <!-- 關鍵字搜尋 ＋ 排序切換器 -->
         <div class="flex flex-wrap items-center gap-1.5">
-          <div class="relative flex-1 min-w-[140px]">
+          <div class="relative flex-1 min-w-[130px]">
             <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2"></i>
             <input type="text" id="searchInput" oninput="renderDatabaseCards()"
-              placeholder="搜尋地點、備註、航班、行政區..."
+              placeholder="搜尋地點、行政區..."
               class="w-full pl-7 pr-6 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             <button onclick="clearSearch()" title="清除搜尋"
               class="text-slate-400 hover:text-slate-600 text-xs absolute right-2 top-1/2 -translate-y-1/2">
@@ -189,7 +215,7 @@
             </button>
           </div>
 
-          <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
+          <div id="sortSelectWrapper" class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
             <i class="fa-solid fa-arrow-down-wide-short text-blue-600 text-xs"></i>
             <select id="sortSelect" onchange="renderDatabaseCards()"
               class="text-xs font-semibold text-slate-700 bg-transparent focus:outline-none cursor-pointer">
@@ -201,7 +227,23 @@
           </div>
         </div>
 
-        <!-- 多層級篩選膠囊 -->
+        <!-- 模式 2 專屬：精簡快速篩選條（應用端專用，不佔空間） -->
+        <div id="planQuickFilterBar" class="hidden flex-wrap items-center gap-1">
+          <button onclick="setPlanQuickFilter('unscheduled')" data-plan-q="unscheduled"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">未排入</button>
+          <button onclick="setPlanQuickFilter('景點')" data-plan-q="景點"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
+          <button onclick="setPlanQuickFilter('美食')" data-plan-q="美食"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
+          <button onclick="setPlanQuickFilter('購物')" data-plan-q="購物"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
+          <button onclick="setPlanQuickFilter('住宿')" data-plan-q="住宿"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+          <button onclick="setPlanQuickFilter('all')" data-plan-q="all"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">全部</button>
+        </div>
+
+        <!-- 模式 1 專屬：完整多層級篩選膠囊 -->
         <div id="advancedFilterGroup" class="space-y-1.5">
           <div class="flex flex-wrap items-center gap-1.5">
             <button onclick="setFilter('scope', 'all')" data-filter-scope="all"
@@ -259,6 +301,9 @@
       <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40"></div>
     </section>
 
+    <!-- 分隔拖曳桿 1（區塊 A 與 B/C 之間） -->
+    <div id="resizerLeft" class="split-resizer" title="按住左右拖曳可自由調整區塊寬度"></div>
+
     <!-- 模式2收合口袋後的展開浮動按鈕 -->
     <button id="btnExpandPocket" onclick="togglePocketCollapse()"
       class="hidden absolute left-2 top-3 z-30 bg-white border border-slate-300 shadow-md rounded-lg px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700 items-center gap-1.5">
@@ -266,23 +311,19 @@
       <span>展開口袋</span>
     </button>
 
-    <!-- ==================== 區塊 B：多日行程規劃看板（僅模式2顯示） ==================== -->
-    <section id="itineraryBoardSection" class="hidden flex-1 flex-col bg-slate-100/70 overflow-hidden min-w-0 min-h-0">
-      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 flex-wrap">
-        <div id="dayNavPills" class="flex items-center gap-1.5 overflow-x-auto py-0.5"></div>
+    <!-- ==================== 區塊 B：行程規劃區（僅模式2顯示，預設單日清爽聚焦） ==================== -->
+    <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
+      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
+        <div id="dayNavPills" class="flex items-center gap-1 overflow-x-auto py-0.5"></div>
         <div class="flex items-center gap-1.5 shrink-0">
-          <button id="btnCompactView" onclick="toggleCompactView()"
-            class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-list"></i> <span>精簡檢視</span>
-          </button>
-          <button onclick="scrollBoard(-340)" class="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs flex items-center justify-center">
-            <i class="fa-solid fa-chevron-left"></i>
-          </button>
-          <button onclick="scrollBoard(340)" class="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs flex items-center justify-center">
-            <i class="fa-solid fa-chevron-right"></i>
+          <button id="btnBoardMultiDayToggle" onclick="toggleBoardMultiDayMode()"
+            class="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center gap-1"
+            title="在單日聚焦與多日並列檢視間切換">
+            <i class="fa-solid fa-columns"></i>
+            <span id="boardModeLabel">多日並列</span>
           </button>
           <button onclick="pushAllToGoogleSheets(false)"
-            class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition">
+            class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition">
             <i class="fa-solid fa-floppy-disk"></i> 儲存排程
           </button>
         </div>
@@ -291,8 +332,11 @@
       <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch"></div>
     </section>
 
-    <!-- ==================== 區塊 C：地圖與分類圖層控制面板 ==================== -->
-    <aside id="mapPanel" class="w-[35%] bg-white border-l border-slate-200 flex flex-col shrink-0 transition-all duration-200 z-10 min-h-0">
+    <!-- 分隔拖曳桿 2（模式 2 的區塊 B 與區塊 C 之間） -->
+    <div id="resizerRight" class="split-resizer hidden" title="按住左右拖曳可自由調整地圖寬度"></div>
+
+    <!-- ==================== 區塊 C：地圖與路線檢核面板 ==================== -->
+    <aside id="mapPanel" class="flex-1 bg-white flex flex-col min-w-[260px] z-10 min-h-0">
       <!-- 模式 1 頂部標題列 -->
       <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div class="flex items-center gap-2">
@@ -300,10 +344,10 @@
           <span class="text-xs font-bold text-slate-800">景點分布檢核地圖</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <button onclick="toggleMapExpand()" id="btnMapExpandCollect"
-            class="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition">
-            <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
-            <span id="mapExpandCollectLabel">放大地圖</span>
+          <button onclick="toggleMapDrawer()"
+            class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-bold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-layer-group text-blue-600"></i>
+            <span>分類圖層</span>
           </button>
           <button onclick="fitMapToFilteredCards()"
             class="px-2 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
@@ -312,68 +356,75 @@
         </div>
       </div>
 
-      <!-- 模式 2 頂部控制列 -->
-      <div id="mapHeaderPlanMode" class="hidden p-2.5 border-b border-slate-200 bg-slate-50 space-y-2 shrink-0">
-        <div class="flex items-center gap-1.5">
+      <!-- 模式 2 單行精簡控制列（把最大空間留給地圖，明細與圖層收納於抽屜） -->
+      <div id="mapHeaderPlanMode" class="hidden px-2.5 py-2 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
+        <div class="flex items-center gap-1.5 flex-wrap">
           <select id="mapDaySelect" onchange="onMapDayChange()"
-            class="flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-none">
+            class="text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-none">
           </select>
           <select id="transitProfileSelect" onchange="recalculateAllDayTimes()"
-            class="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:outline-none">
+            class="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none">
             <option value="smart">🔀 智慧混搭</option>
-            <option value="transit">🚆 大眾運輸</option>
-            <option value="drive">🚗 自駕開車</option>
-            <option value="walk">🚶 步行優先</option>
+            <option value="transit">🚆 單軌/公車</option>
+            <option value="drive">🚗 自駕道路</option>
+            <option value="walk">🚶 步行路徑</option>
           </select>
-          <button onclick="toggleMapExpand()" id="btnMapExpandPlan"
-            class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition">
-            <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
-            <span id="mapExpandPlanLabel">放大地圖</span>
-          </button>
+          <span id="dailyTransitBadge" class="px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-bold">
+            0 分 (0 km)
+          </span>
         </div>
 
         <div class="flex items-center gap-1.5">
           <button id="btnOverlayPocket" onclick="toggleOverlayPocketOnPlanMap()"
-            class="flex-1 py-1.5 px-2.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100/80 text-blue-800 text-[11px] font-semibold flex items-center justify-between transition">
-            <span>📍 疊加口袋點位：<strong id="overlayPocketStatusText">關閉</strong></span>
-            <i class="fa-solid fa-layer-group"></i>
+            class="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold flex items-center gap-1 transition"
+            title="在地圖疊加顯示尚未排入的口袋點位">
+            <i class="fa-solid fa-location-dot text-blue-600"></i>
+            <span id="overlayPocketStatusText">疊加口袋</span>
           </button>
-          <button id="btnRadarToggle" onclick="toggleRadarMode()"
-            class="py-1.5 px-2.5 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100/80 text-amber-800 text-[11px] font-semibold flex items-center gap-1 shrink-0 transition"
-            title="開啟後點擊地圖可搜尋 1.5km 內口袋點位">
-            <span>🎯 雷達：<strong id="radarStatusText">關</strong></span>
+          <button id="btnToggleMapDrawer" onclick="toggleMapDrawer()"
+            class="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold flex items-center gap-1 transition">
+            <i class="fa-solid fa-sliders text-blue-600"></i>
+            <span>圖層與明細</span>
+            <i id="mapDrawerChevron" class="fa-solid fa-chevron-down text-[9px]"></i>
           </button>
-        </div>
-
-        <div class="bg-white rounded-xl border border-slate-200 p-2 space-y-1.5 max-h-32 overflow-y-auto">
-          <div class="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-100 pb-1">
-            <span><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日移動總計：</span>
-            <span id="dailyTransitSummary" class="text-blue-700">約 0 分 (0.0 km)</span>
-          </div>
-          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600"></div>
         </div>
       </div>
 
-      <!-- 共用：地圖分類圖釘顯示 / 隱藏控制器（兩頁面皆可用） -->
-      <div class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-eye text-blue-600"></i>
-            <span>地圖分類圖層（點擊可隱藏/開啟）</span>
-          </span>
-          <div class="flex items-center gap-1">
-            <button onclick="setOnlyAttractionsLayer()"
-              class="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-              只看景點
-            </button>
-            <button onclick="setAllMapLayersVisible(true)"
-              class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold">
-              全開
-            </button>
-            <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium ml-1">0 釘</span>
+      <!-- 可收合抽屜：分類圖層開關 ＋ 路線明細（模式1預設展開、模式2預設隱藏） -->
+      <div id="mapCollapsibleDrawer" class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-2 shrink-0">
+        <!-- 分類圖層開關 -->
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold text-slate-700 flex items-center gap-1">
+              <i class="fa-solid fa-eye text-blue-600"></i>
+              <span>分類圖層（點擊可隱藏/開啟）</span>
+            </span>
+            <div class="flex items-center gap-1">
+              <button onclick="setOnlyAttractionsLayer()"
+                class="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                只看景點
+              </button>
+              <button onclick="setAllMapLayersVisible(true)"
+                class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold">
+                全開
+              </button>
+              <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium ml-1">0 釘</span>
+            </div>
           </div>
+          <div id="mapCategoryToggleContainer" class="flex items-center gap-1 flex-wrap"></div>
         </div>
-        <div id="mapCategoryToggleContainer" class="flex items-center gap-1 flex-wrap"></div>
+
+        <!-- 路線分段明細（僅模式 2 展開抽屜時顯示） -->
+        <div id="planRouteLegsDrawerSection" class="hidden pt-1.5 border-t border-slate-100 space-y-1.5">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold text-slate-700"><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日路線分段明細</span>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+              <input type="checkbox" id="chkIncludeCrossSeaFlight" onchange="renderMapMarkers()" class="accent-blue-600 rounded" />
+              <span>視野含跨海航線</span>
+            </label>
+          </div>
+          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600 max-h-28 overflow-y-auto"></div>
+        </div>
       </div>
 
       <div id="mapContainer" class="flex-1 w-full relative z-0 min-h-0"></div>
@@ -393,7 +444,6 @@
       <div class="p-5 overflow-y-auto space-y-3.5 text-xs">
         <input type="hidden" id="editCardId" />
 
-        <!-- 名稱與分類 -->
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
@@ -415,7 +465,6 @@
           </div>
         </div>
 
-        <!-- 國家、行政區與停留時間 -->
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block font-bold text-slate-700 mb-1">國家 / 地區</label>
@@ -441,7 +490,6 @@
           </div>
         </div>
 
-        <!-- 座標區（保留雙向反查行政區） -->
         <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-700"><i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>經緯度座標與行政區反查</span>
@@ -465,7 +513,6 @@
           </div>
         </div>
 
-        <!-- 類別專屬動態欄位區 -->
         <div id="dynamicCategoryFieldsBox" class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/35 space-y-3"></div>
 
         <div>
@@ -600,16 +647,16 @@
     let state = {
       mode: 'collect',
       pocketCollapsed: false,
-      compactView: false,
-      miniCardView: false,       // 模式 1 超精簡卡片檢視（配合大地圖）
-      mapExpanded: false,        // 兩模式皆可切換放大地圖版面
-      overlayPocketOnPlan: false,// 模式 2 地圖是否疊加顯示口袋點位
-      planFiltersOpen: false,
-      radarActive: false,
+      miniCardView: false,
+      boardMultiDayMode: false,    // 預設 false：旅遊行程規劃僅顯示擬安排行程日（清爽聚焦）
+      mapDrawerOpenCollect: true,  // 模式 1 地圖分類圖層抽屜預設開啟
+      mapDrawerOpenPlan: false,    // 模式 2 地圖圖層與明細抽屜預設隱藏（把版面留給地圖）
+      overlayPocketOnPlan: false,
       selectedMapDay: 1,
       highlightedCardId: null,
       expandedCards: {},
       deletedIds: [],
+      planQuickFilter: 'unscheduled',
       mapVisibleCategories: {
         '景點': true,
         '美食': true,
@@ -632,9 +679,9 @@
     let mapInstance = null;
     let mapMarkersLayer = null;
     let mapRouteLayer = null;
-    let radarCircleLayer = null;
     let markerLookup = {};
     let autoSyncTimer = null;
+    const osrmRouteCache = {}; // 快取真實道路/步行路徑幾何
 
     function discoverSavedGasUrl() {
       if (state.settings.gasUrl) return state.settings.gasUrl;
@@ -668,6 +715,7 @@
       }
 
       ensureItineraryDays();
+      initSplitResizers();
       initLeafletMap();
       renderMapCategoryToggles();
       updateTripHeaderDisplay();
@@ -678,6 +726,67 @@
       if (state.settings.gasUrl) {
         await pullFromGoogleSheets(false);
       }
+    }
+
+    // ==================== 1. 自由拖曳調整左右區塊寬度 ====================
+    function initSplitResizers() {
+      const workspace = document.getElementById('workspaceMain');
+      const dbPanel = document.getElementById('databasePanel');
+      const boardSection = document.getElementById('itineraryBoardSection');
+      const resizerLeft = document.getElementById('resizerLeft');
+      const resizerRight = document.getElementById('resizerRight');
+      const mapContainer = document.getElementById('mapContainer');
+
+      let activeResizer = null;
+      let startX = 0;
+      let startDbWidth = 0;
+      let startBoardWidth = 0;
+
+      function beginDrag(resizerType, e) {
+        e.preventDefault();
+        activeResizer = resizerType;
+        startX = e.clientX;
+        startDbWidth = dbPanel.getBoundingClientRect().width;
+        startBoardWidth = boardSection.getBoundingClientRect().width;
+        mapContainer.style.pointerEvents = 'none';
+        if (resizerType === 'left') resizerLeft.classList.add('is-dragging');
+        if (resizerType === 'right') resizerRight.classList.add('is-dragging');
+      }
+
+      resizerLeft.addEventListener('mousedown', (e) => beginDrag('left', e));
+      resizerRight.addEventListener('mousedown', (e) => beginDrag('right', e));
+
+      window.addEventListener('mousemove', (e) => {
+        if (!activeResizer) return;
+        const totalW = workspace.getBoundingClientRect().width;
+        const dx = e.clientX - startX;
+
+        if (activeResizer === 'left') {
+          if (state.mode === 'collect') {
+            const newW = Math.max(260, Math.min(totalW - 280, startDbWidth + dx));
+            dbPanel.style.width = `${newW}px`;
+          } else {
+            const newW = Math.max(220, Math.min(480, startDbWidth + dx));
+            dbPanel.style.width = `${newW}px`;
+          }
+        } else if (activeResizer === 'right' && state.mode === 'plan') {
+          const currentDbW = state.pocketCollapsed ? 0 : dbPanel.getBoundingClientRect().width;
+          const maxBoardW = totalW - currentDbW - 260;
+          const newBoardW = Math.max(280, Math.min(maxBoardW, startBoardWidth + dx));
+          boardSection.style.width = `${newBoardW}px`;
+        }
+
+        if (mapInstance) mapInstance.invalidateSize();
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (!activeResizer) return;
+        activeResizer = null;
+        mapContainer.style.pointerEvents = '';
+        resizerLeft.classList.remove('is-dragging');
+        resizerRight.classList.remove('is-dragging');
+        if (mapInstance) mapInstance.invalidateSize();
+      });
     }
 
     function persistState(triggerAutoPush = true) {
@@ -725,7 +834,7 @@
       }
     }
 
-    // 2. Google 試算表雙向轉譯與遞迴陣列擷取
+    // ==================== 2. Google 試算表雙向轉譯與同步 ====================
     function extractRowsFromGasPayload(payload) {
       if (!payload) return [];
       if (Array.isArray(payload)) {
@@ -788,9 +897,7 @@
 
       const cleanDistrict = cleanDistrictString(rawArea, country);
       let category = String(row.category || '景點').trim();
-      if (!CATEGORY_META[category]) {
-        category = '景點';
-      }
+      if (!CATEGORY_META[category]) category = '景點';
 
       const rawHours = String(row.business_hours || row.businessHours || '').trim();
       const rawMustBuy = String(row.must_buy || row.mustBuy || '').trim();
@@ -1087,73 +1194,34 @@
       }
     }
 
-    // 3. 雙模式與地圖大小／迷你卡片版面切換控制
-    function applyLayoutProportions() {
-      const dbPanel = document.getElementById('databasePanel');
-      const mapPanel = document.getElementById('mapPanel');
-      const cardsGrid = document.getElementById('databaseCardsContainer');
-      const expandCollectLabel = document.getElementById('mapExpandCollectLabel');
-      const expandPlanLabel = document.getElementById('mapExpandPlanLabel');
-      const btnExpandCollect = document.getElementById('btnMapExpandCollect');
-      const btnExpandPlan = document.getElementById('btnMapExpandPlan');
-
-      dbPanel.classList.remove('w-[65%]', 'w-[40%]', 'w-[295px]');
-      mapPanel.classList.remove('w-[35%]', 'w-[60%]', 'w-[320px]', 'w-[48%]');
+    // ==================== 3. 雙模式版面與抽屜切換 ====================
+    function updateMapDrawerVisibility() {
+      const drawer = document.getElementById('mapCollapsibleDrawer');
+      const routeSection = document.getElementById('planRouteLegsDrawerSection');
+      const chevron = document.getElementById('mapDrawerChevron');
 
       if (state.mode === 'collect') {
-        if (state.mapExpanded) {
-          dbPanel.classList.add('w-[40%]');
-          mapPanel.classList.add('w-[60%]');
-          if (expandCollectLabel) expandCollectLabel.textContent = '還原比例';
-          if (btnExpandCollect) btnExpandCollect.className = 'px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition';
-        } else {
-          dbPanel.classList.add('w-[65%]');
-          mapPanel.classList.add('w-[35%]');
-          if (expandCollectLabel) expandCollectLabel.textContent = '放大地圖';
-          if (btnExpandCollect) btnExpandCollect.className = 'px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition';
-        }
-
-        if (state.miniCardView) {
-          cardsGrid.className = state.mapExpanded
-            ? 'flex-1 min-h-0 overflow-y-auto p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 items-stretch content-start bg-slate-50/40'
-            : 'flex-1 min-h-0 overflow-y-auto p-2.5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 items-stretch content-start bg-slate-50/40';
-        } else {
-          cardsGrid.className = state.mapExpanded
-            ? 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 xl:grid-cols-2 gap-2.5 items-stretch content-start bg-slate-50/40'
-            : 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
-        }
+        drawer.classList.toggle('hidden', !state.mapDrawerOpenCollect);
+        routeSection.classList.add('hidden');
       } else {
-        if (!state.pocketCollapsed) {
-          dbPanel.classList.add('w-[295px]');
-        }
-        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2 bg-slate-50/60';
-
-        if (state.mapExpanded) {
-          mapPanel.classList.add('w-[48%]');
-          if (expandPlanLabel) expandPlanLabel.textContent = '還原地圖';
-          if (btnExpandPlan) btnExpandPlan.className = 'px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition';
-        } else {
-          mapPanel.classList.add('w-[320px]');
-          if (expandPlanLabel) expandPlanLabel.textContent = '放大地圖';
-          if (btnExpandPlan) btnExpandPlan.className = 'px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs transition';
+        drawer.classList.toggle('hidden', !state.mapDrawerOpenPlan);
+        routeSection.classList.toggle('hidden', !state.mapDrawerOpenPlan);
+        if (chevron) {
+          chevron.className = state.mapDrawerOpenPlan ? 'fa-solid fa-chevron-up text-[9px]' : 'fa-solid fa-chevron-down text-[9px]';
         }
       }
-
       setTimeout(() => {
         if (mapInstance) mapInstance.invalidateSize();
-      }, 220);
+      }, 150);
     }
 
-    function toggleMapExpand() {
-      state.mapExpanded = !state.mapExpanded;
-      if (state.mode === 'collect' && state.mapExpanded && !state.miniCardView) {
-        // 放大地圖時若尚未開啟迷你卡片，可自動切換讓左側更精簡一眼辨識，使用者仍可手動切回
-        state.miniCardView = true;
-        updateMiniCardButtonUi();
+    function toggleMapDrawer() {
+      if (state.mode === 'collect') {
+        state.mapDrawerOpenCollect = !state.mapDrawerOpenCollect;
+      } else {
+        state.mapDrawerOpenPlan = !state.mapDrawerOpenPlan;
       }
-      applyLayoutProportions();
-      renderDatabaseCards();
-      renderMapMarkers();
+      updateMapDrawerVisibility();
     }
 
     function updateMiniCardButtonUi() {
@@ -1172,8 +1240,14 @@
     function toggleMiniCardMode() {
       state.miniCardView = !state.miniCardView;
       updateMiniCardButtonUi();
-      applyLayoutProportions();
       renderDatabaseCards();
+    }
+
+    function toggleBoardMultiDayMode() {
+      state.boardMultiDayMode = !state.boardMultiDayMode;
+      const label = document.getElementById('boardModeLabel');
+      if (label) label.textContent = state.boardMultiDayMode ? '單日聚焦' : '多日並列';
+      renderKanbanBoard();
     }
 
     function switchWorkspaceMode(targetMode) {
@@ -1182,71 +1256,99 @@
       const tabPlan = document.getElementById('tabModePlan');
       const dbPanel = document.getElementById('databasePanel');
       const boardSection = document.getElementById('itineraryBoardSection');
+      const resizerLeft = document.getElementById('resizerLeft');
+      const resizerRight = document.getElementById('resizerRight');
+
+      const dbTitleText = document.getElementById('dbPanelTitleText');
+      const btnAddCard = document.getElementById('btnAddCardCollect');
+      const btnBatch = document.getElementById('btnToggleBatchBox');
       const btnCollapsePocket = document.getElementById('btnCollapsePocket');
       const btnExpandPocket = document.getElementById('btnExpandPocket');
-      const btnTogglePlanFilters = document.getElementById('btnTogglePlanFilters');
       const btnMiniCardToggle = document.getElementById('btnMiniCardToggle');
+      const sortWrapper = document.getElementById('sortSelectWrapper');
+      const planQuickBar = document.getElementById('planQuickFilterBar');
       const advFilters = document.getElementById('advancedFilterGroup');
       const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
       const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
       const batchBox = document.getElementById('batchImportBox');
+      const cardsGrid = document.getElementById('databaseCardsContainer');
 
       if (targetMode === 'collect') {
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
         dbPanel.classList.remove('hidden');
+        dbPanel.style.width = '60%';
+        resizerLeft.classList.remove('hidden');
+        resizerRight.classList.add('hidden');
         boardSection.classList.add('hidden');
         boardSection.classList.remove('flex');
+
+        dbTitleText.textContent = '全球口袋資料庫';
+        btnAddCard.classList.remove('hidden');
+        btnBatch.classList.remove('hidden');
+        btnMiniCardToggle.classList.remove('hidden');
+        sortWrapper.classList.remove('hidden');
+        advFilters.classList.remove('hidden');
+        planQuickBar.classList.add('hidden');
+        planQuickBar.classList.remove('flex');
+
+        btnCollapsePocket.classList.add('hidden');
+        btnCollapsePocket.classList.remove('flex');
+        btnExpandPocket.classList.add('hidden');
 
         mapHeaderCollect.classList.remove('hidden');
         mapHeaderPlan.classList.add('hidden');
 
-        btnCollapsePocket.classList.add('hidden');
-        btnCollapsePocket.classList.remove('flex');
-        btnTogglePlanFilters.classList.add('hidden');
-        btnTogglePlanFilters.classList.remove('flex');
-        btnExpandPocket.classList.add('hidden');
-        btnMiniCardToggle.classList.remove('hidden');
-        advFilters.classList.remove('hidden');
+        cardsGrid.className = state.miniCardView
+          ? 'flex-1 min-h-0 overflow-y-auto p-2.5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 items-stretch content-start bg-slate-50/40'
+          : 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
       } else {
         tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
         tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
         if (state.pocketCollapsed) {
           dbPanel.classList.add('hidden');
+          resizerLeft.classList.add('hidden');
           btnExpandPocket.classList.remove('hidden');
           btnExpandPocket.classList.add('flex');
         } else {
           dbPanel.classList.remove('hidden');
+          dbPanel.style.width = '265px';
+          resizerLeft.classList.remove('hidden');
           btnExpandPocket.classList.add('hidden');
         }
 
         boardSection.classList.remove('hidden');
         boardSection.classList.add('flex');
+        boardSection.style.width = '34%';
+        resizerRight.classList.remove('hidden');
+
+        // 2D：規劃頁面為純應用端，隱藏資料建置按鈕
+        dbTitleText.textContent = '口袋待排清單';
+        btnAddCard.classList.add('hidden');
+        btnBatch.classList.add('hidden');
+        batchBox.classList.add('hidden');
+        btnMiniCardToggle.classList.add('hidden');
+        sortWrapper.classList.add('hidden');
+        advFilters.classList.add('hidden');
+        planQuickBar.classList.remove('hidden');
+        planQuickBar.classList.add('flex');
+
+        btnCollapsePocket.classList.remove('hidden');
+        btnCollapsePocket.classList.add('flex');
 
         mapHeaderCollect.classList.add('hidden');
         mapHeaderPlan.classList.remove('hidden');
 
-        btnCollapsePocket.classList.remove('hidden');
-        btnCollapsePocket.classList.add('flex');
-        btnTogglePlanFilters.classList.remove('hidden');
-        btnTogglePlanFilters.classList.add('flex');
-        btnMiniCardToggle.classList.add('hidden');
-        batchBox.classList.add('hidden');
-
-        if (!state.planFiltersOpen) {
-          advFilters.classList.add('hidden');
-        }
+        cardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2 bg-slate-50/60';
       }
 
-      applyLayoutProportions();
+      updateMapDrawerVisibility();
       renderAll();
-    }
-
-    function togglePlanAdvancedFilters() {
-      state.planFiltersOpen = !state.planFiltersOpen;
-      document.getElementById('advancedFilterGroup').classList.toggle('hidden', !state.planFiltersOpen);
+      setTimeout(() => {
+        if (mapInstance) mapInstance.invalidateSize();
+      }, 150);
     }
 
     function togglePocketCollapse() {
@@ -1258,22 +1360,21 @@
       document.getElementById('batchImportBox').classList.toggle('hidden');
     }
 
-    function toggleCompactView() {
-      state.compactView = !state.compactView;
-      const btn = document.getElementById('btnCompactView');
-      btn.classList.toggle('bg-blue-50', state.compactView);
-      btn.classList.toggle('text-blue-700', state.compactView);
-      btn.classList.toggle('border-blue-300', state.compactView);
-      renderKanbanBoard();
-    }
-
     function toggleOverlayPocketOnPlanMap() {
       state.overlayPocketOnPlan = !state.overlayPocketOnPlan;
-      document.getElementById('overlayPocketStatusText').textContent = state.overlayPocketOnPlan ? '開啟中' : '關閉';
+      const btn = document.getElementById('btnOverlayPocket');
+      const txt = document.getElementById('overlayPocketStatusText');
+      if (state.overlayPocketOnPlan) {
+        btn.className = 'px-2 py-1 rounded-lg border border-blue-600 bg-blue-600 text-white text-[11px] font-bold flex items-center gap-1 transition';
+        txt.textContent = '疊加中';
+      } else {
+        btn.className = 'px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold flex items-center gap-1 transition';
+        txt.textContent = '疊加口袋';
+      }
       renderMapMarkers();
     }
 
-    // 4. 地圖分類圖層隱藏 / 開啟控制
+    // ==================== 4. 地圖分類圖層隱藏 / 開啟控制 ====================
     function renderMapCategoryToggles() {
       const container = document.getElementById('mapCategoryToggleContainer');
       if (!container) return;
@@ -1303,7 +1404,7 @@
       });
       renderMapCategoryToggles();
       renderMapMarkers();
-      showToast('已切換為第一層路線規劃圖層（僅顯示景點、住宿、機場）', 'emerald');
+      showToast('已切換為第一層路線圖層（僅顯示景點、住宿、機場）', 'emerald');
     }
 
     function setAllMapLayersVisible(visible) {
@@ -1314,7 +1415,18 @@
       renderMapMarkers();
     }
 
-    // 5. 篩選與排序邏輯
+    // ==================== 5. 篩選與排序邏輯 ====================
+    function setPlanQuickFilter(val) {
+      state.planQuickFilter = val;
+      document.querySelectorAll('.plan-q-btn').forEach(btn => {
+        const active = btn.dataset.planQ === val;
+        btn.className = active
+          ? 'plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white'
+          : 'plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600';
+      });
+      renderDatabaseCards();
+    }
+
     function setFilter(type, value, shouldRender = true) {
       state.filters[type] = value;
 
@@ -1367,6 +1479,21 @@
 
     function getFilteredAndSortedCards() {
       const kw = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+
+      // 模式 2 使用簡潔的快速篩選邏輯
+      if (state.mode === 'plan') {
+        return state.cards.filter(card => {
+          const scheduledDays = getCardScheduledDays(card.id);
+          if (state.planQuickFilter === 'unscheduled' && scheduledDays.length > 0) return false;
+          if (CATEGORY_LIST.includes(state.planQuickFilter) && card.category !== state.planQuickFilter) return false;
+          if (kw) {
+            const hay = `${card.title} ${card.district} ${card.country} ${card.notes} ${card.category}`.toLowerCase();
+            if (!hay.includes(kw)) return false;
+          }
+          return true;
+        });
+      }
+
       const countryVal = document.getElementById('countryFilter')?.value || 'all';
       const cityVal = document.getElementById('cityFilter')?.value || 'all';
       const sortBy = document.getElementById('sortSelect')?.value || 'newest';
@@ -1408,7 +1535,7 @@
       return list;
     }
 
-    // 6. 渲染資料庫卡片（支援迷你卡片、等高卡片與詳情展開）
+    // ==================== 6. 渲染資料庫卡片 ====================
     function toggleCardDetailExpand(cardId) {
       state.expandedCards[cardId] = !state.expandedCards[cardId];
       renderDatabaseCards();
@@ -1474,7 +1601,7 @@
         container.innerHTML = `
           <div class="col-span-full py-10 text-center text-slate-400 px-3">
             <i class="fa-solid fa-folder-open text-2xl mb-2"></i>
-            <p class="text-xs font-medium">目前無符合條件的卡片，請調整篩選或點擊右上角「重新載入」。</p>
+            <p class="text-xs font-medium">目前無符合條件的卡片</p>
           </div>`;
         return;
       }
@@ -1482,26 +1609,22 @@
       const totalDays = Number(state.settings.totalDays) || 6;
       const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
-      // 模式 2：旅遊行程規劃的精簡口袋卡片
+      // 模式 2：旅遊行程規劃的精簡應用口袋卡片（點擊直接定位或一鍵排入當前擬安排日期）
       if (state.mode === 'plan') {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const scheduledDays = getCardScheduledDays(card.id);
           const isScheduled = scheduledDays.length > 0;
           const statusChip = isScheduled
-            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">Day ${scheduledDays.join(',')}</span>`
-            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 shrink-0">未排</span>`;
-
-          const timeSub = isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)
-            ? `<div class="text-[10px] text-blue-700 font-semibold">${card.departTime || ''} ${card.arriveTime ? '→ ' + card.arriveTime : ''}</div>`
+            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">D${scheduledDays.join(',')}</span>`
             : '';
 
           return `
             <div id="db-card-${card.id}"
               draggable="true"
               ondragstart="onDragStartCard(event, '${card.id}')"
-              onclick="handleCardClick('${card.id}')"
-              class="shrink-0 bg-white rounded-xl border ${isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} hover:border-blue-400 p-2.5 shadow-2xs transition cursor-pointer space-y-1.5">
+              onclick="focusCardOnMap('${card.id}')"
+              class="shrink-0 bg-white rounded-xl border ${isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} hover:border-blue-400 p-2 shadow-2xs transition cursor-pointer space-y-1">
               
               <div class="flex items-start justify-between gap-1.5">
                 <div class="flex items-start gap-1.5 min-w-0">
@@ -1510,25 +1633,13 @@
                 </div>
                 ${statusChip}
               </div>
-              ${timeSub}
 
               <div class="flex items-center justify-between gap-1 pt-0.5" onclick="event.stopPropagation()">
-                <span class="text-[10px] text-slate-500 truncate">${card.district || ''}・${card.duration || 60}分</span>
-                <div class="flex items-center gap-1 shrink-0">
-                  <select onchange="quickAssignCardToDay('${card.id}', this.value); this.value='';"
-                    class="text-[10px] font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-1.5 py-0.5 text-blue-700 cursor-pointer focus:outline-none">
-                    <option value="">排入 ▾</option>
-                    ${dayOptionsHtml}
-                  </select>
-                  <button onclick="openCardModal('${card.id}')" title="編輯卡片"
-                    class="w-5 h-5 rounded hover:bg-amber-50 text-slate-500 hover:text-amber-600 text-[10px] flex items-center justify-center">
-                    <i class="fa-solid fa-pen"></i>
-                  </button>
-                  <button onclick="deleteCard('${card.id}')" title="刪除卡片"
-                    class="w-5 h-5 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 text-[10px] flex items-center justify-center">
-                    <i class="fa-solid fa-trash-can"></i>
-                  </button>
-                </div>
+                <span class="text-[10px] text-slate-500 truncate">${(card.district || '').replace(/^沖繩縣・/, '')}・${card.duration || 60}分</span>
+                <button onclick="addCardToDay('${card.id}', state.selectedMapDay)"
+                  class="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 text-[10px] font-bold shrink-0 transition">
+                  + Day ${state.selectedMapDay}
+                </button>
               </div>
             </div>
           `;
@@ -1536,7 +1647,7 @@
         return;
       }
 
-      // 模式 1A：迷你卡片檢視（一眼辨識景點名稱與分類，搭配大地圖分布）
+      // 模式 1A：迷你卡片檢視
       if (state.miniCardView) {
         container.innerHTML = cards.map(card => {
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
@@ -1582,7 +1693,7 @@
         return;
       }
 
-      // 模式 1B：標準等高整齊卡片設計（詳細說明預設摺疊，需要時點擊展開）
+      // 模式 1B：標準等高整齊卡片設計
       container.innerHTML = cards.map(card => {
         const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
         const scheduledDays = getCardScheduledDays(card.id);
@@ -1746,7 +1857,7 @@
       if (state.mode === 'collect') renderMapMarkers();
     }
 
-    // 7. 地理編碼與座標反查
+    // ==================== 7. 地理編碼與座標反查 ====================
     function parseNominatimAddress(addr = {}) {
       let country = addr.country || '日本';
       if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
@@ -1934,7 +2045,7 @@
       showToast('行政區與座標補齊完成，已自動寫入試算表！', 'emerald');
     }
 
-    // 8. 精簡編輯視窗邏輯（無解析帶入／查座標／重複刪除鍵）
+    // ==================== 8. 精簡編輯視窗邏輯 ====================
     function handleLatLngPaste(e) {
       const pasted = (e.clipboardData || window.clipboardData).getData('text');
       const coords = extractCoordsFromText(pasted);
@@ -2291,7 +2402,7 @@
       renderDatabaseCards();
     }
 
-    // 9. 多日行程看板與時間自動推算
+    // ==================== 9. 行程規劃區（預設單日聚焦、清爽版面、順序調整） ====================
     function getFormattedDateInfo(dayNum) {
       const start = new Date(state.settings.startDate + 'T00:00:00');
       if (isNaN(start.getTime())) return { md: `Day ${dayNum}`, week: '' };
@@ -2360,6 +2471,18 @@
       return { mode: 'transit', min: Math.max(10, Math.round(km * 3.5 + 10)), km };
     }
 
+    function moveItineraryItem(dayNum, idx, delta) {
+      const items = state.itinerary[dayNum]?.items;
+      if (!items) return;
+      const targetIdx = idx + delta;
+      if (targetIdx < 0 || targetIdx >= items.length) return;
+      const temp = items[idx];
+      items[idx] = items[targetIdx];
+      items[targetIdx] = temp;
+      persistState(true);
+      renderAll();
+    }
+
     function renderKanbanBoard() {
       const totalDays = Number(state.settings.totalDays) || 6;
       const navPills = document.getElementById('dayNavPills');
@@ -2379,8 +2502,12 @@
           </button>`;
       }).join('');
 
-      board.innerHTML = Array.from({ length: totalDays }, (_, i) => {
-        const d = i + 1;
+      // 2C：預設僅渲染擬安排行程日（單日聚焦），除非使用者手動點擊「多日並列」
+      const daysToRender = state.boardMultiDayMode
+        ? Array.from({ length: totalDays }, (_, i) => i + 1)
+        : [state.selectedMapDay];
+
+      board.innerHTML = daysToRender.map(d => {
         const info = getFormattedDateInfo(d);
         const dayData = state.itinerary[d] || { startTime: '09:00', items: [] };
         const items = dayData.items || [];
@@ -2437,9 +2564,9 @@
           const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : pinCounter));
 
           const transitLabelMap = {
-            walk: '🚶 慢活步行',
-            transit: '🚆 單軌+步行 / 客運',
-            drive: '🚗 自駕移動',
+            walk: '🚶 步行路徑',
+            transit: '🚆 單軌/公車',
+            drive: '🚗 自駕道路',
             flight: '✈️ 航空飛航'
           };
 
@@ -2455,7 +2582,7 @@
           }
 
           const legSubText = activeMode === 'flight' && arrTimes.length > 0
-            ? `（${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達，飛航約 ${transitMin} 分）`
+            ? `（${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達，約 ${transitMin} 分）`
             : `約 ${transitMin} 分`;
 
           return `
@@ -2466,50 +2593,52 @@
                 <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700">
                   ${timePillText}
                 </span>
-                <div class="flex items-center gap-1">
-                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.badgeBg}">${card.category}</span>
-                  <button onclick="openCardModal('${card.id}')" title="編輯卡片" class="text-slate-400 hover:text-amber-600 text-xs px-1">
+                <div class="flex items-center gap-0.5">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-1 ${meta.badgeBg}">${card.category}</span>
+                  <button onclick="moveItineraryItem(${d}, ${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="往上移動"
+                    class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
+                    <i class="fa-solid fa-arrow-up"></i>
+                  </button>
+                  <button onclick="moveItineraryItem(${d}, ${idx}, 1)" ${idx === items.length - 1 ? 'disabled' : ''} title="往下移動"
+                    class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
+                    <i class="fa-solid fa-arrow-down"></i>
+                  </button>
+                  <button onclick="openCardModal('${card.id}')" title="編輯卡片"
+                    class="w-5 h-5 rounded hover:bg-amber-50 text-slate-400 hover:text-amber-600 text-[10px] flex items-center justify-center">
                     <i class="fa-solid fa-pen"></i>
                   </button>
-                  <button onclick="removeItineraryItem(${d}, ${idx})" title="移出此日行程" class="text-slate-300 hover:text-rose-600 text-xs px-1">
+                  <button onclick="removeItineraryItem(${d}, ${idx})" title="移出此日"
+                    class="w-5 h-5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 text-[10px] flex items-center justify-center">
                     <i class="fa-solid fa-xmark"></i>
                   </button>
                 </div>
               </div>
 
-              <div class="flex items-start gap-2 cursor-pointer" onclick="handleCardClick('${card.id}')">
+              <div class="flex items-start gap-2 cursor-pointer" onclick="focusCardOnMap('${card.id}')">
                 <span class="w-5 h-5 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5"
                   style="background-color:${meta.color}">${badgeNum}</span>
                 <div class="min-w-0 flex-1">
                   <h5 class="font-bold text-xs text-slate-800 break-words">${card.title}</h5>
-                  ${!state.compactView ? `
-                    <p class="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                      ${card.district || ''}・停留${dur}分${card.flightNo ? '・' + card.flightNo : ''}${card.notes ? '・' + card.notes : ''}
-                    </p>
-                  ` : ''}
+                  <p class="text-[11px] text-slate-500 mt-0.5">
+                    ${(card.district || '').replace(/^沖繩縣・/, '')}・停留 ${dur} 分${card.flightNo ? '・' + card.flightNo : ''}
+                  </p>
                 </div>
               </div>
 
-              ${!state.compactView ? `
-                <div class="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
-                  <button onclick="addReturnToHotel(${d})"
-                    class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-medium">
-                    ↩ 加入當日回程
+              ${card.category === '住宿' && d < totalDays ? `
+                <div class="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center gap-1.5">
+                  <button onclick="extendHotelToNextDay(${d}, '${card.id}')"
+                    class="px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold">
+                    🏨 延續至 Day ${d + 1}
                   </button>
-                  ${card.category === '住宿' && d < totalDays ? `
-                    <button onclick="extendHotelToNextDay(${d}, '${card.id}')"
-                      class="px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold">
-                      🏨 延續至 Day ${d + 1}
-                    </button>
-                  ` : ''}
                 </div>
               ` : ''}
             </div>
 
             ${nextCard ? `
-              <div class="my-1.5 flex justify-center">
+              <div class="my-1 flex justify-center">
                 <button onclick="cycleTransitMode(${d}, ${idx})"
-                  class="px-2.5 py-1 rounded-full ${activeMode === 'flight' ? 'bg-sky-50 border-sky-200 text-sky-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
+                  class="px-2.5 py-0.5 rounded-full ${activeMode === 'flight' ? 'bg-sky-50 border-sky-200 text-sky-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
                   <span>↓ ${transitLabelMap[activeMode]} ${legSubText}</span>
                 </button>
               </div>
@@ -2518,15 +2647,16 @@
         }).join('');
 
         const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : initialStart;
+        const colWidthClass = state.boardMultiDayMode ? 'w-[300px] shrink-0' : 'w-full';
 
         return `
           <div id="day-col-${d}"
             ondragover="onDragOverColumn(event)"
             ondragleave="onDragLeaveColumn(event)"
             ondrop="onDropOnDay(event, ${d})"
-            class="w-[310px] shrink-0 bg-slate-50/90 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
+            class="${colWidthClass} bg-slate-50/95 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
             
-            <div class="p-3 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
+            <div class="p-3 bg-white border-b border-slate-200 space-y-1 shrink-0">
               <div class="flex items-center justify-between">
                 <div class="flex items-baseline gap-1.5">
                   <span class="font-extrabold text-sm text-blue-700">Day ${d}</span>
@@ -2538,23 +2668,23 @@
                     <input type="time" value="${initialStart}" onchange="updateDayStartTime(${d}, this.value)"
                       class="bg-transparent font-bold text-slate-700 focus:outline-none w-14" />
                   </label>
-                  <button onclick="selectDayFocus(${d})" title="在地圖檢視當日路線"
-                    class="w-6 h-6 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs flex items-center justify-center">
-                    <i class="fa-regular fa-map"></i>
+                  <button onclick="addReturnToHotel(${d})" title="將當日住宿加入行程最後作為回程"
+                    class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold">
+                    ↩ 回住宿
                   </button>
                 </div>
               </div>
               <div class="flex items-center justify-between text-[11px] text-slate-500">
                 <span>共 ${items.length} 項・活動 ${(totalActMin / 60).toFixed(1).replace('.0', '')}h</span>
-                <span class="text-blue-600 font-semibold">移動${totalTransitMin}分・約${endTimeStr}結束</span>
+                <span class="text-blue-600 font-semibold">移動 ${totalTransitMin} 分・約 ${endTimeStr} 結束</span>
               </div>
             </div>
 
             <div class="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1">
               ${items.length > 0 ? cardsHtml : `
-                <div class="h-32 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-4 text-center">
-                  <i class="fa-solid fa-hand-pointer mb-1 text-base"></i>
-                  <span>從左側口袋拖曳卡片至此，或點擊「排入 ▾」</span>
+                <div class="h-36 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-4 text-center">
+                  <i class="fa-solid fa-hand-pointer mb-1.5 text-base"></i>
+                  <span>從左側口袋拖曳卡片至此，或點擊「+ Day ${d}」排入</span>
                 </div>
               `}
             </div>
@@ -2563,7 +2693,7 @@
       }).join('');
     }
 
-    // 10. 看板互動與拖曳操作
+    // ==================== 10. 看板互動與拖曳操作 ====================
     let dragPayload = null;
 
     function onDragStartCard(e, cardId) {
@@ -2620,6 +2750,7 @@
         transitMin: 0
       });
       state.selectedMapDay = dayNum;
+      document.getElementById('mapDaySelect').value = dayNum;
       if (shouldPersist) persistState(true);
       renderAll();
       showToast(`已將「${card.title}」排入 Day ${dayNum}`, 'emerald');
@@ -2694,17 +2825,11 @@
       addCardToDay(hotelItem.cardId, dayNum);
     }
 
-    function scrollBoard(offset) {
-      document.getElementById('kanbanColumnsContainer').scrollBy({ left: offset, behavior: 'smooth' });
-    }
-
     function selectDayFocus(dayNum) {
       state.selectedMapDay = dayNum;
       document.getElementById('mapDaySelect').value = dayNum;
       renderKanbanBoard();
       renderMapMarkers();
-      const col = document.getElementById(`day-col-${dayNum}`);
-      if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'nearest' });
     }
 
     function onMapDayChange() {
@@ -2718,7 +2843,7 @@
       renderMapMarkers();
     }
 
-    // 11. Leaflet 地圖（支援分類圖層隱藏／開啟與雙模式疊加）
+    // ==================== 11. Leaflet 地圖與真實道路/步行路徑 ====================
     function initLeafletMap() {
       mapInstance = L.map('mapContainer', { zoomControl: true }).setView([26.2124, 127.6809], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -2727,12 +2852,6 @@
 
       mapMarkersLayer = L.layerGroup().addTo(mapInstance);
       mapRouteLayer = L.layerGroup().addTo(mapInstance);
-
-      mapInstance.on('click', (e) => {
-        if (state.radarActive && state.mode === 'plan') {
-          runPocketRadar(e.latlng.lat, e.latlng.lng);
-        }
-      });
     }
 
     function createColoredPinIcon(color, labelText, isGhost = false) {
@@ -2746,7 +2865,60 @@
       });
     }
 
-    function renderMapMarkers() {
+    // 查詢真實路網幾何路徑（OSRM 公開服務，步行用 foot、車輛/單軌廊帶用 driving）
+    async function fetchRealRoadPath(cardA, cardB, mode) {
+      const osrmProfile = mode === 'walk' ? 'foot' : 'driving';
+      const cacheKey = `${osrmProfile}_${cardA.lat.toFixed(5)},${cardA.lng.toFixed(5)}_${cardB.lat.toFixed(5)},${cardB.lng.toFixed(5)}`;
+      if (osrmRouteCache[cacheKey]) {
+        return osrmRouteCache[cacheKey];
+      }
+
+      try {
+        const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${cardA.lng},${cardA.lat};${cardB.lng},${cardB.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const latLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+          const result = {
+            latLngs,
+            distanceKm: route.distance / 1000,
+            durationMin: Math.max(3, Math.round(route.duration / 60))
+          };
+          osrmRouteCache[cacheKey] = result;
+          return result;
+        }
+      } catch (e) {}
+
+      // 若 OSRM 暫無回應則退回起訖座標連線
+      return {
+        latLngs: [[cardA.lat, cardA.lng], [cardB.lat, cardB.lng]],
+        distanceKm: haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng),
+        durationMin: null
+      };
+    }
+
+    // 繪製跨海航段優雅弧線
+    function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
+      const pts = [];
+      const steps = 36;
+      const midLat = (lat1 + lat2) / 2;
+      const midLng = (lng1 + lng2) / 2;
+      const dLat = lat2 - lat1;
+      const dLng = lng2 - lng1;
+      const ctrlLat = midLat - dLng * 0.14;
+      const ctrlLng = midLng + dLat * 0.14;
+
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const lat = (1 - t) * (1 - t) * lat1 + 2 * (1 - t) * t * ctrlLat + t * t * lat2;
+        const lng = (1 - t) * (1 - t) * lng1 + 2 * (1 - t) * t * ctrlLng + t * t * lng2;
+        pts.push([lat, lng]);
+      }
+      return pts;
+    }
+
+    async function renderMapMarkers() {
       if (!mapInstance) return;
       mapMarkersLayer.clearLayers();
       mapRouteLayer.clearLayers();
@@ -2793,16 +2965,18 @@
         const d = state.selectedMapDay;
         const items = state.itinerary[d]?.items || [];
         const dayCardIds = new Set(items.map(it => it.cardId));
-        const coords = [];
+        const allCoords = [];
+        const localDestinationCoords = []; // 聚焦目的地（排除起飛的台灣端機場，避免視野縮太遠）
         const legsHtml = [];
         let totalMin = 0;
         let totalKm = 0;
         let stopIndex = 0;
         let visiblePinCount = 0;
 
-        items.forEach((item, idx) => {
+        for (let idx = 0; idx < items.length; idx++) {
+          const item = items[idx];
           const card = state.cards.find(c => c.id === item.cardId);
-          if (!card) return;
+          if (!card) continue;
           const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
           const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
           const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
@@ -2811,7 +2985,12 @@
           const label = card.category === '住宿' ? '宿' : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
 
           if (hasCoords) {
-            coords.push([card.lat, card.lng]);
+            allCoords.push([card.lat, card.lng]);
+            const isTaiwanOriginAirport = card.category === '機場' && ((card.country || '').includes('台') || (card.country || '').includes('臺'));
+            if (!isTaiwanOriginAirport) {
+              localDestinationCoords.push([card.lat, card.lng]);
+            }
+
             if (isLayerVisible) {
               visiblePinCount++;
               const marker = L.marker([card.lat, card.lng], {
@@ -2826,22 +3005,50 @@
           const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
           if (nextCard) {
             const est = estimateTransit(card, nextCard);
-            const legMin = est.mode === 'flight' ? est.min : (Number(item.transitMin) || est.min);
+            const activeMode = est.mode === 'flight' ? 'flight' : (item.transitMode || est.mode);
+            let legMin = est.mode === 'flight' ? est.min : (Number(item.transitMin) || est.min);
+            let legKm = est.km;
+
+            const nextHasCoords = Number.isFinite(Number(nextCard.lat)) && Number.isFinite(Number(nextCard.lng)) && Number(nextCard.lat) !== 0;
+
+            if (hasCoords && nextHasCoords) {
+              if (activeMode === 'flight') {
+                // 跨海航段：繪製空中航線虛線弧線
+                const arcPts = buildCurvedFlightArc(card.lat, card.lng, nextCard.lat, nextCard.lng);
+                L.polyline(arcPts, { color: '#0284c7', weight: 3, opacity: 0.75, dashArray: '8, 8' }).addTo(mapRouteLayer);
+              } else {
+                // 當地陸路移動：依據步行/自駕/單軌大眾運輸繪製真實道路幾何路徑
+                const roadData = await fetchRealRoadPath(card, nextCard, activeMode);
+                legKm = roadData.distanceKm || legKm;
+                if (!item.transitMin && roadData.durationMin) {
+                  legMin = activeMode === 'transit' ? Math.max(8, Math.round(roadData.durationMin * 1.25 + 5)) : roadData.durationMin;
+                }
+
+                const routeStyle = activeMode === 'walk'
+                  ? { color: '#10b981', weight: 4.5, opacity: 0.88, dashArray: '5, 7' } // 步行：綠色圓點虛線
+                  : (activeMode === 'drive'
+                    ? { color: '#2563eb', weight: 4.5, opacity: 0.85 } // 自駕：藍色實線
+                    : { color: '#7c3aed', weight: 4.5, opacity: 0.85 }); // 單軌/大眾運輸：紫色實線
+
+                L.polyline(roadData.latLngs, routeStyle).addTo(mapRouteLayer);
+              }
+            }
+
             totalMin += legMin;
-            totalKm += est.km;
-            const iconPrefix = est.mode === 'flight' ? '✈️ ' : '';
-            const gdir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(card.title)}&destination=${encodeURIComponent(nextCard.title)}`;
+            totalKm += legKm;
+            const iconPrefix = activeMode === 'flight' ? '✈️ ' : (activeMode === 'walk' ? '🚶 ' : (activeMode === 'drive' ? '🚗 ' : '🚆 '));
+            const gdir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(card.title)}&destination=${encodeURIComponent(nextCard.title)}&travelmode=${activeMode === 'walk' ? 'walking' : (activeMode === 'drive' ? 'driving' : 'transit')}`;
             legsHtml.push(`
               <div class="flex items-center justify-between bg-slate-50 px-2 py-1 rounded border border-slate-100">
                 <span class="truncate flex-1 pr-1">${idx + 1}→${idx + 2} ${iconPrefix}${nextCard.title}</span>
                 <span class="font-bold text-blue-700 shrink-0 mr-1.5">約 ${legMin} 分</span>
-                <a href="${gdir}" target="_blank" class="text-blue-600 underline shrink-0">Google</a>
+                <a href="${gdir}" target="_blank" class="text-blue-600 underline shrink-0">導航</a>
               </div>
             `);
           }
-        });
+        }
 
-        // 若開啟「疊加口袋點位」，在地圖顯示尚未排入當日的口袋卡片（依照分類圖層開關過濾，方便加美食／購物）
+        // 若開啟「疊加口袋點位」
         if (state.overlayPocketOnPlan) {
           state.cards.forEach(c => {
             if (dayCardIds.has(c.id)) return;
@@ -2866,15 +3073,17 @@
           });
         }
 
-        if (coords.length > 1) {
-          L.polyline(coords, { color: '#2563eb', weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(mapRouteLayer);
-        }
-        if (coords.length > 0) {
-          mapInstance.fitBounds(coords, { padding: [40, 40], maxZoom: 14 });
+        const includeFlightInZoom = document.getElementById('chkIncludeCrossSeaFlight')?.checked;
+        const zoomTargetCoords = (!includeFlightInZoom && localDestinationCoords.length > 0)
+          ? localDestinationCoords
+          : allCoords;
+
+        if (zoomTargetCoords.length > 0) {
+          mapInstance.fitBounds(zoomTargetCoords, { padding: [45, 45], maxZoom: 14 });
         }
 
         document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
-        document.getElementById('dailyTransitSummary').textContent = `約 ${totalMin} 分 (${totalKm.toFixed(1)} km)`;
+        document.getElementById('dailyTransitBadge').textContent = `${totalMin} 分 (${totalKm.toFixed(1)} km)`;
         document.getElementById('dailyTransitLegsList').innerHTML = legsHtml.length > 0
           ? legsHtml.join('')
           : `<div class="text-slate-400 text-center py-1">當日尚無跨點移動段次</div>`;
@@ -2916,34 +3125,7 @@
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    function toggleRadarMode() {
-      state.radarActive = !state.radarActive;
-      document.getElementById('radarStatusText').textContent = state.radarActive ? '開' : '關';
-      if (!state.radarActive && radarCircleLayer) {
-        mapRouteLayer.removeLayer(radarCircleLayer);
-        radarCircleLayer = null;
-      }
-    }
-
-    function runPocketRadar(lat, lng) {
-      if (radarCircleLayer) mapRouteLayer.removeLayer(radarCircleLayer);
-      radarCircleLayer = L.circle([lat, lng], { radius: 1500, color: '#f59e0b', fillOpacity: 0.12 }).addTo(mapRouteLayer);
-
-      const nearby = state.cards.filter(c =>
-        state.mapVisibleCategories[c.category] !== false &&
-        haversineKm(lat, lng, c.lat, c.lng) > 0 &&
-        haversineKm(lat, lng, c.lat, c.lng) <= 1.5
-      );
-      showToast(`周邊 1.5km 內找到 ${nearby.length} 個顯示中分類的口袋地點`, 'amber');
-      nearby.forEach(c => {
-        const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
-        L.marker([c.lat, c.lng], { icon: createColoredPinIcon(meta.color, '★') })
-          .bindPopup(`<div class="text-xs font-bold">🎯 ${c.title}</div><div class="text-[11px]">${c.district || ''}</div>`)
-          .addTo(mapRouteLayer);
-      });
-    }
-
-    // 12. 設定與提示
+    // ==================== 12. 設定與提示 ====================
     function updateTripHeaderDisplay() {
       document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle;
       const days = Number(state.settings.totalDays) || 6;
@@ -2968,7 +3150,7 @@
       sel.innerHTML = Array.from({ length: totalDays }, (_, i) => {
         const d = i + 1;
         const info = getFormattedDateInfo(d);
-        return `<option value="${d}">Day ${d} (${info.md} (${info.week}))</option>`;
+        return `<option value="${d}">Day ${d} (${info.md} ${info.week})</option>`;
       }).join('');
       sel.value = state.selectedMapDay;
     }
