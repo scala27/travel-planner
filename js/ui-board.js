@@ -10,7 +10,9 @@ import {
   normalizeAdministrativeDistrict,
   haversineKm,
   isFlightLeg,
-  estimateTransit
+  resolveLegModeAndEstimate,
+  formatDistanceLabel,
+  getTransitModeDisplay
 } from './geo.js';
 
 let dragPayload = null;
@@ -68,6 +70,7 @@ export function renderKanbanBoard() {
   const totalDays = Number(state.settings.totalDays) || 6;
   const navPills = document.getElementById('dayNavPills');
   const board = document.getElementById('kanbanColumnsContainer');
+  const globalProfile = document.getElementById('transitProfileSelect')?.value || 'smart';
 
   navPills.innerHTML = Array.from({ length: totalDays }, (_, i) => {
     const d = i + 1;
@@ -127,32 +130,46 @@ export function renderKanbanBoard() {
 
       const nextItem = items[idx + 1];
       const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
-      const est = nextCard ? estimateTransit(card, nextCard) : null;
-      const activeMode = est?.mode === 'flight' ? 'flight' : (item.transitMode || est?.mode || 'transit');
-      let transitMin = est?.mode === 'flight' ? est.min : (Number(item.transitMin) || est?.min || 0);
 
-      const arrTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.arriveTime) : [];
+      let activeMode = 'transit';
+      let transitMin = 0;
+      let legPillText = '';
+
       if (nextCard) {
+        const est = resolveLegModeAndEstimate(card, nextCard, item.transitMode || 'auto');
+        const cacheKey = `${card.id}_${nextCard.id}_${item.transitMode || 'auto'}_${globalProfile}`;
+        const cached = state.routeMetricsCache[cacheKey];
+
+        activeMode = cached ? cached.mode : est.mode;
+        const hasStopSplit = cached ? cached.hasStopSplit : false;
+        const legKm = cached ? cached.km : est.km;
+        transitMin = est.mode === 'flight' ? est.min : (Number(item.transitMin) || (cached ? cached.min : est.min));
+
+        const arrTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.arriveTime) : [];
         totalTransitMin += transitMin;
         if (arrTimes.length > 0) {
           cursorMin = timeToMinutes(arrTimes[arrTimes.length - 1]);
         } else {
           cursorMin += transitMin;
         }
+
+        const modeLabel = getTransitModeDisplay(activeMode, hasStopSplit);
+        const distLabel = formatDistanceLabel(legKm);
+        if (activeMode === 'flight' && arrTimes.length > 0) {
+          legPillText = `${modeLabel}｜${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達・約 ${transitMin} 分`;
+        } else if (distLabel) {
+          legPillText = `${modeLabel}｜約 ${distLabel}・${transitMin} 分`;
+        } else {
+          legPillText = `${modeLabel}｜約 ${transitMin} 分`;
+        }
       }
 
       if (card.category !== '住宿' && !isTransportOrAirport(card.category)) pinCounter++;
       const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : pinCounter));
 
-      const transitLabelMap = {
-        walk: '🚶 步行路徑',
-        transit: '🚆 單軌/公車',
-        drive: '🚗 自駕道路',
-        flight: '✈️ 航空飛航'
-      };
-
       let timePillText = `${startStr} ~ ${endStr}`;
       if (isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)) {
+        const arrTimes = extractClockTimes(card.arriveTime);
         if (depTimes.length >= 2) {
           timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
         } else if (card.departTime) {
@@ -162,9 +179,11 @@ export function renderKanbanBoard() {
         }
       }
 
-      const legSubText = activeMode === 'flight' && arrTimes.length > 0
-        ? `（${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達，約 ${transitMin} 分）`
-        : `約 ${transitMin} 分`;
+      const pillColorClass = activeMode === 'flight'
+        ? 'bg-sky-50 border-sky-200 text-sky-800'
+        : (activeMode === 'walk'
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          : 'bg-white border-slate-200 text-slate-700');
 
       return `
         <div draggable="true"
@@ -218,9 +237,9 @@ export function renderKanbanBoard() {
 
         ${nextCard ? `
           <div class="my-1 flex justify-center">
-            <button onclick="cycleTransitMode(${d}, ${idx})"
-              class="px-2.5 py-0.5 rounded-full ${activeMode === 'flight' ? 'bg-sky-50 border-sky-200 text-sky-800' : 'bg-white border-slate-200 text-slate-600'} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1">
-              <span>↓ ${transitLabelMap[activeMode]} ${legSubText}</span>
+            <button onclick="cycleTransitMode(${d}, ${idx})" title="點擊可手動切換步行／單軌公車／自駕／智慧自動"
+              class="px-2.5 py-0.5 rounded-full ${pillColorClass} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1 transition">
+              <span>↓ ${legPillText}</span>
             </button>
           </div>
         ` : ''}
@@ -324,11 +343,13 @@ export function addCardToDay(cardId, dayNum, shouldPersist = true) {
     uid: 'it_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     cardId,
     customNote: '',
-    transitMode: 'transit',
+    // 預設採用 'auto'，由全域「智慧混搭 / 單軌公車 / 自駕 / 步行」自動依距離判定
+    transitMode: 'auto',
     transitMin: 0
   });
+  state.mapOverviewAllDays = false;
   state.selectedMapDay = dayNum;
-  document.getElementById('mapDaySelect').value = dayNum;
+  document.getElementById('mapDaySelect').value = String(dayNum);
   if (shouldPersist) persistState(true);
   hooks.renderAll();
   showToast(`已將「${card.title}」排入 Day ${dayNum}`, 'emerald');
@@ -359,10 +380,11 @@ export function cycleTransitMode(dayNum, idx) {
     return;
   }
 
-  const modes = ['transit', 'walk', 'drive'];
-  const next = modes[(modes.indexOf(item.transitMode) + 1) % modes.length];
+  const modes = ['auto', 'walk', 'transit', 'drive'];
+  const currentIdx = modes.indexOf(item.transitMode || 'auto');
+  const next = modes[(currentIdx + 1) % modes.length];
   item.transitMode = next;
-  item.transitMin = next === 'walk' ? Math.max(5, Math.round(km * 14)) : (next === 'drive' ? Math.max(8, Math.round(km * 2.2 + 5)) : Math.max(10, Math.round(km * 3.5 + 10)));
+  item.transitMin = 0;
   persistState(true);
   hooks.renderAll();
 }
@@ -382,7 +404,7 @@ export function extendHotelToNextDay(dayNum, cardId) {
     cardId,
     customNote: '連住出發 / 退房',
     isCheckout: true,
-    transitMode: 'transit',
+    transitMode: 'auto',
     transitMin: 0
   });
   persistState(true);
@@ -404,19 +426,34 @@ export function addReturnToHotel(dayNum) {
 }
 
 export function selectDayFocus(dayNum) {
+  state.mapOverviewAllDays = false;
   state.selectedMapDay = dayNum;
-  document.getElementById('mapDaySelect').value = dayNum;
+  document.getElementById('mapDaySelect').value = String(dayNum);
   renderKanbanBoard();
   hooks.renderMapMarkers();
 }
 
 export function onMapDayChange() {
-  state.selectedMapDay = parseInt(document.getElementById('mapDaySelect').value, 10) || 1;
+  const val = document.getElementById('mapDaySelect').value;
+  if (val === 'all') {
+    state.mapOverviewAllDays = true;
+    hooks.renderMapMarkers();
+    return;
+  }
+  state.mapOverviewAllDays = false;
+  state.selectedMapDay = parseInt(val, 10) || 1;
   renderKanbanBoard();
   hooks.renderMapMarkers();
 }
 
 export function recalculateAllDayTimes() {
+  // 切換全域交通模式時，清除單段手動覆蓋並重新依新模式計算
+  Object.values(state.itinerary).forEach(day => {
+    (day.items || []).forEach(it => {
+      it.transitMode = 'auto';
+      it.transitMin = 0;
+    });
+  });
   renderKanbanBoard();
   hooks.renderMapMarkers();
 }
