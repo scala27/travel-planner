@@ -306,12 +306,13 @@ function updateTripHeaderDisplay() {
 function populateDaySelectors() {
   const totalDays = Number(state.settings.totalDays) || 6;
   const sel = document.getElementById('mapDaySelect');
-  sel.innerHTML = Array.from({ length: totalDays }, (_, i) => {
-    const d = i + 1;
-    const info = getFormattedDateInfo(d);
-    return `<option value="${d}">Day ${d} (${info.md} ${info.week})</option>`;
-  }).join('');
-  sel.value = state.selectedMapDay;
+  sel.innerHTML = `<option value="all">🗺️ 全部已排行程（多日分色）</option>` +
+    Array.from({ length: totalDays }, (_, i) => {
+      const d = i + 1;
+      const info = getFormattedDateInfo(d);
+      return `<option value="${d}">Day ${d} (${info.md} ${info.week})</option>`;
+    }).join('');
+  sel.value = state.mapOverviewAllDays ? 'all' : String(state.selectedMapDay);
 }
 
 function openSettingsModal() {
