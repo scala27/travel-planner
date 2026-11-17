@@ -138,14 +138,17 @@ export function renderKanbanBoard() {
 
       if (nextCard) {
         const est = resolveLegModeAndEstimate(card, nextCard, item.transitMode || 'auto');
-        const cacheKey = `${card.id}_${nextCard.id}_${item.transitMode || 'auto'}_${globalProfile}`;
+        const cacheKey = `${card.id}_${nextCard.id}_${item.transitMode || 'auto'}_${item.transitMin || 0}_${item.customTransitNote || ''}_${globalProfile}`;
         const cached = state.routeMetricsCache[cacheKey];
 
         activeMode = cached ? cached.mode : est.mode;
         isHotelTransfer = cached ? cached.isHotelTransfer : est.isHotelTransfer;
-        const hasStopSplit = cached ? cached.hasStopSplit : false;
+        const transitDetailLabel = cached ? cached.transitDetailLabel : '';
         const legKm = cached ? cached.km : est.km;
-        transitMin = est.mode === 'flight' ? est.min : (Number(item.transitMin) || (cached ? cached.min : est.min));
+        const hasCustomLock = Number(item.transitMin) > 0;
+        transitMin = hasCustomLock
+          ? Number(item.transitMin)
+          : (est.mode === 'flight' ? est.min : (cached ? cached.min : est.min));
 
         const arrTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.arriveTime) : [];
         totalTransitMin += transitMin;
@@ -156,14 +159,19 @@ export function renderKanbanBoard() {
         }
 
         const transferPrefix = isHotelTransfer ? '🧳 換宿移動・' : '';
-        const modeLabel = `${transferPrefix}${getTransitModeDisplay(activeMode, hasStopSplit)}`;
+        const baseModeLabel = item.customTransitNote
+          ? `📌 ${item.customTransitNote}`
+          : getTransitModeDisplay(activeMode, transitDetailLabel);
+        const modeLabel = `${transferPrefix}${baseModeLabel}`;
         const distLabel = formatDistanceLabel(legKm);
+        const lockBadge = hasCustomLock ? ' 🔒' : '';
+
         if (activeMode === 'flight' && arrTimes.length > 0) {
           legPillText = `${modeLabel}｜${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達・約 ${transitMin} 分`;
         } else if (distLabel) {
-          legPillText = `${modeLabel}｜約 ${distLabel}・${transitMin} 分`;
+          legPillText = `${modeLabel}｜約 ${distLabel}・${transitMin} 分${lockBadge}`;
         } else {
-          legPillText = `${modeLabel}｜約 ${transitMin} 分`;
+          legPillText = `${modeLabel}｜約 ${transitMin} 分${lockBadge}`;
         }
       }
 
@@ -189,9 +197,10 @@ export function renderKanbanBoard() {
           ? 'bg-sky-50 border-sky-200 text-sky-800'
           : (activeMode === 'walk'
             ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-            : 'bg-white border-slate-200 text-slate-700'));
+            : (activeMode === 'taxi'
+              ? 'bg-amber-50 border-amber-300 text-amber-800'
+              : 'bg-white border-slate-200 text-slate-700')));
 
-      // 已退房（退）的舊飯店隱藏「延續至隔日」按鈕，僅新入住（宿）的飯店保留延續按鈕
       const showExtendHotelBtn = card.category === '住宿' && !item.isCheckout && d < totalDays;
 
       return `
@@ -246,10 +255,14 @@ export function renderKanbanBoard() {
         </div>
 
         ${nextCard ? `
-          <div class="my-1 flex justify-center">
-            <button onclick="cycleTransitMode(${d}, ${idx})" title="點擊可手動切換步行／單軌公車／自駕／智慧自動"
+          <div class="my-1 flex items-center justify-center gap-1">
+            <button onclick="cycleTransitMode(${d}, ${idx})" title="點擊可循環切換：智慧自動 / 步行 / 單軌公車 / 計程車 / 自駕"
               class="px-2.5 py-0.5 rounded-full ${pillColorClass} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1 transition">
               <span>↓ ${legPillText}</span>
+            </button>
+            <button onclick="editLegCustomTime(${d}, ${idx})" title="校準此段精確分鐘數與路線備註（如：38 分・346號公車）"
+              class="w-5 h-5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-slate-400 hover:text-blue-600 text-[9px] flex items-center justify-center shadow-2xs transition">
+              <i class="fa-solid fa-pen"></i>
             </button>
           </div>
         ` : ''}
@@ -354,7 +367,8 @@ export function addCardToDay(cardId, dayNum, shouldPersist = true) {
     cardId,
     customNote: '',
     transitMode: 'auto',
-    transitMin: 0
+    transitMin: 0,
+    customTransitNote: ''
   });
   state.mapOverviewAllDays = false;
   state.selectedMapDay = dayNum;
@@ -389,13 +403,54 @@ export function cycleTransitMode(dayNum, idx) {
     return;
   }
 
-  const modes = ['auto', 'walk', 'transit', 'drive'];
+  const modes = ['auto', 'walk', 'transit', 'taxi', 'drive'];
   const currentIdx = modes.indexOf(item.transitMode || 'auto');
   const next = modes[(currentIdx + 1) % modes.length];
   item.transitMode = next;
   item.transitMin = 0;
+  item.customTransitNote = '';
   persistState(true);
   hooks.renderAll();
+}
+
+export function editLegCustomTime(dayNum, idx) {
+  const item = state.itinerary[dayNum]?.items[idx];
+  if (!item) return;
+  const cardA = state.cards.find(c => c.id === item.cardId);
+  const nextItem = state.itinerary[dayNum].items[idx + 1];
+  const cardB = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
+  if (!cardA || !cardB) return;
+
+  const est = resolveLegModeAndEstimate(cardA, cardB, item.transitMode || 'auto');
+  const currentMin = Number(item.transitMin) > 0 ? Number(item.transitMin) : est.min;
+
+  const minInput = prompt(
+    `校準「${cardA.title} → ${cardB.title}」的移動分鐘數（輸入 0 可恢復系統自動計算）：`,
+    String(currentMin)
+  );
+  if (minInput === null) return;
+  const parsedMin = Math.max(0, parseInt(minInput, 10) || 0);
+
+  if (parsedMin === 0) {
+    item.transitMin = 0;
+    item.customTransitNote = '';
+    persistState(true);
+    hooks.renderAll();
+    showToast('已恢復為系統自動計算時間', 'blue');
+    return;
+  }
+
+  const noteInput = prompt(
+    '可輸入具體搭乘班次或備註（例如：單軌旭橋→首里、346號公車，留空則維持原交通方式）：',
+    item.customTransitNote || ''
+  );
+  if (noteInput === null) return;
+
+  item.transitMin = parsedMin;
+  item.customTransitNote = noteInput.trim();
+  persistState(true);
+  hooks.renderAll();
+  showToast(`已鎖定此段移動時間為 ${parsedMin} 分`, 'emerald');
 }
 
 export function extendHotelToNextDay(dayNum, cardId) {
@@ -414,14 +469,14 @@ export function extendHotelToNextDay(dayNum, cardId) {
     customNote: '連住出發 / 退房',
     isCheckout: true,
     transitMode: 'auto',
-    transitMin: 0
+    transitMin: 0,
+    customTransitNote: ''
   });
   persistState(true);
   hooks.renderAll();
   showToast(`已將住宿延續至 Day ${nextDay}`, 'emerald');
 }
 
-// 換宿當天優先抓「新入住（非退房）」的飯店，確保晚間回程回到新飯店
 export function addReturnToHotel(dayNum) {
   const items = state.itinerary[dayNum]?.items || [];
   const hotelItems = items.filter(it => {
@@ -467,7 +522,10 @@ export function recalculateAllDayTimes() {
   Object.values(state.itinerary).forEach(day => {
     (day.items || []).forEach(it => {
       it.transitMode = 'auto';
-      it.transitMin = 0;
+      // 若該段有手動鎖定 🔒 的時間則保留，其餘重設為自動計算
+      if (!it.customTransitNote) {
+        it.transitMin = 0;
+      }
     });
   });
   renderKanbanBoard();
