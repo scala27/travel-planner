@@ -7,6 +7,7 @@ import {
 import { state, hooks, persistState, showToast } from './state.js';
 import {
   normalizeAdministrativeDistrict,
+  computeWalkingMinutes,
   formatDistanceLabel,
   getTransitModeDisplay,
   resolveLegModeAndEstimate,
@@ -51,14 +52,14 @@ function createColoredPinIcon(color, labelText, isGhost = false, isWideBadge = f
   });
 }
 
-function createStopMiniMarker(lat, lng, stopName) {
+function createStopMiniMarker(lat, lng, stopName, isMonorail = false) {
   return L.circleMarker([lat, lng], {
-    radius: 4.5,
+    radius: isMonorail ? 5.5 : 4.5,
     fillColor: '#ffffff',
-    color: '#7c3aed',
+    color: isMonorail ? '#dc2626' : '#7c3aed',
     weight: 2.5,
     fillOpacity: 1
-  }).bindTooltip(`🚏 ${stopName}`, {
+  }).bindTooltip(`${isMonorail ? '🚝' : '🚏'} ${stopName}`, {
     direction: 'top',
     offset: [0, -4],
     className: 'spot-hover-tooltip'
@@ -125,7 +126,7 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
   const isHotelTransfer = est.isHotelTransfer;
   let legMin = est.min;
   let legKm = est.km;
-  let hasStopSplit = false;
+  let transitDetailLabel = '';
 
   const hasCoordsA = Number.isFinite(Number(cardA.lat)) && Number.isFinite(Number(cardA.lng)) && Number(cardA.lat) !== 0;
   const hasCoordsB = Number.isFinite(Number(cardB.lat)) && Number.isFinite(Number(cardB.lng)) && Number(cardB.lat) !== 0;
@@ -137,9 +138,7 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
     } else if (activeMode === 'walk') {
       const walkData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'walk');
       legKm = walkData.distanceKm || legKm;
-      if (!item.transitMin && walkData.durationMin) {
-        legMin = isHotelTransfer ? Math.max(3, Math.round(walkData.durationMin * 1.15)) : walkData.durationMin;
-      }
+      legMin = computeWalkingMinutes(legKm, isHotelTransfer);
       L.polyline(walkData.latLngs, {
         color: dayColorOverride || '#10b981',
         weight: 4.5,
@@ -147,43 +146,63 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
         dashArray: '5, 7'
       }).addTo(mapRouteLayer);
     } else if (activeMode === 'transit') {
-      const multiSeg = await buildMultiModalTransitSegments(cardA, cardB);
-      hasStopSplit = multiSeg.hasStopSplit;
+      const multiSeg = await buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer);
+      transitDetailLabel = multiSeg.transitDetailLabel;
       legKm = multiSeg.totalKm || legKm;
-      if (!item.transitMin && multiSeg.totalMin) {
+      if (multiSeg.totalMin) {
         legMin = multiSeg.totalMin;
       }
 
       if (multiSeg.hasStopSplit) {
+        // 起點 → 上車站（綠色步行虛線）
         L.polyline(multiSeg.walk1Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
-        L.polyline(multiSeg.ridePath, { color: dayColorOverride || (isHotelTransfer ? '#9333ea' : '#7c3aed'), weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
+        // 單軌電車採沖繩單軌代表紅紫色實線，一般公車採紫色實線
+        const rideColor = dayColorOverride || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
+        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.9 }).addTo(mapRouteLayer);
+        // 下車站 → 終點（綠色步行虛線）
         L.polyline(multiSeg.walk2Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
 
-        createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`).addTo(mapRouteLayer);
-        createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`).addTo(mapRouteLayer);
+        createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail).addTo(mapRouteLayer);
+        createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail).addTo(mapRouteLayer);
       } else {
-        L.polyline(multiSeg.ridePath, { color: dayColorOverride || (isHotelTransfer ? '#9333ea' : '#7c3aed'), weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
+        L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
       }
     } else {
+      // 計程車（點對點）與自駕（含停車取車緩衝 6 分鐘）
       const driveData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
       legKm = driveData.distanceKm || legKm;
-      if (!item.transitMin && driveData.durationMin) {
-        legMin = driveData.durationMin;
+      if (driveData.durationMin) {
+        legMin = activeMode === 'taxi'
+          ? Math.max(4, driveData.durationMin + 2)
+          : Math.max(8, driveData.durationMin + 6);
       }
-      L.polyline(driveData.latLngs, { color: dayColorOverride || '#2563eb', weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
+      const roadColor = dayColorOverride || (activeMode === 'taxi' ? '#d97706' : '#2563eb');
+      L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
     }
   }
 
-  const transferTag = isHotelTransfer ? '🧳 換宿移動・' : '';
-  const modeLabel = `${transferTag}${getTransitModeDisplay(activeMode, hasStopSplit)}`;
-  const distText = formatDistanceLabel(legKm);
-  const summaryText = distText ? `${modeLabel}｜約 ${distText}・${legMin} 分` : `${modeLabel}｜約 ${legMin} 分`;
+  // 若使用者有手動鎖定 Google Maps 查到的精準分鐘數或路線備註，優先套用
+  const hasCustomLock = Number(item.transitMin) > 0;
+  if (hasCustomLock) {
+    legMin = Number(item.transitMin);
+  }
 
-  const cacheKey = `${cardA.id}_${cardB.id}_${item.transitMode || 'auto'}_${document.getElementById('transitProfileSelect')?.value || 'smart'}`;
+  const transferTag = isHotelTransfer ? '🧳 換宿移動・' : '';
+  const baseModeLabel = item.customTransitNote
+    ? `📌 ${item.customTransitNote}`
+    : getTransitModeDisplay(activeMode, transitDetailLabel);
+  const modeLabel = `${transferTag}${baseModeLabel}`;
+  const distText = formatDistanceLabel(legKm);
+  const lockBadge = hasCustomLock ? ' 🔒' : '';
+  const summaryText = distText
+    ? `${modeLabel}｜約 ${distText}・${legMin} 分${lockBadge}`
+    : `${modeLabel}｜約 ${legMin} 分${lockBadge}`;
+
+  const cacheKey = `${cardA.id}_${cardB.id}_${item.transitMode || 'auto'}_${item.transitMin || 0}_${item.customTransitNote || ''}_${document.getElementById('transitProfileSelect')?.value || 'smart'}`;
   const prevCached = state.routeMetricsCache[cacheKey];
   state.routeMetricsCache[cacheKey] = {
     mode: activeMode,
-    hasStopSplit,
+    transitDetailLabel,
     isHotelTransfer,
     km: legKm,
     min: legMin,
@@ -192,13 +211,21 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride = nul
 
   return {
     activeMode,
-    hasStopSplit,
     isHotelTransfer,
     legKm,
     legMin,
     summaryText,
     changed: !prevCached || prevCached.summaryText !== summaryText
   };
+}
+
+function buildPreciseGoogleMapsDirUrl(cardA, cardB, activeMode) {
+  const gdirMode = activeMode === 'walk' ? 'walking' : ((activeMode === 'drive' || activeMode === 'taxi') ? 'driving' : 'transit');
+  const hasA = Number.isFinite(Number(cardA.lat)) && Number.isFinite(Number(cardA.lng)) && Number(cardA.lat) !== 0;
+  const hasB = Number.isFinite(Number(cardB.lat)) && Number.isFinite(Number(cardB.lng)) && Number(cardB.lat) !== 0;
+  const originParam = hasA ? `${cardA.lat},${cardA.lng}` : encodeURIComponent(cardA.title);
+  const destParam = hasB ? `${cardB.lat},${cardB.lng}` : encodeURIComponent(cardB.title);
+  return `https://www.google.com/maps/dir/?api=1&origin=${originParam}&destination=${destParam}&travelmode=${gdirMode}`;
 }
 
 export async function renderMapMarkers(filteredCardsProvider = null) {
@@ -225,7 +252,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     cards.forEach(card => {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
-      const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
+      const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
       const marker = L.marker([card.lat, card.lng], {
         icon: createColoredPinIcon(meta.color, meta.pinChar || card.category[0])
       });
@@ -301,7 +328,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
         const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
         const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
-        const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
+        const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
 
         if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
         const hotelTag = item.isCheckout ? `D${d}退` : `D${d}宿`;
@@ -420,7 +447,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
     const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
     const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
-    const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title)}`;
+    const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
 
     if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
     const label = card.category === '住宿'
@@ -479,17 +506,18 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
       totalMin += legRes.legMin;
       totalKm += legRes.legKm;
 
-      const gdirMode = legRes.activeMode === 'walk' ? 'walking' : (legRes.activeMode === 'drive' ? 'driving' : 'transit');
-      const gdir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(card.title)}&destination=${encodeURIComponent(nextCard.title)}&travelmode=${gdirMode}`;
+      const gdir = buildPreciseGoogleMapsDirUrl(card, nextCard, legRes.activeMode);
       const badgeTextColor = legRes.isHotelTransfer
         ? 'text-purple-700'
-        : (legRes.activeMode === 'walk' ? 'text-emerald-700' : 'text-blue-700');
+        : (legRes.activeMode === 'walk'
+          ? 'text-emerald-700'
+          : (legRes.activeMode === 'taxi' ? 'text-amber-700' : 'text-blue-700'));
 
       legsHtml.push(`
         <div class="flex items-center justify-between ${legRes.isHotelTransfer ? 'bg-purple-50/70 border-purple-200' : 'bg-slate-50 border-slate-100'} px-2 py-1 rounded border gap-1.5">
           <span class="truncate flex-1 font-medium text-slate-700">${idx + 1}→${idx + 2} ${nextCard.title}</span>
           <span class="font-bold ${badgeTextColor} shrink-0">${legRes.summaryText}</span>
-          <a href="${gdir}" target="_blank" title="開啟路線導航" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
+          <a href="${gdir}" target="_blank" title="以精確經緯度開啟 Google Maps 路線比對" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
         </div>
       `);
     }
