@@ -333,7 +333,7 @@
         </div>
       </div>
 
-      <!-- 可收合抽屜：分類圖層開關 ＋ 路線明細 -->
+      <!-- 可收合抽屜：分類圖層開關 ＋ 多日顏色圖例 ＋ 路線明細 -->
       <div id="mapCollapsibleDrawer" class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-2 shrink-0">
         <div class="space-y-1">
           <div class="flex items-center justify-between text-[11px]">
@@ -357,14 +357,17 @@
         </div>
 
         <div id="planRouteLegsDrawerSection" class="hidden pt-1.5 border-t border-slate-100 space-y-1.5">
+          <!-- 多日路線顏色圖例（切換至「全部已排行程」時顯示） -->
+          <div id="multiDayLegendBox" class="hidden flex-wrap items-center gap-1.5 pb-1 border-b border-slate-100"></div>
+
           <div class="flex items-center justify-between text-[11px]">
-            <span class="font-bold text-slate-700"><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日路線分段明細</span>
+            <span id="routeLegsDrawerTitle" class="font-bold text-slate-700"><i class="fa-solid fa-route text-blue-600 mr-1"></i>當日路線分段明細</span>
             <label class="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
               <input type="checkbox" id="chkIncludeCrossSeaFlight" onchange="renderMapMarkers()" class="accent-blue-600 rounded" />
               <span>視野含跨海航線</span>
             </label>
           </div>
-          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600 max-h-28 overflow-y-auto"></div>
+          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600 max-h-32 overflow-y-auto"></div>
         </div>
       </div>
 
