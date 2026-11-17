@@ -9,11 +9,14 @@ export const state = {
   mapDrawerOpenCollect: true,
   mapDrawerOpenPlan: false,
   overlayPocketOnPlan: false,
+  mapOverviewAllDays: false,
   selectedMapDay: 1,
   highlightedCardId: null,
   expandedCards: {},
   deletedIds: [],
   planQuickFilter: 'unscheduled',
+  // 快取每段真實路網計算後的距離與分鐘數，供左側時間軸與右側明細同步使用
+  routeMetricsCache: {},
   mapVisibleCategories: {
     '景點': true,
     '美食': true,
