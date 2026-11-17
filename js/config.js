@@ -17,27 +17,27 @@ export const LUGGAGE_WALK_THRESHOLD_KM = 0.5;
 export const WALK_SPEED_KMH = 4.5;
 export const LUGGAGE_WALK_SPEED_KMH = 3.6;
 
-// 沖繩都市單軌電車（Yui Rail）全線 19 站精確座標與自那霸機場起算之累計行駛分鐘數
+// 沖繩都市單軌電車（Yui Rail）全線 19 站精確座標、累計分鐘數與站間高架軌道轉彎折點（via）
 export const YUI_RAIL_STATIONS = [
-  { name: '那霸機場站', lat: 26.2065, lng: 127.6523, cumMin: 0 },
-  { name: '赤嶺站', lat: 26.1932, lng: 127.6606, cumMin: 3 },
-  { name: '小祿站', lat: 26.1965, lng: 127.6670, cumMin: 5 },
-  { name: '奧武山公園站', lat: 26.2008, lng: 127.6754, cumMin: 7 },
-  { name: '壺川站', lat: 26.2059, lng: 127.6787, cumMin: 9 },
-  { name: '旭橋站', lat: 26.2119, lng: 127.6754, cumMin: 11 },
-  { name: '縣廳前站', lat: 26.2144, lng: 127.6793, cumMin: 13 },
-  { name: '美榮橋站', lat: 26.2194, lng: 127.6844, cumMin: 15 },
-  { name: '牧志站', lat: 26.2173, lng: 127.6924, cumMin: 17 },
-  { name: '安里站', lat: 26.2167, lng: 127.6958, cumMin: 19 },
-  { name: 'おもろまち站', lat: 26.2229, lng: 127.6986, cumMin: 21 },
-  { name: '古島站', lat: 26.2307, lng: 127.7031, cumMin: 23 },
-  { name: '市立醫院前站', lat: 26.2275, lng: 127.7103, cumMin: 25 },
-  { name: '儀保站', lat: 26.2248, lng: 127.7192, cumMin: 27 },
-  { name: '首里站', lat: 26.2192, lng: 127.7254, cumMin: 29 },
-  { name: '石嶺站', lat: 26.2286, lng: 127.7289, cumMin: 31 },
-  { name: '經塚站', lat: 26.2367, lng: 127.7284, cumMin: 34 },
-  { name: '浦添前田站', lat: 26.2442, lng: 127.7317, cumMin: 36 },
-  { name: 'てだこ浦西站', lat: 26.2419, lng: 127.7418, cumMin: 38 }
+  { name: '那霸機場站', lat: 26.2065, lng: 127.6523, cumMin: 0, viaPrev: [] },
+  { name: '赤嶺站', lat: 26.1932, lng: 127.6606, cumMin: 3, viaPrev: [[26.2015, 127.6526], [26.1956, 127.6554], [26.1933, 127.6579]] },
+  { name: '小祿站', lat: 26.1965, lng: 127.6670, cumMin: 5, viaPrev: [[26.1945, 127.6641]] },
+  { name: '奧武山公園站', lat: 26.2008, lng: 127.6754, cumMin: 7, viaPrev: [[26.1987, 127.6715]] },
+  { name: '壺川站', lat: 26.2059, lng: 127.6787, cumMin: 9, viaPrev: [[26.2034, 127.6778]] },
+  { name: '旭橋站', lat: 26.2119, lng: 127.6754, cumMin: 11, viaPrev: [[26.2089, 127.6766]] },
+  { name: '縣廳前站', lat: 26.2144, lng: 127.6793, cumMin: 13, viaPrev: [[26.2131, 127.6772]] },
+  { name: '美榮橋站', lat: 26.2194, lng: 127.6844, cumMin: 15, viaPrev: [[26.2169, 127.6819]] },
+  { name: '牧志站', lat: 26.2173, lng: 127.6924, cumMin: 17, viaPrev: [[26.2186, 127.6885]] },
+  { name: '安里站', lat: 26.2167, lng: 127.6958, cumMin: 19, viaPrev: [] },
+  { name: 'おもろまち站', lat: 26.2229, lng: 127.6986, cumMin: 21, viaPrev: [[26.2196, 127.6974]] },
+  { name: '古島站', lat: 26.2307, lng: 127.7031, cumMin: 23, viaPrev: [[26.2270, 127.7007]] },
+  { name: '市立醫院前站', lat: 26.2275, lng: 127.7103, cumMin: 25, viaPrev: [[26.2294, 127.7069]] },
+  { name: '儀保站', lat: 26.2248, lng: 127.7192, cumMin: 27, viaPrev: [[26.2261, 127.7148]] },
+  { name: '首里站', lat: 26.2192, lng: 127.7254, cumMin: 29, viaPrev: [[26.2218, 127.7226]] },
+  { name: '石嶺站', lat: 26.2286, lng: 127.7289, cumMin: 31, viaPrev: [[26.2241, 127.7277]] },
+  { name: '經塚站', lat: 26.2367, lng: 127.7284, cumMin: 34, viaPrev: [[26.2328, 127.7287]] },
+  { name: '浦添前田站', lat: 26.2442, lng: 127.7317, cumMin: 36, viaPrev: [[26.2406, 127.7298]] },
+  { name: 'てだこ浦西站', lat: 26.2419, lng: 127.7418, cumMin: 38, viaPrev: [[26.2435, 127.7368]] }
 ];
 
 // 多日同顯模式下的每日專屬路線色系
