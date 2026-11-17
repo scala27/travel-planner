@@ -164,7 +164,7 @@
           </div>
         </div>
 
-        <!-- 模式 2 專屬：精簡快速篩選條（完整包含 7 大分類與未排入/全部） -->
+        <!-- 模式 2 專屬：精簡快速篩選條 -->
         <div id="planQuickFilterBar" class="hidden flex-wrap items-center gap-1">
           <button onclick="setPlanQuickFilter('unscheduled')" data-plan-q="unscheduled"
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">未排入</button>
@@ -254,7 +254,7 @@
       <span>展開口袋</span>
     </button>
 
-    <!-- ==================== 區塊 B：行程規劃區（預設單日清爽聚焦） ==================== -->
+    <!-- ==================== 區塊 B：行程規劃區 ==================== -->
     <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
       <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
         <div id="dayNavPills" class="flex items-center gap-1 overflow-x-auto py-0.5"></div>
@@ -308,7 +308,8 @@
           <select id="transitProfileSelect" onchange="recalculateAllDayTimes()"
             class="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none">
             <option value="smart">🔀 智慧混搭</option>
-            <option value="transit">🚆 單軌/公車</option>
+            <option value="transit">🚝 單軌/公車</option>
+            <option value="taxi">🚕 計程車</option>
             <option value="drive">🚗 自駕道路</option>
             <option value="walk">🚶 步行路徑</option>
           </select>
@@ -357,7 +358,6 @@
         </div>
 
         <div id="planRouteLegsDrawerSection" class="hidden pt-1.5 border-t border-slate-100 space-y-1.5">
-          <!-- 多日路線顏色圖例（切換至「全部已排行程」時顯示） -->
           <div id="multiDayLegendBox" class="hidden flex-wrap items-center gap-1.5 pb-1 border-b border-slate-100"></div>
 
           <div class="flex items-center justify-between text-[11px]">
