@@ -1,7 +1,10 @@
 import {
   KANJI_TO_TRADITIONAL_MAP,
   WALK_THRESHOLD_KM,
-  LUGGAGE_WALK_THRESHOLD_KM
+  LUGGAGE_WALK_THRESHOLD_KM,
+  WALK_SPEED_KMH,
+  LUGGAGE_WALK_SPEED_KMH,
+  YUI_RAIL_STATIONS
 } from './config.js';
 
 const osrmRouteCache = {};
@@ -139,6 +142,14 @@ export function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// 依真實步速換算步行分鐘數（不依賴 OSRM 汽車時速）
+export function computeWalkingMinutes(km, hasLuggage = false) {
+  const val = Number(km) || 0;
+  if (val <= 0) return 2;
+  const speed = hasLuggage ? LUGGAGE_WALK_SPEED_KMH : WALK_SPEED_KMH;
+  return Math.max(2, Math.round((val / speed) * 60));
+}
+
 export function formatDistanceLabel(km) {
   const val = Number(km) || 0;
   if (val <= 0) return '';
@@ -149,11 +160,13 @@ export function formatDistanceLabel(km) {
   return `${val.toFixed(1)} 公里`;
 }
 
-export function getTransitModeDisplay(mode, hasStopSplit = false) {
+export function getTransitModeDisplay(mode, transitDetailLabel = '') {
   if (mode === 'flight') return '✈️ 航空飛航';
   if (mode === 'walk') return '🚶 步行';
+  if (mode === 'taxi') return '🚕 計程車';
   if (mode === 'drive') return '🚗 自駕道路';
-  return hasStopSplit ? '🚆 單軌/公車 + 🚶 步行' : '🚆 單軌/公車';
+  if (transitDetailLabel) return transitDetailLabel;
+  return '🚆 單軌/公車';
 }
 
 export function isFlightLeg(cardA, cardB, km) {
@@ -164,13 +177,29 @@ export function isFlightLeg(cardA, cardB, km) {
   return isBothAirport || hasAirportKeyword || isCrossCountry || km > 150;
 }
 
-// 判斷是否為「換宿移動」（兩張不同飯店之間的移動）
 export function isHotelTransferLeg(cardA, cardB) {
   if (!cardA || !cardB) return false;
   return cardA.category === '住宿' && cardB.category === '住宿' && cardA.id !== cardB.id;
 }
 
-// 統一判定兩點間的交通方式（支援換宿行李門檻 500m 與一般步行門檻 1.2km）
+// 尋找距離指定座標最近的沖繩都市單軌電車（Yui Rail）車站
+export function findNearestYuiRailStation(lat, lng, maxKm = 1.25) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || lat === 0) return null;
+  let bestIdx = -1;
+  let bestDist = Infinity;
+  YUI_RAIL_STATIONS.forEach((st, idx) => {
+    const d = haversineKm(lat, lng, st.lat, st.lng);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = idx;
+    }
+  });
+  if (bestIdx >= 0 && bestDist <= maxKm) {
+    return { index: bestIdx, station: YUI_RAIL_STATIONS[bestIdx], straightKm: bestDist };
+  }
+  return null;
+}
+
 export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   if (!cardA || !cardB) return { mode: 'transit', min: 20, km: 0, isHotelTransfer: false };
   const straightKm = haversineKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
@@ -189,6 +218,8 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   if (!resolvedMode || resolvedMode === 'auto') {
     if (profile === 'walk') {
       resolvedMode = 'walk';
+    } else if (profile === 'taxi') {
+      resolvedMode = 'taxi';
     } else if (profile === 'drive') {
       resolvedMode = 'drive';
     } else if (profile === 'transit') {
@@ -204,10 +235,17 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   }
 
   if (resolvedMode === 'walk') {
-    const paceMinPerKm = isHotelTransfer ? 16 : 13.5;
     return {
       mode: 'walk',
-      min: Math.max(2, Math.round(approxRoadKm * paceMinPerKm)),
+      min: computeWalkingMinutes(approxRoadKm, isHotelTransfer),
+      km: approxRoadKm,
+      isHotelTransfer
+    };
+  }
+  if (resolvedMode === 'taxi') {
+    return {
+      mode: 'taxi',
+      min: Math.max(5, Math.round(approxRoadKm * 2.2 + 3)),
       km: approxRoadKm,
       isHotelTransfer
     };
@@ -215,14 +253,14 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   if (resolvedMode === 'drive') {
     return {
       mode: 'drive',
-      min: Math.max(5, Math.round(approxRoadKm * 2.1 + 4)),
+      min: Math.max(8, Math.round(approxRoadKm * 2.2 + 8)),
       km: approxRoadKm,
       isHotelTransfer
     };
   }
   return {
     mode: 'transit',
-    min: Math.max(8, Math.round(approxRoadKm * 3.2 + 8)),
+    min: Math.max(12, Math.round(approxRoadKm * 3.5 + 10)),
     km: approxRoadKm,
     isHotelTransfer
   };
@@ -242,20 +280,23 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
     if (data && data.code === 'Ok' && data.routes && data.routes.length > 0) {
       const route = data.routes[0];
       const latLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-      const result = {
-        latLngs,
-        distanceKm: route.distance / 1000,
-        durationMin: Math.max(2, Math.round(route.duration / 60))
-      };
+      const distanceKm = route.distance / 1000;
+      // 步行時間一律由真實步速計算，汽車/計程車時間才取 OSRM 路網秒數
+      const durationMin = mode === 'walk'
+        ? computeWalkingMinutes(distanceKm, false)
+        : Math.max(3, Math.round(route.duration / 60));
+
+      const result = { latLngs, distanceKm, durationMin };
       osrmRouteCache[cacheKey] = result;
       return result;
     }
   } catch (e) {}
 
+  const fallbackKm = haversineKm(lat1, lng1, lat2, lng2) * 1.25;
   return {
     latLngs: [[lat1, lng1], [lat2, lng2]],
-    distanceKm: haversineKm(lat1, lng1, lat2, lng2) * 1.25,
-    durationMin: null
+    distanceKm: fallbackKm,
+    durationMin: mode === 'walk' ? computeWalkingMinutes(fallbackKm, false) : null
   };
 }
 
@@ -297,7 +338,51 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-export async function buildMultiModalTransitSegments(cardA, cardB) {
+// 優先嘗試「沖繩都市單軌電車（Yui Rail）」真實高架軌道與時刻表，若不在單軌沿線則自動切換為「公車站牌接駁＋步行」
+export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer = false) {
+  const railA = findNearestYuiRailStation(cardA.lat, cardA.lng, 1.25);
+  const railB = findNearestYuiRailStation(cardB.lat, cardB.lng, 1.25);
+
+  if (railA && railB && Math.abs(railA.index - railB.index) >= 2) {
+    const [walk1, walk2] = await Promise.all([
+      fetchRealRoadPath(cardA.lat, cardA.lng, railA.station.lat, railA.station.lng, 'walk'),
+      fetchRealRoadPath(railB.station.lat, railB.station.lng, cardB.lat, cardB.lng, 'walk')
+    ]);
+
+    const step = railA.index < railB.index ? 1 : -1;
+    const railCoords = [];
+    let railTrackKm = 0;
+    for (let i = railA.index; ; i += step) {
+      const st = YUI_RAIL_STATIONS[i];
+      railCoords.push([st.lat, st.lng]);
+      if (i !== railA.index) {
+        const prev = YUI_RAIL_STATIONS[i - step];
+        railTrackKm += haversineKm(prev.lat, prev.lng, st.lat, st.lng);
+      }
+      if (i === railB.index) break;
+    }
+
+    const walk1Min = computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+    const walk2Min = computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+    const railRideMin = Math.abs(railB.station.cumMin - railA.station.cumMin);
+    const waitAndGateMin = 6; // 進站購票與單軌平均候車緩衝時間
+    const totalKm = (walk1.distanceKm || 0) + railTrackKm + (walk2.distanceKm || 0);
+
+    return {
+      isMonorail: true,
+      hasStopSplit: true,
+      stopA: { lat: railA.station.lat, lng: railA.station.lng, name: railA.station.name },
+      stopB: { lat: railB.station.lat, lng: railB.station.lng, name: railB.station.name },
+      walk1Path: walk1.latLngs,
+      ridePath: railCoords,
+      walk2Path: walk2.latLngs,
+      totalKm,
+      totalMin: walk1Min + railRideMin + waitAndGateMin + walk2Min,
+      transitDetailLabel: `🚝 單軌(${railA.station.name.replace('站', '')}→${railB.station.name.replace('站', '')}) + 🚶步行`
+    };
+  }
+
+  // 非單軌沿線（例如北谷美國村、浦添 PARCO CITY）：搜尋最近公車站牌接駁＋步行
   const [stopA, stopB] = await Promise.all([
     fetchNearestTransitStop(cardA.lat, cardA.lng),
     fetchNearestTransitStop(cardB.lat, cardB.lng)
@@ -305,7 +390,7 @@ export async function buildMultiModalTransitSegments(cardA, cardB) {
 
   const directRoad = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
 
-  if (stopA && stopB && haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) > 0.3) {
+  if (stopA && stopB && haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) > 0.35) {
     const [walk1, ride, walk2] = await Promise.all([
       fetchRealRoadPath(cardA.lat, cardA.lng, stopA.lat, stopA.lng, 'walk'),
       fetchRealRoadPath(stopA.lat, stopA.lng, stopB.lat, stopB.lng, 'drive'),
@@ -313,11 +398,12 @@ export async function buildMultiModalTransitSegments(cardA, cardB) {
     ]);
 
     const totalKm = (walk1.distanceKm || 0) + (ride.distanceKm || 0) + (walk2.distanceKm || 0);
-    const walk1Min = walk1.durationMin || Math.max(1, Math.round((walk1.distanceKm || 0) * 13.5));
-    const walk2Min = walk2.durationMin || Math.max(1, Math.round((walk2.distanceKm || 0) * 13.5));
-    const rideMin = Math.max(5, Math.round((ride.durationMin || 8) * 1.25 + 4));
+    const walk1Min = computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+    const walk2Min = computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+    const busRideMin = Math.max(6, Math.round((ride.durationMin || 10) * 1.45 + 7)); // 含停靠站與候車緩衝
 
     return {
+      isMonorail: false,
       hasStopSplit: true,
       stopA,
       stopB,
@@ -325,12 +411,13 @@ export async function buildMultiModalTransitSegments(cardA, cardB) {
       ridePath: ride.latLngs,
       walk2Path: walk2.latLngs,
       totalKm: totalKm || directRoad.distanceKm,
-      totalMin: walk1Min + rideMin + walk2Min,
-      walkKm: (walk1.distanceKm || 0) + (walk2.distanceKm || 0)
+      totalMin: walk1Min + busRideMin + walk2Min,
+      transitDetailLabel: '🚌 公車 + 🚶 步行'
     };
   }
 
   return {
+    isMonorail: false,
     hasStopSplit: false,
     stopA: null,
     stopB: null,
@@ -338,8 +425,8 @@ export async function buildMultiModalTransitSegments(cardA, cardB) {
     ridePath: directRoad.latLngs,
     walk2Path: [],
     totalKm: directRoad.distanceKm,
-    totalMin: directRoad.durationMin ? Math.max(8, Math.round(directRoad.durationMin * 1.25 + 5)) : null,
-    walkKm: 0
+    totalMin: directRoad.durationMin ? Math.max(12, Math.round(directRoad.durationMin * 1.45 + 8)) : null,
+    transitDetailLabel: '🚌 公車/大眾運輸'
   };
 }
 
