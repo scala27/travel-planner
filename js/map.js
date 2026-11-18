@@ -1,6 +1,6 @@
 import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
 import { state, showToast } from './state.js';
-import { estimateLegTransit } from './ui-board.js';
+import { estimateLegTransit, setOkinawaTransitData } from './ui-board.js';
 
 let mapInstance = null;
 let markersLayerGroup = null;
@@ -8,113 +8,32 @@ let routesLayerGroup = null;
 const markerByCardId = {};
 const osrmRouteCache = {};
 
-const YUI_RAIL_STATIONS = [
-  { name: '那霸機場', lat: 26.2065, lng: 127.6523 },
-  { name: '赤嶺', lat: 26.1932, lng: 127.6605 },
-  { name: '小祿', lat: 26.1964, lng: 127.6670 },
-  { name: '奧武山公園', lat: 26.2007, lng: 127.6752 },
-  { name: '壺川', lat: 26.2059, lng: 127.6787 },
-  { name: '旭橋', lat: 26.2121, lng: 127.6755 },
-  { name: '縣廳前', lat: 26.2145, lng: 127.6793 },
-  { name: '美榮橋', lat: 26.2192, lng: 127.6844 },
-  { name: '牧志', lat: 26.2173, lng: 127.6924 },
-  { name: '安里', lat: 26.2167, lng: 127.6958 },
-  { name: '歌町', lat: 26.2229, lng: 127.6983 },
-  { name: '古島', lat: 26.2308, lng: 127.7031 },
-  { name: '市立病院前', lat: 26.2275, lng: 127.7101 },
-  { name: '儀保', lat: 26.2246, lng: 127.7191 },
-  { name: '首里', lat: 26.2191, lng: 127.7255 },
-  { name: '石嶺', lat: 26.2266, lng: 127.7294 },
-  { name: '經塚', lat: 26.2356, lng: 127.7281 },
-  { name: '浦添前田', lat: 26.2442, lng: 127.7317 },
-  { name: '日子浦西', lat: 26.2419, lng: 127.7418 }
-];
+let transitJsonCache = null;
+let transitLoadPromise = null;
 
-// 精準貼合沖繩都市單軌（Yui Rail）高架轉彎與跨河軌道之高密度幾何座標 [lng, lat]
-const YUI_RAIL_DENSE_COORDS = [
-  [127.6523, 26.2065], [127.6524, 26.2045], [127.6528, 26.2022], [127.6536, 26.1998],
-  [127.6551, 26.1972], [127.6572, 26.1948], [127.6591, 26.1936], [127.6605, 26.1932],
-  [127.6626, 26.1939], [127.6649, 26.1951], [127.6670, 26.1964], [127.6695, 26.1977],
-  [127.6724, 26.1991], [127.6752, 26.2007], [127.6774, 26.2024], [127.6786, 26.2041],
-  [127.6787, 26.2059], [127.6776, 26.2078], [127.6761, 26.2098], [127.6755, 26.2121],
-  [127.6766, 26.2134], [127.6781, 26.2140], [127.6793, 26.2145], [127.6808, 26.2158],
-  [127.6825, 26.2175], [127.6844, 26.2192], [127.6866, 26.2194], [127.6894, 26.2185],
-  [127.6924, 26.2173], [127.6943, 26.2168], [127.6958, 26.2167], [127.6968, 26.2188],
-  [127.6976, 26.2209], [127.6983, 26.2229], [127.6998, 26.2261], [127.7016, 26.2289],
-  [127.7031, 26.2308], [127.7056, 26.2301], [127.7081, 26.2288], [127.7101, 26.2275],
-  [127.7134, 26.2263], [127.7165, 26.2254], [127.7191, 26.2246], [127.7215, 26.2226],
-  [127.7236, 26.2207], [127.7255, 26.2191], [127.7271, 26.2224], [127.7284, 26.2248],
-  [127.7294, 26.2266], [127.7290, 26.2312], [127.7281, 26.2356], [127.7296, 26.2401],
-  [127.7317, 26.2442], [127.7365, 26.2433], [127.7418, 26.2419]
-];
-
-const YUI_TRACK_CACHE_KEY = 'echi_yui_rail_osm_geometry_v1';
-let yuiRailTrackLine = null;
-let yuiTrackLoadingPromise = null;
-
-function buildFallbackTrackLine() {
-  if (typeof turf === 'undefined') return null;
-  return turf.lineString(YUI_RAIL_DENSE_COORDS);
-}
-
-// 從 OpenStreetMap Overpass API 取得真實單軌高架軌道幾何並快取於本機
-async function getYuiRailTrackLine() {
-  if (yuiRailTrackLine) return yuiRailTrackLine;
-  if (typeof turf === 'undefined') return null;
-
-  try {
-    const cached = localStorage.getItem(YUI_TRACK_CACHE_KEY);
-    if (cached) {
-      const coords = JSON.parse(cached);
-      if (Array.isArray(coords) && coords.length > 40) {
-        yuiRailTrackLine = turf.lineString(coords);
-        return yuiRailTrackLine;
-      }
-    }
-  } catch (e) {}
-
-  if (!yuiTrackLoadingPromise) {
-    yuiTrackLoadingPromise = (async () => {
-      try {
-        const query = `[out:json][timeout:12];way["railway"="monorail"](26.185,127.645,26.252,127.752);out geom;`;
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query
-        });
-        const data = await res.json();
-        const ways = (data.elements || []).filter(el => el.type === 'way' && Array.isArray(el.geometry));
-        if (ways.length > 0) {
-          // 依東向順序串接所有單軌軌道節點
-          const segments = ways.map(w => w.geometry.map(pt => [pt.lon, pt.lat]));
-          segments.sort((a, b) => Math.min(a[0][0], a[a.length - 1][0]) - Math.min(b[0][0], b[b.length - 1][0]));
-          const stitched = [];
-          segments.forEach(seg => {
-            const ordered = seg[0][0] <= seg[seg.length - 1][0] ? seg : [...seg].reverse();
-            ordered.forEach(pt => {
-              if (stitched.length === 0) {
-                stitched.push(pt);
-              } else {
-                const prev = stitched[stitched.length - 1];
-                const dist = Math.hypot(pt[0] - prev[0], pt[1] - prev[1]);
-                if (dist > 0.00003 && dist < 0.015) {
-                  stitched.push(pt);
-                }
-              }
-            });
-          });
-          if (stitched.length > 40) {
-            localStorage.setItem(YUI_TRACK_CACHE_KEY, JSON.stringify(stitched));
-            yuiRailTrackLine = turf.lineString(stitched);
-            return yuiRailTrackLine;
+// 自動從 ./data/okinawa_transit.json 或 ./okinawa_transit.json 載入 GTFS 路線資料
+export async function loadOkinawaTransitJson() {
+  if (transitJsonCache) return transitJsonCache;
+  if (!transitLoadPromise) {
+    transitLoadPromise = (async () => {
+      const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
+      for (const path of candidatePaths) {
+        try {
+          const res = await fetch(`${path}?v=20261118h`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.yui_rail) {
+              transitJsonCache = data;
+              setOkinawaTransitData(data);
+              return data;
+            }
           }
-        }
-      } catch (e) {}
-      yuiRailTrackLine = buildFallbackTrackLine();
-      return yuiRailTrackLine;
+        } catch (e) {}
+      }
+      return null;
     })();
   }
-
-  return yuiTrackLoadingPromise;
+  return transitLoadPromise;
 }
 
 export function initLeafletMap() {
@@ -138,7 +57,13 @@ export function initLeafletMap() {
 
   routesLayerGroup = L.layerGroup().addTo(mapInstance);
   markersLayerGroup = L.layerGroup().addTo(mapInstance);
-  getYuiRailTrackLine();
+
+  // 啟動時預先載入 okinawa_transit.json 並在載入後重繪精準路線
+  loadOkinawaTransitJson().then(data => {
+    if (data && state.mode === 'plan') {
+      renderMapMarkers();
+    }
+  });
 }
 
 export function invalidateMapSize() {
@@ -255,7 +180,7 @@ function attachSpotTooltipAndPopup(marker, card, prefixTag = '') {
       <div style="font-size:11px;color:#64748b;margin-bottom:${shortDesc ? '4px' : '0'};">
         ${escapeHtml(card.district || card.country || '')}・⏱ 停留 ${card.duration || 60} 分
       </div>
-      ${shortDesc ? `<div style="font-size:11px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">${escapeHtml(shortDesc)}</div>` : ''}
+      ${shortDesc ? `<div style="font-size:11px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">\${escapeHtml(shortDesc)}</div>` : ''}
     </div>
   `;
 
@@ -269,11 +194,11 @@ function attachSpotTooltipAndPopup(marker, card, prefixTag = '') {
     <div class="text-xs space-y-1.5" style="min-width:200px;max-width:270px;">
       <div class="font-bold text-slate-800 text-sm">${escapeHtml(prefixTag)}${escapeHtml(card.title)}</div>
       <div class="text-slate-500">${escapeHtml(card.category)}・${escapeHtml(card.district || card.country || '')}・停留 ${card.duration || 60} 分</div>
-      ${descRaw ? `<p class="text-slate-600 leading-relaxed max-h-28 overflow-y-auto border-t border-slate-100 pt-1">${escapeHtml(descRaw)}</p>` : ''}
+      ${descRaw ? `<p class="text-slate-600 leading-relaxed max-h-28 overflow-y-auto border-t border-slate-100 pt-1">\${escapeHtml(descRaw)}</p>` : ''}
       <div class="pt-1 flex items-center gap-2">
         <button type="button" onclick="openCardModal('${card.id}')"
           class="px-2 py-1 rounded bg-[#2C4D6E] text-white text-[11px] font-bold">編輯卡片</button>
-        ${card.mapUrl ? `<a href="${card.mapUrl}" target="_blank" rel="noopener" class="px-2 py-1 rounded border border-slate-200 text-slate-700 text-[11px] font-semibold">Google Maps</a>` : ''}
+        ${card.mapUrl ? `<a href="\${card.mapUrl}" target="_blank" rel="noopener" class="px-2 py-1 rounded border border-slate-200 text-slate-700 text-[11px] font-semibold">Google Maps</a>` : ''}
       </div>
     </div>
   `;
@@ -294,22 +219,78 @@ function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
   return points;
 }
 
-function findNearestStation(lat, lng) {
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findNearestStop(stops, lat, lng) {
   let best = null;
   let minKm = Infinity;
-  YUI_RAIL_STATIONS.forEach((st, idx) => {
-    const dLat = ((st.lat - lat) * Math.PI) / 180;
-    const dLng = ((st.lng - lng) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((lat * Math.PI) / 180) * Math.cos((st.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-    const km = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  (stops || []).forEach((st, idx) => {
+    const km = haversineKm(lat, lng, st.lat, st.lng);
     if (km < minKm) {
       minKm = km;
       best = { ...st, idx, km };
     }
   });
   return best;
+}
+
+// 使用 okinawa_transit.json 的 shape 與 Turf.js 切出精準大眾運輸軌跡
+function drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
+  if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 2) return false;
+
+  // shape 在 okinawa_transit.json 為 [lat, lng]，轉為 Turf 所需的 [lng, lat]
+  const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
+  const fullLine = turf.lineString(lineCoords);
+  const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
+  const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
+
+  // 1. 起點步行至上車站（虛線）
+  if (stopA.km > 0.03) {
+    L.polyline(
+      [
+        [lat1, lng1],
+        [stopA.lat, stopA.lng]
+      ],
+      {
+        color: lineColor,
+        weight: 3,
+        opacity: 0.78,
+        dashArray: '4, 6'
+      }
+    ).addTo(targetLayerGroup);
+  }
+
+  // 2. GTFS 精準貼軌／貼路主線（粗實線）
+  L.polyline(slicedLatLngs, {
+    color: lineColor,
+    weight: 5,
+    opacity: 0.94
+  }).addTo(targetLayerGroup);
+
+  // 3. 下車站步行至終點（虛線）
+  if (stopB.km > 0.03) {
+    L.polyline(
+      [
+        [stopB.lat, stopB.lng],
+        [lat2, lng2]
+      ],
+      {
+        color: lineColor,
+        weight: 3,
+        opacity: 0.78,
+        dashArray: '4, 6'
+      }
+    ).addTo(targetLayerGroup);
+  }
+
+  return true;
 }
 
 async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGroup) {
@@ -330,42 +311,54 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     return;
   }
 
-  // 2. 沖繩單軌電車精準貼軌切片（使用真實 OSM 高架軌道幾何）
+  // 2. 優先使用 okinawa_transit.json 進行沖繩單軌與幹線公車精準切片
   const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
-  if ((profile === 'transit' || profile === 'smart') && typeof turf !== 'undefined') {
-    const stA = findNearestStation(lat1, lng1);
-    const stB = findNearestStation(lat2, lng2);
-    if (stA && stB && stA.idx !== stB.idx && stA.km <= 1.2 && stB.km <= 1.2) {
-      const trackLine = (await getYuiRailTrackLine()) || buildFallbackTrackLine();
-      if (trackLine) {
-        const sliced = turf.lineSlice(turf.point([stA.lng, stA.lat]), turf.point([stB.lng, stB.lat]), trackLine);
-        const railLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
+  const transitData = await loadOkinawaTransitJson();
 
-        L.polyline([[lat1, lng1], [stA.lat, stA.lng]], {
-          color: dayColor,
-          weight: 3,
-          opacity: 0.78,
-          dashArray: '4, 6'
-        }).addTo(targetLayerGroup);
+  if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
+    // 2a. 檢查沖繩都市單軌電車 (Yui Rail)
+    const yui = transitData.yui_rail;
+    if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
+      const stA = findNearestStop(yui.stations, lat1, lng1);
+      const stB = findNearestStop(yui.stations, lat2, lng2);
+      if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
+        const ok = drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
+        if (ok) return;
+      }
+    }
 
-        L.polyline(railLatLngs, {
-          color: dayColor,
-          weight: 5,
-          opacity: 0.94
-        }).addTo(targetLayerGroup);
-
-        L.polyline([[stB.lat, stB.lng], [lat2, lng2]], {
-          color: dayColor,
-          weight: 3,
-          opacity: 0.78,
-          dashArray: '4, 6'
-        }).addTo(targetLayerGroup);
-        return;
+    // 2b. 檢查沖繩幹線公車 (120/20、28/29、山原急行巴士)
+    if (Array.isArray(transitData.buses)) {
+      let bestBus = null;
+      let bestWalkSum = Infinity;
+      transitData.buses.forEach(bus => {
+        const bA = findNearestStop(bus.stops, lat1, lng1);
+        const bB = findNearestStop(bus.stops, lat2, lng2);
+        if (bA && bB && bA.id !== bB.id && bA.km <= 1.5 && bB.km <= 1.5) {
+          if (bA.km + bB.km < bestWalkSum) {
+            bestWalkSum = bA.km + bB.km;
+            bestBus = { bus, bA, bB };
+          }
+        }
+      });
+      if (bestBus) {
+        const ok = drawGtfsSlicedRoute(
+          lat1,
+          lng1,
+          lat2,
+          lng2,
+          bestBus.bA,
+          bestBus.bB,
+          bestBus.bus.shape,
+          dayColor,
+          targetLayerGroup
+        );
+        if (ok) return;
       }
     }
   }
 
-  // 3. 一般陸地移動：OSRM 實際道路貼齊路徑
+  // 3. 一般陸地自駕 / 步行 / 無捷運公車覆蓋路段：呼叫 OSRM 實際道路貼合
   const osrmMode = profile === 'walk' || legInfo.km <= 0.8 ? 'foot' : 'driving';
   const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
 
