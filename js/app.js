@@ -83,9 +83,71 @@ hooks.renderKanbanBoard = renderKanbanBoard;
 hooks.renderMapMarkers = () => renderMapMarkers(getFilteredAndSortedCards);
 hooks.renderMapCategoryToggles = renderMapCategoryToggles;
 hooks.populateRegionDropdowns = populateRegionDropdowns;
-hooks.focusCardOnMap = focusCardOnMap;
+hooks.focusCardOnMap = (cardId, warnIfMissing = true) => {
+  if (isMobileViewport()) {
+    switchMobileTab('map');
+  }
+  focusCardOnMap(cardId, warnIfMissing);
+};
 hooks.openCardModal = openCardModal;
 hooks.addCardToDay = addCardToDay;
+hooks.invalidateMapSize = invalidateMapSize;
+
+function isMobileViewport() {
+  return window.innerWidth <= 768;
+}
+
+let currentMobileTab = 'pocket';
+
+function switchMobileTab(tabName) {
+  currentMobileTab = tabName;
+  document.body.setAttribute('data-mobile-tab', tabName);
+
+  document.querySelectorAll('.mobile-tab-btn').forEach(btn => {
+    const active = btn.dataset.mobileTab === tabName;
+    btn.className = active
+      ? 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-blue-600 font-bold text-[11px] relative bg-blue-50/40'
+      : 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative';
+  });
+
+  if (tabName === 'pocket') {
+    if (state.mode !== 'collect') {
+      switchWorkspaceMode('collect');
+    }
+  } else if (tabName === 'board') {
+    state.boardMultiDayMode = false;
+    if (state.mode !== 'plan') {
+      switchWorkspaceMode('plan');
+    } else {
+      renderKanbanBoard();
+    }
+  } else if (tabName === 'map') {
+    if (state.mode !== 'plan') {
+      state.mode = 'plan';
+      const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
+      const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
+      if (mapHeaderCollect) mapHeaderCollect.classList.add('hidden');
+      if (mapHeaderPlan) mapHeaderPlan.classList.remove('hidden');
+      state.overlayPocketOnPlan = true;
+      updateOverlayPocketButtonUi();
+      populateMapDaySelector();
+      syncMapDrawerUi();
+    }
+    renderMapMarkers(getFilteredAndSortedCards);
+    setTimeout(() => invalidateMapSize(), 80);
+  }
+}
+
+function syncMobileNavBadges() {
+  const pocketBadge = document.getElementById('mobileBadgePocket');
+  const boardBadge = document.getElementById('mobileBadgeBoard');
+  if (pocketBadge) pocketBadge.textContent = String(state.cards.length);
+  if (boardBadge) {
+    const scheduledUnique = new Set();
+    Object.values(state.itinerary).forEach(day => (day.items || []).forEach(it => scheduledUnique.add(it.cardId)));
+    boardBadge.textContent = String(scheduledUnique.size);
+  }
+}
 
 function initSplitResizers() {
   const mainEl = document.getElementById('workspaceMain');
@@ -111,7 +173,7 @@ function initSplitResizers() {
   });
 
   window.addEventListener('mousemove', (e) => {
-    if (!activeResizer) return;
+    if (!activeResizer || isMobileViewport()) return;
     const rect = mainEl.getBoundingClientRect();
     const totalW = rect.width;
     if (totalW <= 0) return;
@@ -136,6 +198,15 @@ function initSplitResizers() {
     resizerLeft.classList.remove('is-dragging');
     resizerRight.classList.remove('is-dragging');
     document.body.style.cursor = '';
+    invalidateMapSize();
+  });
+
+  window.addEventListener('resize', () => {
+    if (!isMobileViewport()) {
+      document.body.removeAttribute('data-mobile-tab');
+    } else if (!document.body.getAttribute('data-mobile-tab')) {
+      switchMobileTab(currentMobileTab);
+    }
     invalidateMapSize();
   });
 }
@@ -271,7 +342,6 @@ function switchWorkspaceMode(targetMode) {
       boardSection.style.width = '36%';
     }
 
-    // 進入規劃模式時確保「疊加口袋」預設開啟，讓地圖直接呈現周邊口袋點位
     state.overlayPocketOnPlan = true;
     updateOverlayPocketButtonUi();
     populateMapDaySelector();
@@ -343,6 +413,7 @@ function saveSettings() {
 
 export function renderAll() {
   renderDatabaseCards();
+  syncMobileNavBadges();
   if (state.mode === 'plan') {
     populateMapDaySelector();
     renderKanbanBoard();
@@ -352,6 +423,7 @@ export function renderAll() {
 
 Object.assign(window, {
   switchWorkspaceMode,
+  switchMobileTab,
   togglePocketCollapse,
   toggleMiniCardMode,
   toggleBatchImportBox,
@@ -401,7 +473,7 @@ Object.assign(window, {
   toggleOverlayPocketOnPlanMap,
   renderMapMarkers: () => renderMapMarkers(getFilteredAndSortedCards),
   fitMapToFilteredCards,
-  focusCardOnMap,
+  focusCardOnMap: hooks.focusCardOnMap,
   highlightDatabaseCard,
   pullFromGoogleSheets,
   pushAllToGoogleSheets,
@@ -421,9 +493,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderMapCategoryToggles();
   populateRegionDropdowns();
   syncMapDrawerUi();
-  renderAll();
+
+  if (isMobileViewport()) {
+    switchMobileTab('pocket');
+  } else {
+    renderAll();
+  }
 
   if (state.settings.gasUrl) {
     await pullFromGoogleSheets(false);
+    if (isMobileViewport()) {
+      switchMobileTab(currentMobileTab);
+    }
   }
 });
