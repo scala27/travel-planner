@@ -55,6 +55,7 @@ import {
   updateDayStartTime,
   cycleTransitMode,
   editLegCustomTime,
+  editItemFlightSchedule,
   extendHotelToNextDay,
   addReturnToHotel,
   selectDayFocus,
@@ -75,7 +76,6 @@ import {
   highlightDatabaseCard
 } from './map.js';
 
-// 註冊跨模組回呼
 hooks.pushAllToGoogleSheets = pushAllToGoogleSheets;
 hooks.renderAll = renderAll;
 hooks.renderDatabaseCards = renderDatabaseCards;
@@ -270,6 +270,9 @@ function switchWorkspaceMode(targetMode) {
       btnExpand.classList.add('hidden');
       boardSection.style.width = '36%';
     }
+
+    // 進入規劃模式時確保「疊加口袋」預設開啟，讓地圖直接呈現周邊口袋點位
+    state.overlayPocketOnPlan = true;
     updateOverlayPocketButtonUi();
     populateMapDaySelector();
   }
@@ -347,7 +350,6 @@ export function renderAll() {
   renderMapMarkers(getFilteredAndSortedCards);
 }
 
-// 掛載全域函式供 HTML inline event 呼叫
 Object.assign(window, {
   switchWorkspaceMode,
   togglePocketCollapse,
@@ -386,6 +388,7 @@ Object.assign(window, {
   updateDayStartTime,
   cycleTransitMode,
   editLegCustomTime,
+  editItemFlightSchedule,
   extendHotelToNextDay,
   addReturnToHotel,
   selectDayFocus,
