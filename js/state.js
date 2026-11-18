@@ -15,6 +15,7 @@ export const state = {
   expandedCards: {},
   deletedIds: [],
   planQuickFilter: 'unscheduled',
+  hasUnsavedCloudChanges: false,
   // 快取每段真實路網計算後的距離與分鐘數，供左側時間軸與右側明細同步使用
   routeMetricsCache: {},
   mapVisibleCategories: {
@@ -97,13 +98,28 @@ export function persistState(triggerAutoPush = true) {
     deletedIds: state.deletedIds
   }));
 
-  if (triggerAutoPush && state.settings.gasUrl) {
-    setSyncPillStatus('syncing', '正在自動寫入試算表...');
-    clearTimeout(autoSyncTimer);
-    autoSyncTimer = setTimeout(() => {
-      hooks.pushAllToGoogleSheets(true);
-    }, 500);
+  if (triggerAutoPush) {
+    state.hasUnsavedCloudChanges = true;
+    if (state.settings.gasUrl) {
+      setSyncPillStatus('syncing', '正在自動同步至試算表...');
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = setTimeout(() => {
+        hooks.pushAllToGoogleSheets(true);
+      }, 500);
+    } else {
+      setSyncPillStatus('warning', '已存本機（尚未設定試算表網址）');
+    }
   }
+}
+
+// 若尚有未完成雲端寫入的變更，關閉或重整分頁前發出防呆警告
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => {
+    if (state.hasUnsavedCloudChanges && state.settings.gasUrl) {
+      e.preventDefault();
+      e.returnValue = '尚有行程變更正在寫入 Google 試算表，確定要離開嗎？';
+    }
+  });
 }
 
 export function ensureItineraryDays() {
