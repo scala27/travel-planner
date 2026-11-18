@@ -15,7 +15,7 @@ import {
   buildMultiModalTransitSegments,
   buildCurvedFlightArc
 } from './geo.js';
-import { getFormattedDateInfo } from './ui-board.js';
+import { getFormattedDateInfo, getLodgingStatusForItem } from './ui-board.js';
 
 let mapInstance = null;
 let mapMarkersLayer = null;
@@ -167,15 +167,16 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
       }
 
       if (multiSeg.hasStopSplit) {
+        // 單日與多日均統一採用該日的專屬路線主題色（dayColorOverride）
         const rideColor = dayColorOverride || multiSeg.routeColor || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
-        L.polyline(multiSeg.walk1Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
-        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.92 }).addTo(mapRouteLayer);
-        L.polyline(multiSeg.walk2Path, { color: '#10b981', weight: 4, opacity: 0.9, dashArray: '4, 6' }).addTo(mapRouteLayer);
+        L.polyline(multiSeg.walk1Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
+        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.94 }).addTo(mapRouteLayer);
+        L.polyline(multiSeg.walk2Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
 
         createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
         createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
       } else {
-        L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
+        L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
       }
     } else {
       const driveData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
@@ -187,7 +188,7 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
           : Math.max(8, driveData.durationMin + 6);
       }
       const roadColor = dayColorOverride || (activeMode === 'taxi' ? '#d97706' : '#2563eb');
-      L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.85 }).addTo(mapRouteLayer);
+      L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
     }
   }
 
@@ -342,10 +343,12 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
         const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
         const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
+        const lodgingInfo = card.category === '住宿' ? getLodgingStatusForItem(d, idx) : null;
 
         if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
-        const hotelTag = item.isCheckout ? `D${d}退` : `D${d}宿`;
-        const shortTag = card.category === '住宿' ? hotelTag : (card.category === '機場' ? `D${d}機` : `${d}-${stopIndex}`);
+        const shortTag = lodgingInfo
+          ? `D${d}${lodgingInfo.char}`
+          : (card.category === '機場' ? `D${d}機` : `${d}-${stopIndex}`);
 
         if (cardHasCoords) {
           allCoords.push([card.lat, card.lng]);
@@ -360,7 +363,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
               icon: createColoredPinIcon(dayColor, shortTag, false, true)
             });
 
-            marker.bindTooltip(`[Day ${d}] ${item.isCheckout ? '(退房) ' : ''}${card.title}`, {
+            marker.bindTooltip(`[Day ${d}] ${lodgingInfo ? `(${lodgingInfo.label}) ` : ''}${card.title}`, {
               direction: 'top',
               offset: [0, -14],
               className: 'spot-hover-tooltip'
@@ -370,7 +373,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
               <div class="text-xs space-y-1.5 min-w-[170px]">
                 <div class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white" style="background:${dayColor}">Day ${d} (${info.md})</div>
                 <div class="font-bold text-slate-800">${card.title}</div>
-                <div class="text-[11px] text-slate-500">${cleanDist}・${card.category}</div>
+                <div class="text-[11px] text-slate-500">${cleanDist}・${lodgingInfo ? lodgingInfo.label : card.category}</div>
                 <div class="pt-0.5 flex items-center gap-1.5">
                   <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps"
                     style="color:#ffffff !important;"
@@ -437,11 +440,13 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     return;
   }
 
-  // ==================== 模式 2：單日聚焦路線檢核模式 ====================
+  // ==================== 模式 2：單日聚焦路線檢核模式（與多日分色維持完全一致主題色） ====================
   const d = state.selectedMapDay;
+  const activeDayColor = DAY_ROUTE_COLORS[(d - 1) % DAY_ROUTE_COLORS.length];
+
   if (legendBox) legendBox.classList.add('hidden');
   if (drawerTitle) {
-    drawerTitle.innerHTML = `<i class="fa-solid fa-route text-blue-600 mr-1"></i>Day ${d} 路線分段明細`;
+    drawerTitle.innerHTML = `<i class="fa-solid fa-route mr-1" style="color:${activeDayColor}"></i>Day ${d} 路線分段明細`;
   }
 
   const items = state.itinerary[d]?.items || [];
@@ -463,14 +468,14 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     const card = state.cards.find(c => c.id === item.cardId);
     if (!card) continue;
     const cardHasCoords = hasValidCoords(card);
-    const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
     const isLayerVisible = state.mapVisibleCategories[card.category] !== false;
     const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
     const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
+    const lodgingInfo = card.category === '住宿' ? getLodgingStatusForItem(d, idx) : null;
 
     if (card.category !== '住宿' && !isTransportOrAirport(card.category)) stopIndex++;
-    const label = card.category === '住宿'
-      ? (item.isCheckout ? '退' : '宿')
+    const label = lodgingInfo
+      ? lodgingInfo.char
       : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : stopIndex));
 
     if (!cardHasCoords) {
@@ -486,12 +491,11 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         hiddenLayerStops.push({ card, label });
       } else {
         visiblePinCount++;
-        const pinBgColor = (card.category === '住宿' && item.isCheckout) ? '#6b21a8' : meta.color;
         const marker = L.marker([card.lat, card.lng], {
-          icon: createColoredPinIcon(pinBgColor, label)
+          icon: createColoredPinIcon(activeDayColor, label)
         });
 
-        marker.bindTooltip(`${label}. ${card.title}`, {
+        marker.bindTooltip(`${label}. ${lodgingInfo ? `[${lodgingInfo.label}] ` : ''}${card.title}`, {
           direction: 'top',
           offset: [0, -14],
           className: 'spot-hover-tooltip'
@@ -500,7 +504,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         marker.bindPopup(`
           <div class="text-xs space-y-1.5 min-w-[165px]">
             <div class="font-bold text-slate-800">${label}. ${card.title}</div>
-            <div class="text-[11px] text-slate-500">${cleanDist}</div>
+            <div class="text-[11px] text-slate-500">${cleanDist}${lodgingInfo ? `・${lodgingInfo.label}` : ''}</div>
             <div class="pt-0.5 flex items-center gap-1.5">
               <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps"
                 style="color:#ffffff !important;"
@@ -523,7 +527,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     const nextItem = items[idx + 1];
     const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
     if (nextCard) {
-      const legRes = await drawAndComputeLegRoute(card, nextCard, item, null, renderToken);
+      // 傳入 activeDayColor，確保單日模式與多日模式的該日路線顏色完全一致
+      const legRes = await drawAndComputeLegRoute(card, nextCard, item, activeDayColor, renderToken);
       if (!legRes || renderToken !== currentRenderToken) return;
       if (legRes.changed) anyMetricUpdated = true;
 
