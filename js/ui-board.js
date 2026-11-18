@@ -1,4 +1,4 @@
-import { CATEGORY_STYLES } from './config.js';
+import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
 import { state, hooks, persistState, showToast } from './state.js';
 
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
@@ -76,7 +76,6 @@ export function estimateLegTransit(cardA, cardB, itemB) {
     modeLabel = profile === 'taxi' ? '計程車' : '自駕道路';
     icon = 'fa-car';
   } else {
-    // 優先查詢 okinawa_transit.json 的單軌與公車站間 cumMin
     let matchedGtfs = false;
     if (okinawaTransitData && cardA.lat != null && cardB.lat != null) {
       const yui = okinawaTransitData.yui_rail;
@@ -97,8 +96,8 @@ export function estimateLegTransit(cardA, cardB, itemB) {
         let bestBus = null;
         let bestWalk = Infinity;
         okinawaTransitData.buses.forEach(bus => {
-          const bA = findNearestTransitStop(bus.stops, cardA.lat, cardA.lng);
-          const bB = findNearestTransitStop(bus.stops, cardB.lat, cardB.lng);
+          const bA = findNearestStop(bus.stops, cardA.lat, cardA.lng);
+          const bB = findNearestStop(bus.stops, cardB.lat, cardB.lng);
           if (bA && bB && bA.id !== bB.id && bA.km <= 1.5 && bB.km <= 1.5 && bA.km + bB.km < bestWalk) {
             bestWalk = bA.km + bB.km;
             bestBus = { bus, bA, bB };
@@ -129,6 +128,10 @@ export function estimateLegTransit(cardA, cardB, itemB) {
   return { modeLabel, icon, km: Number(km.toFixed(1)), min };
 }
 
+function findNearestStop(stops, lat, lng) {
+  return findNearestTransitStop(stops, lat, lng);
+}
+
 function normalizeTimeStr(hhmm) {
   if (hhmm === null || hhmm === undefined) return '';
   return String(hhmm).replace(/：/g, ':').replace(/\s+/g, '').trim();
@@ -151,7 +154,6 @@ function formatMinutes(totalMin) {
   return `${h}:${m}`;
 }
 
-// 完整支援 "flight|15:00/17:00|星宇"、"flight|15:00/17:00||星宇" 以及 "flight||19：00|星宇"
 function parseFlightNote(customNote) {
   const str = String(customNote || '').trim();
   if (!str.startsWith('flight|')) return null;
@@ -223,22 +225,25 @@ export function renderKanbanBoard() {
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const activeDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
 
+  // 上方天數藥丸圓點與地圖 DAY_COLORS 顏色一一對應
   const pillsHtml = [];
   for (let d = 1; d <= totalDays; d++) {
     const info = getFormattedDateInfo(d);
     const count = (state.itinerary[d]?.items || []).length;
     const isSelected = !state.boardMultiDayMode && d === activeDay;
+    const dayColor = DAY_COLORS[(d - 1) % DAY_COLORS.length];
     pillsHtml.push(`
       <button type="button" onclick="selectDayFocus(${d})"
+        style="${isSelected ? `background:${dayColor};border-color:${dayColor};color:#ffffff;` : ''}"
         class="px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition ${
           isSelected
-            ? 'bg-[#2C4D6E] text-white shadow-xs'
+            ? 'shadow-xs'
             : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
         }">
-        <span class="w-2 h-2 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-emerald-500'}"></span>
+        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${isSelected ? '#ffffff' : dayColor}"></span>
         <span>Day ${d}</span>
-        <span class="opacity-80 font-medium">${info.md}</span>
-        <span class="px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}">${count}</span>
+        <span class="opacity-85 font-medium">${info.md}</span>
+        <span class="px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600'}">${count}</span>
       </button>
     `);
   }
@@ -257,6 +262,7 @@ export function renderKanbanBoard() {
 
   boardContainer.innerHTML = daysToRender
     .map(dayNum => {
+      const dayColor = DAY_COLORS[(dayNum - 1) % DAY_COLORS.length];
       const dayData = state.itinerary[dayNum] || { startTime: '09:00', items: [] };
       const info = getFormattedDateInfo(dayNum);
       let cursorMin = parseMinutes(dayData.startTime || '09:00');
@@ -276,9 +282,9 @@ export function renderKanbanBoard() {
             legHtml = `
               <div class="my-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200/90 flex items-center justify-between gap-2 text-[11px] text-slate-600 shadow-2xs">
                 <button type="button" onclick="cycleTransitMode(${dayNum}, ${idx})" title="點擊切換交通方式（自動/單軌/開車/步行）"
-                  class="flex items-center gap-1.5 truncate hover:text-[#2C4D6E] text-left">
+                  class="flex items-center gap-1.5 truncate hover:opacity-80 text-left">
                   <span class="text-slate-400">↓</span>
-                  <i class="fa-solid ${leg.icon} text-[#2C4D6E]"></i>
+                  <i class="fa-solid ${leg.icon}" style="color:${dayColor}"></i>
                   <span class="truncate">${leg.modeLabel}｜約 ${leg.km} 公里・<strong>${leg.min} 分</strong></span>
                 </button>
                 <button type="button" onclick="editLegCustomTime(${dayNum}, ${idx})" title="自訂此段交通時間"
@@ -347,7 +353,7 @@ export function renderKanbanBoard() {
             ${legHtml}
             <div draggable="true"
               ondragstart="onDragStartItineraryItem(event, ${dayNum}, ${idx})"
-              class="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-[#2C4D6E]/50 transition space-y-1.5">
+              class="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition space-y-1.5">
               <div class="flex items-start justify-between gap-1.5">
                 <div class="flex items-center gap-1.5 flex-wrap min-w-0">
                   <div class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0">
@@ -360,7 +366,8 @@ export function renderKanbanBoard() {
 
                 <div class="flex items-center gap-0.5 shrink-0">
                   <button type="button" onclick="focusCardOnMap('${card.id}')" title="在地圖定位"
-                    class="w-6 h-6 rounded-md hover:bg-blue-50 text-[#2C4D6E] flex items-center justify-center text-xs">
+                    style="color:${dayColor}"
+                    class="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center text-xs">
                     <i class="fa-solid fa-diamond-turn-right"></i>
                   </button>
                   <button type="button" onclick="moveItineraryItem(${dayNum}, ${idx}, -1)" title="上移"
@@ -383,7 +390,8 @@ export function renderKanbanBoard() {
               </div>
 
               <div class="flex items-start gap-2 pt-0.5">
-                <span class="w-5 h-5 rounded-full bg-[#2C4D6E] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                <span style="background:${dayColor}"
+                  class="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
                   ${idx + 1}
                 </span>
                 <div class="min-w-0 flex-1">
@@ -406,11 +414,12 @@ export function renderKanbanBoard() {
 
       return `
         <div ondragover="onDragOverColumn(event)" ondragleave="onDragLeaveColumn(event)" ondrop="onDropOnDay(event, ${dayNum})"
+          style="border-top: 4px solid ${dayColor};"
           class="${state.boardMultiDayMode ? 'w-80 shrink-0' : 'w-full'} bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">
           <div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <div class="flex items-baseline gap-1.5">
-                <span class="text-base font-extrabold text-[#2C4D6E]">Day ${dayNum}</span>
+                <span class="text-base font-extrabold" style="color:${dayColor}">Day ${dayNum}</span>
                 <span class="text-xs font-semibold text-slate-500">${info.md} (${info.week})</span>
               </div>
 
@@ -431,7 +440,7 @@ export function renderKanbanBoard() {
 
             <div class="flex items-center justify-between text-[11px] text-slate-500">
               <span>共 ${dayData.items.length} 個行程點</span>
-              <span class="font-bold text-[#2C4D6E]">移動 ${totalTransitMin} 分・約 ${endDayStr} 結束</span>
+              <span class="font-bold" style="color:${dayColor}">移動 ${totalTransitMin} 分・約 ${endDayStr} 結束</span>
             </div>
           </div>
 
