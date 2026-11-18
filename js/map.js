@@ -138,6 +138,68 @@ export function toggleOverlayPocketOnPlanMap() {
   renderMapMarkers();
 }
 
+/**
+ * 同步繪製「口袋疊加徽章」，不等待外部路徑伺服器，確保開啟疊加後 0 秒即時呈現
+ */
+function renderPocketOverlayMarkersSync(dayNum, dayCardIds) {
+  if (!state.overlayPocketOnPlan) return { count: 0, coords: [] };
+
+  const activeQuickCat = CATEGORY_LIST.includes(state.planQuickFilter) ? state.planQuickFilter : null;
+  const onlyUnscheduled = state.planQuickFilter === 'unscheduled';
+  let count = 0;
+  const coords = [];
+
+  state.cards.forEach(c => {
+    if (dayCardIds.has(c.id)) return;
+    if (state.mapVisibleCategories[c.category] === false) return;
+    if (activeQuickCat && c.category !== activeQuickCat) return;
+    if (onlyUnscheduled && getCardScheduledDays(c.id).length > 0) return;
+    if (!hasValidCoords(c)) return;
+
+    const lat = Number(c.lat);
+    const lng = Number(c.lng);
+    count++;
+    coords.push([lat, lng]);
+
+    const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
+    const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
+    const prox = getCardProximityToSelectedDay(c);
+    const proxLine = prox ? `<div class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">📍 距 ${prox.anchorName} 約 ${prox.label}</div>` : '';
+
+    const pocketMarker = L.marker([lat, lng], {
+      icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true),
+      zIndexOffset: -50
+    });
+
+    pocketMarker.bindTooltip(`${meta.emoji} ${c.title}${prox ? `（距${prox.shortAnchor} ${prox.label}）` : ''}`, {
+      direction: 'top',
+      offset: [0, -12],
+      className: 'spot-hover-tooltip'
+    });
+
+    pocketMarker.bindPopup(`
+      <div class="text-xs space-y-1.5 min-w-[180px]">
+        <div class="flex items-center justify-between gap-1">
+          <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border ${meta.badgeBg}">${c.category}</span>
+          <span class="text-[10px] text-slate-400">${cleanDist}</span>
+        </div>
+        <div class="font-bold text-slate-800 leading-snug">${c.title}</div>
+        ${proxLine}
+        <button onclick="addCardToDay('${c.id}', ${dayNum})"
+          class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs">
+          + 直接排入 Day ${dayNum}
+        </button>
+      </div>
+    `);
+
+    pocketMarker.on('click', () => highlightDatabaseCard(c.id));
+    pocketMarker.addTo(mapMarkersLayer);
+    markerLookup[c.id] = pocketMarker;
+  });
+
+  return { count, coords };
+}
+
 async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, renderToken) {
   const est = resolveLegModeAndEstimate(cardA, cardB, item.transitMode || 'auto');
   const activeMode = est.mode;
@@ -150,54 +212,63 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
   const hasCoordsB = hasValidCoords(cardB);
 
   if (hasCoordsA && hasCoordsB) {
-    if (activeMode === 'flight') {
-      if (renderToken !== currentRenderToken) return null;
-      const arcPts = buildCurvedFlightArc(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
-      L.polyline(arcPts, { color: dayColorOverride || '#0284c7', weight: 3, opacity: 0.78, dashArray: '8, 8' }).addTo(mapRouteLayer);
-    } else if (activeMode === 'walk') {
-      const walkData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'walk');
-      if (renderToken !== currentRenderToken) return null;
-      legKm = walkData.distanceKm || legKm;
-      legMin = isHotelTransfer
-        ? computeWalkingMinutes(legKm, true)
-        : (walkData.durationMin || computeWalkingMinutes(legKm, false));
-      L.polyline(walkData.latLngs, {
-        color: dayColorOverride || '#10b981',
-        weight: 4.5,
-        opacity: 0.9,
-        dashArray: '5, 7'
-      }).addTo(mapRouteLayer);
-    } else if (activeMode === 'transit') {
-      const multiSeg = await buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer);
-      if (renderToken !== currentRenderToken) return null;
-      transitDetailLabel = multiSeg.transitDetailLabel;
-      legKm = multiSeg.totalKm || legKm;
-      if (multiSeg.totalMin) {
-        legMin = multiSeg.totalMin;
-      }
+    try {
+      if (activeMode === 'flight') {
+        if (renderToken !== currentRenderToken) return null;
+        const arcPts = buildCurvedFlightArc(Number(cardA.lat), Number(cardA.lng), Number(cardB.lat), Number(cardB.lng));
+        L.polyline(arcPts, { color: dayColorOverride || '#0284c7', weight: 3, opacity: 0.78, dashArray: '8, 8' }).addTo(mapRouteLayer);
+      } else if (activeMode === 'walk') {
+        const walkData = await fetchRealRoadPath(Number(cardA.lat), Number(cardA.lng), Number(cardB.lat), Number(cardB.lng), 'walk');
+        if (renderToken !== currentRenderToken) return null;
+        legKm = walkData.distanceKm || legKm;
+        legMin = isHotelTransfer
+          ? computeWalkingMinutes(legKm, true)
+          : (walkData.durationMin || computeWalkingMinutes(legKm, false));
+        L.polyline(walkData.latLngs, {
+          color: dayColorOverride || '#10b981',
+          weight: 4.5,
+          opacity: 0.9,
+          dashArray: '5, 7'
+        }).addTo(mapRouteLayer);
+      } else if (activeMode === 'transit') {
+        const multiSeg = await buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer);
+        if (renderToken !== currentRenderToken) return null;
+        transitDetailLabel = multiSeg.transitDetailLabel;
+        legKm = multiSeg.totalKm || legKm;
+        if (multiSeg.totalMin) {
+          legMin = multiSeg.totalMin;
+        }
 
-      if (multiSeg.hasStopSplit) {
-        const rideColor = dayColorOverride || multiSeg.routeColor || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
-        L.polyline(multiSeg.walk1Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
-        L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.94 }).addTo(mapRouteLayer);
-        L.polyline(multiSeg.walk2Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
+        if (multiSeg.hasStopSplit) {
+          const rideColor = dayColorOverride || multiSeg.routeColor || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
+          L.polyline(multiSeg.walk1Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
+          L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.94 }).addTo(mapRouteLayer);
+          L.polyline(multiSeg.walk2Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
 
-        createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
-        createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
+          createStopMiniMarker(multiSeg.stopA.lat, multiSeg.stopA.lng, `上車：${multiSeg.stopA.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
+          createStopMiniMarker(multiSeg.stopB.lat, multiSeg.stopB.lng, `下車：${multiSeg.stopB.name}`, multiSeg.isMonorail, rideColor).addTo(mapRouteLayer);
+        } else {
+          L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
+        }
       } else {
-        L.polyline(multiSeg.ridePath, { color: dayColorOverride || '#7c3aed', weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
+        const driveData = await fetchRealRoadPath(Number(cardA.lat), Number(cardA.lng), Number(cardB.lat), Number(cardB.lng), 'drive');
+        if (renderToken !== currentRenderToken) return null;
+        legKm = driveData.distanceKm || legKm;
+        if (driveData.durationMin) {
+          legMin = activeMode === 'taxi'
+            ? Math.max(4, driveData.durationMin + 2)
+            : Math.max(8, driveData.durationMin + 6);
+        }
+        const roadColor = dayColorOverride || (activeMode === 'taxi' ? '#d97706' : '#2563eb');
+        L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
       }
-    } else {
-      const driveData = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
+    } catch (err) {
+      // 外部路網查詢逾時或失敗時，改畫直線虛線並保留估算時間，避免中斷後續地圖渲染
       if (renderToken !== currentRenderToken) return null;
-      legKm = driveData.distanceKm || legKm;
-      if (driveData.durationMin) {
-        legMin = activeMode === 'taxi'
-          ? Math.max(4, driveData.durationMin + 2)
-          : Math.max(8, driveData.durationMin + 6);
-      }
-      const roadColor = dayColorOverride || (activeMode === 'taxi' ? '#d97706' : '#2563eb');
-      L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
+      L.polyline(
+        [[Number(cardA.lat), Number(cardA.lng)], [Number(cardB.lat), Number(cardB.lng)]],
+        { color: dayColorOverride || '#64748b', weight: 3.5, opacity: 0.75, dashArray: '6, 6' }
+      ).addTo(mapRouteLayer);
     }
   }
 
@@ -271,10 +342,12 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
 
     const bounds = [];
     cards.forEach(card => {
+      const lat = Number(card.lat);
+      const lng = Number(card.lng);
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
-      const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`;
-      const marker = L.marker([card.lat, card.lng], {
+      const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+      const marker = L.marker([lat, lng], {
         icon: createColoredPinIcon(meta.color, meta.pinChar || card.category[0])
       });
 
@@ -306,7 +379,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
       marker.on('click', () => highlightDatabaseCard(card.id));
       marker.addTo(mapMarkersLayer);
       markerLookup[card.id] = marker;
-      bounds.push([card.lat, card.lng]);
+      bounds.push([lat, lng]);
     });
 
     if (bounds.length > 0 && !state.highlightedCardId) {
@@ -360,15 +433,17 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
           : (card.category === '機場' ? `D${d}機` : `${d}-${stopIndex}`);
 
         if (cardHasCoords) {
-          allCoords.push([card.lat, card.lng]);
+          const lat = Number(card.lat);
+          const lng = Number(card.lng);
+          allCoords.push([lat, lng]);
           const isTaiwanOriginAirport = card.category === '機場' && ((card.country || '').includes('台') || (card.country || '').includes('臺'));
           if (!isTaiwanOriginAirport) {
-            localDestinationCoords.push([card.lat, card.lng]);
+            localDestinationCoords.push([lat, lng]);
           }
 
           if (isLayerVisible) {
             visiblePinCount++;
-            const marker = L.marker([card.lat, card.lng], {
+            const marker = L.marker([lat, lng], {
               icon: createColoredPinIcon(dayColor, shortTag, false, true),
               zIndexOffset: 200
             });
@@ -472,8 +547,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
   let visiblePinCount = 0;
   let anyMetricUpdated = false;
 
+  // 第一步（同步立即執行）：先畫出當日已排站點 + 疊加口袋方塊，不等待外部路網查詢
   for (let idx = 0; idx < items.length; idx++) {
-    if (renderToken !== currentRenderToken) return;
     const item = items[idx];
     const card = state.cards.find(c => c.id === item.cardId);
     if (!card) continue;
@@ -491,17 +566,19 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     if (!cardHasCoords) {
       missingCoordStops.push({ card, label });
     } else {
-      allCoords.push([card.lat, card.lng]);
+      const lat = Number(card.lat);
+      const lng = Number(card.lng);
+      allCoords.push([lat, lng]);
       const isTaiwanOriginAirport = card.category === '機場' && ((card.country || '').includes('台') || (card.country || '').includes('臺'));
       if (!isTaiwanOriginAirport) {
-        localDestinationCoords.push([card.lat, card.lng]);
+        localDestinationCoords.push([lat, lng]);
       }
 
       if (!isLayerVisible) {
         hiddenLayerStops.push({ card, label });
       } else {
         visiblePinCount++;
-        const marker = L.marker([card.lat, card.lng], {
+        const marker = L.marker([lat, lng], {
           icon: createColoredPinIcon(activeDayColor, label),
           zIndexOffset: 250
         });
@@ -534,97 +611,64 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
         markerLookup[card.id] = marker;
       }
     }
-
-    const nextItem = items[idx + 1];
-    const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
-    if (nextCard) {
-      const legRes = await drawAndComputeLegRoute(card, nextCard, item, activeDayColor, renderToken);
-      if (!legRes || renderToken !== currentRenderToken) return;
-      if (legRes.changed) anyMetricUpdated = true;
-
-      totalMin += legRes.legMin;
-      totalKm += legRes.legKm;
-
-      const gdir = buildPreciseGoogleMapsDirUrl(card, nextCard, legRes.activeMode);
-      const badgeTextColor = legRes.hasMissingCoords
-        ? 'text-rose-600'
-        : (legRes.isHotelTransfer
-          ? 'text-purple-700'
-          : (legRes.activeMode === 'walk'
-            ? 'text-emerald-700'
-            : (legRes.activeMode === 'taxi' ? 'text-amber-700' : 'text-blue-700')));
-
-      legsHtml.push(`
-        <div class="flex items-center justify-between ${legRes.hasMissingCoords ? 'bg-rose-50/80 border-rose-200' : (legRes.isHotelTransfer ? 'bg-purple-50/70 border-purple-200' : 'bg-slate-50 border-slate-100')} px-2 py-1 rounded border gap-1.5">
-          <span class="truncate flex-1 font-medium text-slate-700">${idx + 1}→${idx + 2} ${nextCard.title}</span>
-          <span class="font-bold ${badgeTextColor} shrink-0">${legRes.summaryText}</span>
-          ${!hasValidCoords(nextCard) ? `<button onclick="openCardModal('${nextCard.id}')" title="補齊經緯度座標" class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[10px] font-bold shrink-0">補座標</button>` : ''}
-          <a href="${gdir}" target="_blank" title="以精確經緯度開啟 Google Maps 路線比對" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
-        </div>
-      `);
-    }
   }
 
-  if (renderToken !== currentRenderToken) return;
+  // 立即同步渲染口袋疊加方塊，讓「疊加中」0 秒出現在地圖上
+  const overlayRes = renderPocketOverlayMarkersSync(d, dayCardIds);
+  visiblePinCount += overlayRes.count;
+  document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
 
-  // 在規劃模式疊加顯示口袋點位（圓角方塊徽章），與左側快速篩選膠囊即時連動
-  if (state.overlayPocketOnPlan) {
-    const activeQuickCat = CATEGORY_LIST.includes(state.planQuickFilter) ? state.planQuickFilter : null;
-    const onlyUnscheduled = state.planQuickFilter === 'unscheduled';
-
-    state.cards.forEach(c => {
-      if (dayCardIds.has(c.id)) return;
-      if (state.mapVisibleCategories[c.category] === false) return;
-      if (activeQuickCat && c.category !== activeQuickCat) return;
-      if (onlyUnscheduled && getCardScheduledDays(c.id).length > 0) return;
-      if (!hasValidCoords(c)) return;
-
-      visiblePinCount++;
-      const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
-      const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
-      const prox = getCardProximityToSelectedDay(c);
-      const proxLine = prox ? `<div class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">📍 距 ${prox.anchorName} 約 ${prox.label}</div>` : '';
-
-      const pocketMarker = L.marker([c.lat, c.lng], {
-        icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true),
-        zIndexOffset: -50
-      });
-
-      pocketMarker.bindTooltip(`${meta.emoji} ${c.title}${prox ? `（距${prox.shortAnchor} ${prox.label}）` : ''}`, {
-        direction: 'top',
-        offset: [0, -12],
-        className: 'spot-hover-tooltip'
-      });
-
-      pocketMarker.bindPopup(`
-        <div class="text-xs space-y-1.5 min-w-[180px]">
-          <div class="flex items-center justify-between gap-1">
-            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border ${meta.badgeBg}">${c.category}</span>
-            <span class="text-[10px] text-slate-400">${cleanDist}</span>
-          </div>
-          <div class="font-bold text-slate-800 leading-snug">${c.title}</div>
-          ${proxLine}
-          <button onclick="addCardToDay('${c.id}', ${d})"
-            class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs">
-            + 直接排入 Day ${d}
-          </button>
-        </div>
-      `);
-
-      pocketMarker.on('click', () => highlightDatabaseCard(c.id));
-      pocketMarker.addTo(mapMarkersLayer);
-      markerLookup[c.id] = pocketMarker;
-    });
-  }
-
+  // 立即完成地圖視角縮放（若當日尚無站點但有疊加口袋，則自動對焦至沖繩口袋群聚區域）
   const includeFlightInZoom = document.getElementById('chkIncludeCrossSeaFlight')?.checked;
-  const zoomTargetCoords = (!includeFlightInZoom && localDestinationCoords.length > 0)
+  let zoomTargetCoords = (!includeFlightInZoom && localDestinationCoords.length > 0)
     ? localDestinationCoords
     : allCoords;
 
-  if (zoomTargetCoords.length > 0) {
+  if (zoomTargetCoords.length === 0 && overlayRes.coords.length > 0) {
+    const okinawaOverlay = overlayRes.coords.filter(([lat]) => lat < 27.5);
+    zoomTargetCoords = okinawaOverlay.length > 0 ? okinawaOverlay : overlayRes.coords;
+  }
+
+  if (zoomTargetCoords.length > 0 && !state.highlightedCardId) {
     mapInstance.fitBounds(zoomTargetCoords, { padding: [50, 50], maxZoom: 14 });
   }
+
+  // 第二步（非同步背景計算）：繪製各段移動路線與估算時間
+  for (let idx = 0; idx < items.length; idx++) {
+    if (renderToken !== currentRenderToken) return;
+    const item = items[idx];
+    const card = state.cards.find(c => c.id === item.cardId);
+    const nextItem = items[idx + 1];
+    const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
+    if (!card || !nextCard) continue;
+
+    const legRes = await drawAndComputeLegRoute(card, nextCard, item, activeDayColor, renderToken);
+    if (!legRes || renderToken !== currentRenderToken) return;
+    if (legRes.changed) anyMetricUpdated = true;
+
+    totalMin += legRes.legMin;
+    totalKm += legRes.legKm;
+
+    const gdir = buildPreciseGoogleMapsDirUrl(card, nextCard, legRes.activeMode);
+    const badgeTextColor = legRes.hasMissingCoords
+      ? 'text-rose-600'
+      : (legRes.isHotelTransfer
+        ? 'text-purple-700'
+        : (legRes.activeMode === 'walk'
+          ? 'text-emerald-700'
+          : (legRes.activeMode === 'taxi' ? 'text-amber-700' : 'text-blue-700')));
+
+    legsHtml.push(`
+      <div class="flex items-center justify-between ${legRes.hasMissingCoords ? 'bg-rose-50/80 border-rose-200' : (legRes.isHotelTransfer ? 'bg-purple-50/70 border-purple-200' : 'bg-slate-50 border-slate-100')} px-2 py-1 rounded border gap-1.5">
+        <span class="truncate flex-1 font-medium text-slate-700">${idx + 1}→${idx + 2} ${nextCard.title}</span>
+        <span class="font-bold ${badgeTextColor} shrink-0">${legRes.summaryText}</span>
+        ${!hasValidCoords(nextCard) ? `<button onclick="openCardModal('${nextCard.id}')" title="補齊經緯度座標" class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[10px] font-bold shrink-0">補座標</button>` : ''}
+        <a href="${gdir}" target="_blank" title="以精確經緯度開啟 Google Maps 路線比對" class="text-blue-600 hover:text-blue-800 shrink-0"><i class="fa-solid fa-diamond-turn-right"></i></a>
+      </div>
+    `);
+  }
+
+  if (renderToken !== currentRenderToken) return;
 
   const noticesHtml = [];
   if (missingCoordStops.length > 0) {
@@ -635,7 +679,6 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     noticesHtml.push(`<div class="px-2 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] flex items-center justify-between"><span>👁️ 有 ${hiddenLayerStops.length} 個當日點位因上方「分類圖層」關閉而隱藏</span><button onclick="setAllMapLayersVisible(true)" class="px-1.5 py-0.2 rounded bg-amber-600 text-white font-bold">全部顯示</button></div>`);
   }
 
-  document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
   document.getElementById('dailyTransitBadge').textContent = `${totalMin} 分 (${totalKm.toFixed(1)} km)`;
   document.getElementById('dailyTransitLegsList').innerHTML = noticesHtml.join('') + (legsHtml.length > 0
     ? legsHtml.join('')
@@ -668,7 +711,7 @@ export function focusCardOnMap(cardId, warnIfMissing = true) {
       renderMapCategoryToggles();
       hooks.renderMapMarkers();
     }
-    mapInstance.setView([card.lat, card.lng], 15, { animate: true });
+    mapInstance.setView([Number(card.lat), Number(card.lng)], 15, { animate: true });
     if (markerLookup[cardId]) {
       setTimeout(() => markerLookup[cardId]?.openPopup(), 250);
     }
