@@ -18,7 +18,6 @@ export const state = {
   planQuickFilter: 'unscheduled',
   planSortByProximity: true,
   hasUnsavedCloudChanges: false,
-  // 快取每段真實路網計算後的距離與分鐘數，供左側時間軸與右側明細同步使用
   routeMetricsCache: {},
   mapVisibleCategories: {
     '景點': true,
@@ -39,7 +38,6 @@ export const state = {
   itinerary: {}
 };
 
-// 跨模組回呼註冊器（避免 ES6 循環相依）
 export const hooks = {
   pushAllToGoogleSheets: async () => {},
   renderAll: () => {},
@@ -114,7 +112,6 @@ export function persistState(triggerAutoPush = true) {
   }
 }
 
-// 若尚有未完成雲端寫入的變更，關閉或重整分頁前發出防呆警告
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', (e) => {
     if (state.hasUnsavedCloudChanges && state.settings.gasUrl) {
