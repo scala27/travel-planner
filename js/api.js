@@ -29,7 +29,20 @@ function setSyncStatus(status, text) {
   if (label && text) label.textContent = text;
 }
 
-// 解析舊版試算表 Itinerary 分頁（支援陣列列資料或物件格式）
+function normalizeStartTime(val) {
+  if (!val) return '09:00';
+  const str = String(val).trim();
+  if (/^\d{1,2}:\d{2}/.test(str)) {
+    const [h, m] = str.split(':');
+    return `${h.padStart(2, '0')}:${m.slice(0, 2)}`;
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  return '09:00';
+}
+
 function parseLegacyItinerary(rawItinerary, totalDays) {
   const rebuilt = {};
   for (let d = 1; d <= totalDays; d++) {
@@ -42,7 +55,7 @@ function parseLegacyItinerary(rawItinerary, totalDays) {
       const cardId = String(row.card_id || row.cardId || '').trim();
       if (dayNum >= 1 && dayNum <= totalDays && cardId) {
         if (row.day_start_time) {
-          rebuilt[dayNum].startTime = String(row.day_start_time).slice(0, 5);
+          rebuilt[dayNum].startTime = normalizeStartTime(row.day_start_time);
         }
         const customTransitVal = row.custom_transit ?? row.customTransitMin ?? '';
         rebuilt[dayNum].items.push({
@@ -70,7 +83,7 @@ function parseLegacyItinerary(rawItinerary, totalDays) {
       const dayNum = parseInt(dKey, 10);
       if (dayNum >= 1 && dayNum <= totalDays && dayObj && Array.isArray(dayObj.items)) {
         rebuilt[dayNum] = {
-          startTime: dayObj.startTime || '09:00',
+          startTime: normalizeStartTime(dayObj.startTime),
           items: dayObj.items
         };
       }
@@ -95,67 +108,56 @@ export async function pullFromGoogleSheets(manual = false) {
 
   try {
     const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=getAll&t=${Date.now()}`);
-    const data = await res.json();
+    const rawJson = await res.json();
+    const data = rawJson.data && typeof rawJson.data === 'object' ? rawJson.data : rawJson;
 
     const rawSpots = Array.isArray(data.spots) ? data.spots : (Array.isArray(data.cards) ? data.cards : []);
     if (rawSpots.length > 0) {
-      state.cards = rawSpots.map((row, idx) => ({
-        id: String(row.id || `spot_${Date.now()}_${idx}`),
-        title: String(row.title || row.name || '未命名地點').trim(),
-        category: String(row.category || '景點').trim(),
-        country: String(row.country || '日本').trim(),
-        district: String(row.district || row.area || '').trim(),
-        lat: row.lat !== '' && row.lat !== null && !isNaN(Number(row.lat)) ? Number(row.lat) : null,
-        lng: row.lng !== '' && row.lng !== null && !isNaN(Number(row.lng)) ? Number(row.lng) : null,
-        duration: Number(row.duration) || 60,
-        notes: String(row.notes || row.description || '').trim(),
-        mapUrl: String(row.mapUrl || row.googleMapsUrl || '').trim(),
-        image: String(row.image || row.imageUrl || '').trim(),
-        starred: row.starred === true || String(row.starred).toLowerCase() === 'true',
-        meta: typeof row.meta === 'object' && row.meta !== null ? row.meta : {}
-      }));
+      state.cards = rawSpots.map((row, idx) => {
+        const areaStr = String(row.district || row.area || '').trim();
+        const inferredCountry = String(row.country || '').trim() ||
+          (areaStr.startsWith('台灣') ? '台灣' : '日本');
+        return {
+          id: String(row.id || `spot_${Date.now()}_${idx}`).trim(),
+          title: String(row.title || row.name || '未命名地點').trim(),
+          category: String(row.category || '景點').trim(),
+          country: inferredCountry,
+          district: areaStr,
+          lat: row.lat !== '' && row.lat !== null && !isNaN(Number(row.lat)) ? Number(row.lat) : null,
+          lng: row.lng !== '' && row.lng !== null && !isNaN(Number(row.lng)) ? Number(row.lng) : null,
+          duration: Number(row.estimated_duration ?? row.duration) || 60,
+          notes: String(row.notes || row.description || '').trim(),
+          mapUrl: String(row.mapUrl || row.source_url || row.googleMapsUrl || '').trim(),
+          image: String(row.image || row.photo_url || row.imageUrl || '').trim(),
+          starred: row.starred === true || String(row.starred).toLowerCase() === 'true',
+          must_buy: String(row.must_buy || ''),
+          business_hours: String(row.business_hours || ''),
+          parking_info: String(row.parking_info || ''),
+          meta: typeof row.meta === 'object' && row.meta !== null ? row.meta : {}
+        };
+      });
     }
 
     const total = Number(state.settings.totalDays) || 6;
 
-    // 1. 優先檢查是否有新版 Trips 多旅程資料
+    // 優先載入 Itinerary 工作表排程，並同步寫入目前啟用旅程
+    const parsedItin = data.itinerary ? parseLegacyItinerary(data.itinerary, total) : null;
+    const hasItinItems = parsedItin && Object.values(parsedItin).some(d => d.items.length > 0);
+
     if (Array.isArray(data.trips) && data.trips.length > 0) {
       state.trips = data.trips.map(t => createTripObject(t));
       if (!state.trips.some(t => t.id === state.activeTripId)) {
         state.activeTripId = state.trips[0].id;
       }
       syncActiveTripToLegacyState();
-    } else if (data.itinerary) {
-      // 2. 相容讀取您試算表中的 Itinerary 分頁（uid / day / sort_order / card_id）
-      const parsedItin = parseLegacyItinerary(data.itinerary, total);
-      if (parsedItin && Object.values(parsedItin).some(d => d.items.length > 0)) {
+      const activeHasItems = Object.values(state.itinerary).some(d => d.items && d.items.length > 0);
+      if (!activeHasItems && hasItinItems) {
         state.itinerary = parsedItin;
         syncLegacyStateBackToActiveTrip();
       }
-    } else if (rawSpots.length > 0) {
-      // 3. 備援：檢查 Spots 分頁本身是否帶有 day/order 欄位
-      const rebuiltItinerary = {};
-      for (let d = 1; d <= total; d++) {
-        rebuiltItinerary[d] = { startTime: (state.itinerary[d] && state.itinerary[d].startTime) || '09:00', items: [] };
-      }
-      rawSpots.forEach((row, idx) => {
-        const dayNum = parseInt(row.day, 10);
-        if (dayNum >= 1 && dayNum <= total) {
-          const cardId = String(row.id || `spot_${Date.now()}_${idx}`);
-          rebuiltItinerary[dayNum].items.push({
-            uid: `it_${cardId}_${dayNum}_${idx}`,
-            cardId,
-            order: parseInt(row.order, 10) || 999,
-            transitMode: row.transitMode || 'auto',
-            customTransitMin: row.customTransitMin !== '' && row.customTransitMin != null ? Number(row.customTransitMin) : null
-          });
-        }
-      });
-      Object.keys(rebuiltItinerary).forEach(d => rebuiltItinerary[d].items.sort((a, b) => a.order - b.order));
-      if (Object.values(rebuiltItinerary).some(d => d.items.length > 0)) {
-        state.itinerary = rebuiltItinerary;
-        syncLegacyStateBackToActiveTrip();
-      }
+    } else if (hasItinItems) {
+      state.itinerary = parsedItin;
+      syncLegacyStateBackToActiveTrip();
     }
 
     ensureItineraryDays();
@@ -164,12 +166,13 @@ export async function pullFromGoogleSheets(manual = false) {
     if (typeof hooks.populateRegionDropdowns === 'function') hooks.populateRegionDropdowns();
     if (typeof hooks.renderAll === 'function') hooks.renderAll();
 
+    const scheduledTotal = Object.values(state.itinerary).reduce((sum, d) => sum + (d.items?.length || 0), 0);
     setSyncStatus('connected', 'Google 試算表已連線');
-    if (manual) showToast(`已從試算表同步 ${state.cards.length} 筆口袋與排程資料`, 'emerald');
+    if (manual) showToast(`已成功載入 ${state.cards.length} 筆口袋卡片與 ${scheduledTotal} 項排程`, 'emerald');
   } catch (err) {
     console.error('讀取試算表錯誤:', err);
     setSyncStatus('error', '雲端讀取失敗');
-    if (manual) showToast('讀取 Google 試算表失敗，請檢查網路或 GAS 權限', 'rose');
+    if (manual) showToast('讀取 Google 試算表失敗，請確認 GAS 已部署為新版本', 'rose');
   } finally {
     if (syncIcon) syncIcon.classList.remove('fa-spin');
   }
@@ -188,7 +191,6 @@ export async function pushAllToGoogleSheets(silent = false) {
   if (pushIcon) pushIcon.classList.add('fa-bounce');
   setSyncStatus('syncing', '正在寫入試算表...');
 
-  // 同時產生舊版 Itinerary 列格式，確保與現有試算表 100% 雙向相容
   const itineraryRows = [];
   const activeDayMap = {};
   Object.entries(activeTrip.itinerary || {}).forEach(([dayStr, dayObj]) => {
@@ -221,10 +223,12 @@ export async function pushAllToGoogleSheets(silent = false) {
     const sched = activeDayMap[c.id] || { day: '', order: '', transitMode: '', customTransitMin: '' };
     return {
       ...c,
+      name: c.title,
       area: c.district || '',
       description: c.notes || '',
-      googleMapsUrl: c.mapUrl || '',
-      imageUrl: c.image || '',
+      estimated_duration: c.duration || 60,
+      source_url: c.mapUrl || '',
+      photo_url: c.image || '',
       day: sched.day,
       order: sched.order,
       transitMode: sched.transitMode,
@@ -259,118 +263,7 @@ export async function pushAllToGoogleSheets(silent = false) {
 }
 
 export function copyGasBackendCode() {
-  const code = `function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var spotsSheet = ss.getSheetByName('Spots') || ss.insertSheet('Spots');
-  var itinSheet = ss.getSheetByName('Itinerary');
-  var tripsSheet = ss.getSheetByName('Trips');
-
-  var spotRows = spotsSheet.getDataRange().getValues();
-  var spots = [];
-  if (spotRows.length > 1) {
-    var headers = spotRows[0];
-    for (var i = 1; i < spotRows.length; i++) {
-      var obj = {};
-      for (var j = 0; j < headers.length; j++) {
-        obj[headers[j]] = spotRows[i][j];
-      }
-      if (obj.meta && typeof obj.meta === 'string') {
-        try { obj.meta = JSON.parse(obj.meta); } catch (err) { obj.meta = {}; }
-      }
-      spots.push(obj);
-    }
-  }
-
-  var itinerary = [];
-  if (itinSheet) {
-    var itinRows = itinSheet.getDataRange().getValues();
-    if (itinRows.length > 1) {
-      var iHeaders = itinRows[0];
-      for (var r = 1; r < itinRows.length; r++) {
-        var iObj = {};
-        for (var c = 0; c < iHeaders.length; c++) {
-          iObj[iHeaders[c]] = itinRows[r][c];
-        }
-        itinerary.push(iObj);
-      }
-    }
-  }
-
-  var trips = [];
-  if (tripsSheet) {
-    var tripRows = tripsSheet.getDataRange().getValues();
-    if (tripRows.length > 1) {
-      for (var k = 1; k < tripRows.length; k++) {
-        if (tripRows[k][1]) {
-          try { trips.push(JSON.parse(tripRows[k][1])); } catch (err) {}
-        }
-      }
-    }
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({
-    spots: spots,
-    itinerary: itinerary,
-    trips: trips
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-function doPost(e) {
-  var payload = JSON.parse(e.postData.contents);
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  if (Array.isArray(payload.spots)) {
-    var spotsSheet = ss.getSheetByName('Spots') || ss.insertSheet('Spots');
-    var headers = ['id', 'title', 'category', 'country', 'district', 'lat', 'lng', 'duration', 'notes', 'mapUrl', 'image', 'starred', 'day', 'order', 'transitMode', 'customTransitMin', 'meta'];
-    spotsSheet.clearContents();
-    spotsSheet.appendRow(headers);
-    if (payload.spots.length > 0) {
-      var rows = payload.spots.map(function(s) {
-        return headers.map(function(h) {
-          if (h === 'meta') return JSON.stringify(s.meta || {});
-          return s[h] !== undefined && s[h] !== null ? s[h] : '';
-        });
-      });
-      spotsSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-    }
-  }
-
-  if (Array.isArray(payload.itinerary)) {
-    var itinSheet = ss.getSheetByName('Itinerary') || ss.insertSheet('Itinerary');
-    var iHeaders = ['uid', 'day', 'day_start_time', 'sort_order', 'card_id', 'is_checkout', 'transit_mode', 'transit_min', 'custom_transit', 'custom_note', 'updated_at'];
-    itinSheet.clearContents();
-    itinSheet.appendRow(iHeaders);
-    if (payload.itinerary.length > 0) {
-      var now = new Date();
-      var iRows = payload.itinerary.map(function(it) {
-        return [it.uid, it.day, it.day_start_time, it.sort_order, it.card_id, it.is_checkout, it.transit_mode, it.transit_min, it.custom_transit, it.custom_note, now];
-      });
-      itinSheet.getRange(2, 1, iRows.length, iHeaders.length).setValues(iRows);
-    }
-  }
-
-  if (Array.isArray(payload.trips)) {
-    var tripsSheet = ss.getSheetByName('Trips') || ss.insertSheet('Trips');
-    tripsSheet.clearContents();
-    tripsSheet.appendRow(['tripId', 'tripJson', 'updatedAt']);
-    if (payload.trips.length > 0) {
-      var nowStr = new Date().toISOString();
-      var tripRows = payload.trips.map(function(t) {
-        return [t.id, JSON.stringify(t), nowStr];
-      });
-      tripsSheet.getRange(2, 1, tripRows.length, 3).setValues(tripRows);
-    }
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
-    .setMimeType(ContentService.MimeType.JSON);
-}`;
-
-  navigator.clipboard.writeText(code).then(() => {
-    showToast('已複製相容版 GAS 程式碼至剪貼簿', 'emerald');
-  }).catch(() => {
-    showToast('複製失敗，請手動授權剪貼簿權限', 'rose');
-  });
+  showToast('請直接複製對話框中提供的最新 Code.gs 程式碼', 'blue');
 }
 
 export function exportJsonBackup() {
