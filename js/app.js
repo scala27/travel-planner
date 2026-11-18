@@ -1,7 +1,9 @@
-import { DEFAULT_SETTINGS } from './config.js';
 import {
   state,
   hooks,
+  createTripObject,
+  getActiveTrip,
+  syncActiveTripToLegacyState,
   loadLocalState,
   persistState,
   ensureItineraryDays,
@@ -97,58 +99,249 @@ function isMobileViewport() {
   return window.innerWidth <= 768;
 }
 
-let currentMobileTab = 'pocket';
+let currentMobileTab = 'trips';
 
+function syncTripStepAttributes() {
+  document.body.setAttribute('data-trip-step', state.tripViewStep);
+}
+
+// ==================== 多旅程專案總覽牆（建立 / 切換 / 刪除） ====================
+function renderTripProjectsGrid() {
+  const grid = document.getElementById('tripProjectsGrid');
+  if (!grid) return;
+
+  const badgeTrips = document.getElementById('badgeTripsCount');
+  const mobileBadgeTrips = document.getElementById('mobileBadgeTrips');
+  if (badgeTrips) badgeTrips.textContent = String(state.trips.length);
+  if (mobileBadgeTrips) mobileBadgeTrips.textContent = String(state.trips.length);
+
+  grid.innerHTML = state.trips
+    .map(trip => {
+      const isCurrent = trip.id === state.activeTripId;
+      const totalDays = Number(trip.totalDays) || 5;
+      const start = new Date(`${trip.startDate}T00:00:00`);
+      let dateRangeText = trip.startDate || '';
+      if (!isNaN(start.getTime())) {
+        const end = new Date(start.getTime() + (totalDays - 1) * 86400000);
+        const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+        dateRangeText = `${trip.startDate} ~ ${endStr}`;
+      }
+
+      const scheduledCount = Object.values(trip.itinerary || {}).reduce(
+        (acc, dayObj) => acc + (dayObj.items ? dayObj.items.length : 0),
+        0
+      );
+
+      return `
+        <div onclick="selectAndOpenTrip('${trip.id}')"
+          class="bg-white rounded-2xl border ${isCurrent ? 'border-[#2C4D6E] ring-2 ring-[#2C4D6E]/15' : 'border-slate-200'} p-4 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between gap-3">
+          <div class="space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-xl bg-[#2C4D6E]/10 text-[#2C4D6E] flex items-center justify-center shrink-0">
+                  <i class="fa-solid fa-suitcase-rolling"></i>
+                </span>
+                <div>
+                  <span class="text-[11px] font-bold text-[#2C4D6E]">${trip.destination || '自由行專案'}</span>
+                  <h3 class="font-bold text-base text-slate-800 leading-snug">${trip.title}</h3>
+                </div>
+              </div>
+              ${isCurrent ? '<span class="px-2 py-0.5 rounded-full bg-[#2C4D6E] text-white text-[10px] font-bold shrink-0">使用中</span>' : ''}
+            </div>
+
+            <div class="text-xs text-slate-500 space-y-1 pt-1">
+              <div class="flex items-center gap-1.5">
+                <i class="fa-regular fa-calendar text-slate-400"></i>
+                <span>${dateRangeText}（${totalDays}天${Math.max(0, totalDays - 1)}夜）</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <i class="fa-solid fa-map-pin text-slate-400"></i>
+                <span>已排入 <strong>${scheduledCount}</strong> 個行程點</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between" onclick="event.stopPropagation()">
+            <button type="button" onclick="selectAndOpenTrip('${trip.id}')"
+              class="px-3 py-1.5 rounded-lg bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold flex items-center gap-1">
+              <span>進入排程</span>
+              <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
+
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="openCreateTripModal('${trip.id}')" title="編輯旅程資訊"
+                class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center text-xs">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              ${
+                state.trips.length > 1
+                  ? `<button type="button" onclick="deleteTripProject('${trip.id}')" title="刪除旅程"
+                      class="w-7 h-7 rounded-lg border border-slate-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center text-xs">
+                      <i class="fa-solid fa-trash-can"></i>
+                    </button>`
+                  : ''
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function openTripListOverview() {
+  state.tripViewStep = 'list';
+  syncTripStepAttributes();
+  if (isMobileViewport()) {
+    switchMobileTab('trips');
+  } else {
+    switchWorkspaceMode('plan');
+  }
+}
+
+function selectAndOpenTrip(tripId) {
+  state.activeTripId = tripId;
+  syncActiveTripToLegacyState();
+  state.tripViewStep = 'detail';
+  syncTripStepAttributes();
+  persistState(false);
+  updateHeaderInfo();
+
+  if (isMobileViewport()) {
+    switchMobileTab('trips');
+  } else {
+    switchWorkspaceMode('plan');
+  }
+}
+
+function openCreateTripModal(editId = null) {
+  const modal = document.getElementById('createTripModal');
+  if (!modal) return;
+  if (editId) {
+    const trip = state.trips.find(t => t.id === editId);
+    if (!trip) return;
+    document.getElementById('createTripModalTitle').innerHTML =
+      '<i class="fa-solid fa-pen text-[#2C4D6E] mr-1.5"></i>編輯旅程資訊';
+    document.getElementById('editTripId').value = trip.id;
+    document.getElementById('newTripTitle').value = trip.title;
+    document.getElementById('newTripDestination').value = trip.destination || '';
+    document.getElementById('newTripStartDate').value = trip.startDate;
+    document.getElementById('newTripTotalDays').value = trip.totalDays;
+  } else {
+    document.getElementById('createTripModalTitle').innerHTML =
+      '<i class="fa-solid fa-plane-departure text-[#2C4D6E] mr-1.5"></i>建立新行程專案';
+    document.getElementById('editTripId').value = '';
+    document.getElementById('newTripTitle').value = '';
+    document.getElementById('newTripDestination').value = '';
+    document.getElementById('newTripStartDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('newTripTotalDays').value = 4;
+  }
+  modal.classList.remove('hidden');
+}
+
+function closeCreateTripModal() {
+  document.getElementById('createTripModal')?.classList.add('hidden');
+}
+
+function saveTripProject() {
+  const title = document.getElementById('newTripTitle').value.trim();
+  if (!title) {
+    showToast('請輸入行程名稱', 'amber');
+    return;
+  }
+  const destination = document.getElementById('newTripDestination').value.trim();
+  const startDate = document.getElementById('newTripStartDate').value || new Date().toISOString().slice(0, 10);
+  const totalDays = Math.max(1, Math.min(15, parseInt(document.getElementById('newTripTotalDays').value, 10) || 4));
+  const editId = document.getElementById('editTripId').value;
+
+  if (editId) {
+    const trip = state.trips.find(t => t.id === editId);
+    if (trip) {
+      trip.title = title;
+      trip.destination = destination;
+      trip.startDate = startDate;
+      trip.totalDays = totalDays;
+      for (let d = 1; d <= totalDays; d++) {
+        if (!trip.itinerary[d]) trip.itinerary[d] = { startTime: '09:00', items: [] };
+      }
+      if (state.activeTripId === trip.id) syncActiveTripToLegacyState();
+    }
+    closeCreateTripModal();
+    persistState(true);
+    updateHeaderInfo();
+    renderAll();
+    showToast('已更新旅程資訊', 'emerald');
+  } else {
+    const created = createTripObject({ title, destination, startDate, totalDays });
+    state.trips.unshift(created);
+    closeCreateTripModal();
+    persistState(true);
+    selectAndOpenTrip(created.id);
+    showToast(`已建立「${title}」`, 'emerald');
+  }
+}
+
+function deleteTripProject(tripId) {
+  if (state.trips.length <= 1) return;
+  if (!confirm('確定要刪除此旅程專案嗎？（口袋清單中的景點仍會保留）')) return;
+  state.trips = state.trips.filter(t => t.id !== tripId);
+  if (state.activeTripId === tripId) {
+    state.activeTripId = state.trips[0].id;
+    syncActiveTripToLegacyState();
+  }
+  persistState(true);
+  updateHeaderInfo();
+  renderAll();
+  showToast('已刪除旅程專案', 'slate');
+}
+
+// ==================== 手機端三頁籤切換（我的行程 → 路線地圖 → 口袋清單） ====================
 function switchMobileTab(tabName) {
   currentMobileTab = tabName;
   document.body.setAttribute('data-mobile-tab', tabName);
+  syncTripStepAttributes();
 
   document.querySelectorAll('.mobile-tab-btn').forEach(btn => {
     const active = btn.dataset.mobileTab === tabName;
     btn.className = active
-      ? 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-blue-600 font-bold text-[11px] relative bg-blue-50/40'
+      ? 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-[#2C4D6E] font-bold text-[11px] relative bg-slate-100/70'
       : 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative';
   });
 
-  if (tabName === 'pocket') {
-    if (state.mode !== 'collect') {
-      switchWorkspaceMode('collect');
-    }
-  } else if (tabName === 'board') {
+  if (tabName === 'trips') {
+    state.mode = 'plan';
     state.boardMultiDayMode = false;
-    if (state.mode !== 'plan') {
-      switchWorkspaceMode('plan');
+    if (state.tripViewStep === 'list') {
+      renderTripProjectsGrid();
     } else {
       renderKanbanBoard();
     }
   } else if (tabName === 'map') {
-    if (state.mode !== 'plan') {
-      state.mode = 'plan';
-      const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
-      const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
-      if (mapHeaderCollect) mapHeaderCollect.classList.add('hidden');
-      if (mapHeaderPlan) mapHeaderPlan.classList.remove('hidden');
-      state.overlayPocketOnPlan = true;
-      updateOverlayPocketButtonUi();
-      populateMapDaySelector();
-      syncMapDrawerUi();
-    }
+    state.mode = 'plan';
+    const mapHeaderCollect = document.getElementById('mapHeaderCollectMode');
+    const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
+    if (mapHeaderCollect) mapHeaderCollect.classList.add('hidden');
+    if (mapHeaderPlan) mapHeaderPlan.classList.remove('hidden');
+    state.overlayPocketOnPlan = true;
+    updateOverlayPocketButtonUi();
+    populateMapDaySelector();
+    syncMapDrawerUi();
     renderMapMarkers(getFilteredAndSortedCards);
     setTimeout(() => invalidateMapSize(), 80);
+  } else if (tabName === 'pocket') {
+    state.mode = 'collect';
+    renderDatabaseCards();
   }
 }
 
 function syncMobileNavBadges() {
   const pocketBadge = document.getElementById('mobileBadgePocket');
-  const boardBadge = document.getElementById('mobileBadgeBoard');
+  const tripsBadge = document.getElementById('mobileBadgeTrips');
   if (pocketBadge) pocketBadge.textContent = String(state.cards.length);
-  if (boardBadge) {
-    const scheduledUnique = new Set();
-    Object.values(state.itinerary).forEach(day => (day.items || []).forEach(it => scheduledUnique.add(it.cardId)));
-    boardBadge.textContent = String(scheduledUnique.size);
-  }
+  if (tripsBadge) tripsBadge.textContent = String(state.trips.length);
 }
 
+// ==================== 電腦版拖曳分隔桿 ====================
 function initSplitResizers() {
   const mainEl = document.getElementById('workspaceMain');
   const dbPanel = document.getElementById('databasePanel');
@@ -158,21 +351,21 @@ function initSplitResizers() {
 
   let activeResizer = null;
 
-  resizerLeft.addEventListener('mousedown', (e) => {
+  resizerLeft.addEventListener('mousedown', e => {
     e.preventDefault();
     activeResizer = 'left';
     resizerLeft.classList.add('is-dragging');
     document.body.style.cursor = 'col-resize';
   });
 
-  resizerRight.addEventListener('mousedown', (e) => {
+  resizerRight.addEventListener('mousedown', e => {
     e.preventDefault();
     activeResizer = 'right';
     resizerRight.classList.add('is-dragging');
     document.body.style.cursor = 'col-resize';
   });
 
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('mousemove', e => {
     if (!activeResizer || isMobileViewport()) return;
     const rect = mainEl.getBoundingClientRect();
     const totalW = rect.width;
@@ -204,6 +397,7 @@ function initSplitResizers() {
   window.addEventListener('resize', () => {
     if (!isMobileViewport()) {
       document.body.removeAttribute('data-mobile-tab');
+      switchWorkspaceMode(state.mode);
     } else if (!document.body.getAttribute('data-mobile-tab')) {
       switchMobileTab(currentMobileTab);
     }
@@ -216,7 +410,7 @@ function updateOverlayPocketButtonUi() {
   const txt = document.getElementById('overlayPocketStatusText');
   if (!btn || !txt) return;
   if (state.overlayPocketOnPlan) {
-    btn.className = 'px-2 py-1 rounded-lg border border-blue-600 bg-blue-600 text-white text-[11px] font-bold flex items-center gap-1 transition';
+    btn.className = 'px-2 py-1 rounded-lg border border-[#2C4D6E] bg-[#2C4D6E] text-white text-[11px] font-bold flex items-center gap-1 transition';
     txt.textContent = '疊加中';
   } else {
     btn.className = 'px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold flex items-center gap-1 transition';
@@ -255,19 +449,23 @@ function toggleMapDrawer() {
   setTimeout(() => invalidateMapSize(), 80);
 }
 
+// ==================== 電腦端工作區模式切換（我的行程 / 口袋清單） ====================
 function switchWorkspaceMode(targetMode) {
   state.mode = targetMode;
+  syncTripStepAttributes();
+
   const tabCollect = document.getElementById('tabModeCollect');
   const tabPlan = document.getElementById('tabModePlan');
+  const tripsSection = document.getElementById('tripProjectsSection');
   const dbPanel = document.getElementById('databasePanel');
   const resizerLeft = document.getElementById('resizerLeft');
   const boardSection = document.getElementById('itineraryBoardSection');
   const resizerRight = document.getElementById('resizerRight');
+  const mapPanel = document.getElementById('mapPanel');
   const dbCardsGrid = document.getElementById('databaseCardsContainer');
 
   const dbTitle = document.getElementById('dbPanelTitleText');
   const btnAddCollect = document.getElementById('btnAddCardCollect');
-  const btnBatch = document.getElementById('btnToggleBatchBox');
   const btnMini = document.getElementById('btnMiniCardToggle');
   const btnCollapse = document.getElementById('btnCollapsePocket');
   const btnExpand = document.getElementById('btnExpandPocket');
@@ -279,20 +477,23 @@ function switchWorkspaceMode(targetMode) {
   const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
 
   if (targetMode === 'collect') {
-    tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
+    tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs';
     tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
+    tripsSection.classList.add('hidden');
     dbPanel.classList.remove('hidden');
+    dbPanel.classList.add('flex');
     dbPanel.style.width = '62%';
     resizerLeft.classList.remove('hidden');
     boardSection.classList.add('hidden');
     boardSection.classList.remove('flex');
     resizerRight.classList.add('hidden');
     btnExpand.classList.add('hidden');
+    mapPanel.classList.remove('hidden');
+    mapPanel.classList.add('flex');
 
     dbTitle.textContent = '全球口袋資料庫';
     if (btnAddCollect) btnAddCollect.classList.remove('hidden');
-    if (btnBatch) btnBatch.classList.remove('hidden');
     if (btnMini) btnMini.classList.remove('hidden');
     btnCollapse.classList.add('hidden');
     btnCollapse.classList.remove('flex');
@@ -306,46 +507,61 @@ function switchWorkspaceMode(targetMode) {
     mapHeaderPlan.classList.add('hidden');
     updateMiniCardButtonUi();
   } else {
-    tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs';
+    tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs';
     tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-    dbTitle.textContent = '口袋待排清單';
-    if (btnAddCollect) btnAddCollect.classList.add('hidden');
-    if (btnBatch) btnBatch.classList.add('hidden');
-    if (btnMini) btnMini.classList.add('hidden');
-    const batchBox = document.getElementById('batchImportBox');
-    if (batchBox) batchBox.classList.add('hidden');
-    btnCollapse.classList.remove('hidden');
-    btnCollapse.classList.add('flex');
-    sortWrap.classList.add('hidden');
-    advFilter.classList.add('hidden');
-    planQuickFilter.classList.remove('hidden');
-    planQuickFilter.classList.add('flex');
-
-    dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5 bg-slate-50/60';
-    boardSection.classList.remove('hidden');
-    boardSection.classList.add('flex');
-    resizerRight.classList.remove('hidden');
-    mapHeaderCollect.classList.add('hidden');
-    mapHeaderPlan.classList.remove('hidden');
-
-    if (state.pocketCollapsed) {
+    if (state.tripViewStep === 'list') {
+      tripsSection.classList.remove('hidden');
       dbPanel.classList.add('hidden');
+      dbPanel.classList.remove('flex');
       resizerLeft.classList.add('hidden');
-      btnExpand.classList.remove('hidden');
-      btnExpand.classList.add('flex');
-      boardSection.style.width = '48%';
-    } else {
-      dbPanel.classList.remove('hidden');
-      dbPanel.style.width = '18%';
-      resizerLeft.classList.remove('hidden');
+      boardSection.classList.add('hidden');
+      boardSection.classList.remove('flex');
+      resizerRight.classList.add('hidden');
+      mapPanel.classList.add('hidden');
+      mapPanel.classList.remove('flex');
       btnExpand.classList.add('hidden');
-      boardSection.style.width = '36%';
-    }
+    } else {
+      tripsSection.classList.add('hidden');
+      dbTitle.textContent = '口袋待排清單';
+      if (btnAddCollect) btnAddCollect.classList.add('hidden');
+      if (btnMini) btnMini.classList.add('hidden');
+      btnCollapse.classList.remove('hidden');
+      btnCollapse.classList.add('flex');
+      sortWrap.classList.add('hidden');
+      advFilter.classList.add('hidden');
+      planQuickFilter.classList.remove('hidden');
+      planQuickFilter.classList.add('flex');
 
-    state.overlayPocketOnPlan = true;
-    updateOverlayPocketButtonUi();
-    populateMapDaySelector();
+      dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5 bg-slate-50/60';
+      boardSection.classList.remove('hidden');
+      boardSection.classList.add('flex');
+      resizerRight.classList.remove('hidden');
+      mapPanel.classList.remove('hidden');
+      mapPanel.classList.add('flex');
+      mapHeaderCollect.classList.add('hidden');
+      mapHeaderPlan.classList.remove('hidden');
+
+      if (state.pocketCollapsed) {
+        dbPanel.classList.add('hidden');
+        dbPanel.classList.remove('flex');
+        resizerLeft.classList.add('hidden');
+        btnExpand.classList.remove('hidden');
+        btnExpand.classList.add('flex');
+        boardSection.style.width = '48%';
+      } else {
+        dbPanel.classList.remove('hidden');
+        dbPanel.classList.add('flex');
+        dbPanel.style.width = '20%';
+        resizerLeft.classList.remove('hidden');
+        btnExpand.classList.add('hidden');
+        boardSection.style.width = '36%';
+      }
+
+      state.overlayPocketOnPlan = true;
+      updateOverlayPocketButtonUi();
+      populateMapDaySelector();
+    }
   }
 
   syncMapDrawerUi();
@@ -360,6 +576,7 @@ function togglePocketCollapse() {
 
 function populateMapDaySelector() {
   const sel = document.getElementById('mapDaySelect');
+  if (!sel) return;
   const total = Number(state.settings.totalDays) || 6;
   const options = [];
   for (let d = 1; d <= total; d++) {
@@ -371,13 +588,14 @@ function populateMapDaySelector() {
 }
 
 function updateHeaderInfo() {
-  document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle || 'e-chi Go';
-  const total = Number(state.settings.totalDays) || 6;
-  const start = new Date(state.settings.startDate + 'T00:00:00');
+  const active = getActiveTrip();
+  document.getElementById('tripTitleDisplay').textContent = active.title || 'e-chi Go';
+  const total = Number(active.totalDays) || 6;
+  const start = new Date(`${active.startDate}T00:00:00`);
   if (!isNaN(start.getTime())) {
     const end = new Date(start.getTime() + (total - 1) * 86400000);
     const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
-    document.getElementById('tripDateDisplay').textContent = `${state.settings.startDate} ~ ${endStr} (${total}天${total - 1}夜)`;
+    document.getElementById('tripDateDisplay').textContent = `${active.startDate} ~ ${endStr} (${total}天${Math.max(0, total - 1)}夜)`;
   }
 }
 
@@ -413,9 +631,10 @@ function saveSettings() {
 }
 
 export function renderAll() {
+  renderTripProjectsGrid();
   renderDatabaseCards();
   syncMobileNavBadges();
-  if (state.mode === 'plan') {
+  if (state.mode === 'plan' && state.tripViewStep === 'detail') {
     populateMapDaySelector();
     renderKanbanBoard();
   }
@@ -423,6 +642,12 @@ export function renderAll() {
 }
 
 Object.assign(window, {
+  openTripListOverview,
+  selectAndOpenTrip,
+  openCreateTripModal,
+  closeCreateTripModal,
+  saveTripProject,
+  deleteTripProject,
   switchWorkspaceMode,
   switchMobileTab,
   togglePocketCollapse,
@@ -495,16 +720,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   populateRegionDropdowns();
   syncMapDrawerUi();
 
+  state.tripViewStep = 'list';
+  syncTripStepAttributes();
+
   if (isMobileViewport()) {
-    switchMobileTab('pocket');
+    switchMobileTab('trips');
   } else {
-    renderAll();
+    switchWorkspaceMode('plan');
   }
 
   if (state.settings.gasUrl) {
     await pullFromGoogleSheets(false);
     if (isMobileViewport()) {
       switchMobileTab(currentMobileTab);
+    } else {
+      switchWorkspaceMode(state.mode);
     }
   }
 });
