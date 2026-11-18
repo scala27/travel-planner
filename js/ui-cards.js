@@ -113,7 +113,7 @@ export function getFilteredAndSortedCards() {
 
   let list = state.cards.filter(card => {
     if (q) {
-      const hay = `${card.title} ${card.district} ${card.country} ${card.notes}`.toLowerCase();
+      const hay = `${card.title} ${card.district} ${card.country} ${card.notes} ${card.must_buy || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
 
@@ -149,7 +149,6 @@ export function renderDatabaseCards() {
   const container = document.getElementById('databaseCardsContainer');
   if (!container) return;
 
-  // 更新總數與國內/國外計數膠囊
   const totalCount = state.cards.length;
   const domesticCount = state.cards.filter(c => c.country === '台灣').length;
   const intlCount = totalCount - domesticCount;
@@ -197,7 +196,9 @@ export function renderDatabaseCards() {
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-start gap-2 min-w-0">
                 <span class="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style="background:${style.hex}"></span>
-                <h3 class="font-bold text-sm text-slate-800 leading-snug break-words">${card.title}</h3>
+                <h3 class="font-bold text-sm text-slate-800 leading-snug break-words">
+                  ${card.starred ? '<span class="text-amber-500 mr-0.5">★</span>' : ''}${card.title}
+                </h3>
               </div>
               <span class="px-2 py-0.5 rounded-md text-[11px] font-bold ${style.badge} shrink-0">${card.category}</span>
             </div>
@@ -207,6 +208,12 @@ export function renderDatabaseCards() {
               <span>・⏱ ${card.duration || 60}分</span>
               ${dayBadges}
             </div>
+
+            ${
+              !state.miniCardMode && card.must_buy
+                ? `<div class="pl-4 text-[11px] text-amber-700 font-semibold truncate"><i class="fa-solid fa-star text-amber-400 mr-1"></i>推薦：${card.must_buy}</div>`
+                : ''
+            }
 
             ${
               !state.miniCardMode && card.notes
@@ -223,6 +230,14 @@ export function renderDatabaseCards() {
             </select>
 
             <div class="flex items-center gap-1">
+              ${
+                card.mapUrl
+                  ? `<a href="${card.mapUrl}" target="_blank" rel="noopener" title="開啟 Google Maps"
+                      class="w-7 h-7 rounded-lg border border-slate-200 text-emerald-600 hover:bg-emerald-50 flex items-center justify-center text-xs">
+                      <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    </a>`
+                  : ''
+              }
               <button type="button" onclick="focusCardOnMap('${card.id}')" title="在地圖檢視"
                 class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-[#2C4D6E] flex items-center justify-center text-xs">
                 <i class="fa-solid fa-location-dot"></i>
@@ -251,6 +266,8 @@ export function handleCardClick(cardId) {
 
 export function toggleCardDetailExpand() {}
 
+let editingCardCache = null;
+
 export function openCardModal(cardId = null) {
   const modal = document.getElementById('cardModal');
   if (!modal) return;
@@ -266,6 +283,7 @@ export function openCardModal(cardId = null) {
   if (cardId) {
     const card = state.cards.find(c => c.id === cardId);
     if (!card) return;
+    editingCardCache = card;
     document.getElementById('cardModalTitle').textContent = '編輯口袋卡片';
     document.getElementById('editCardId').value = card.id;
     document.getElementById('fieldTitle').value = card.title || '';
@@ -280,6 +298,7 @@ export function openCardModal(cardId = null) {
     document.getElementById('fieldImage').value = card.image || '';
     document.getElementById('fieldStarred').checked = Boolean(card.starred);
   } else {
+    editingCardCache = {};
     document.getElementById('cardModalTitle').textContent = '新增口袋卡片';
     document.getElementById('editCardId').value = '';
     document.getElementById('fieldTitle').value = '';
@@ -305,7 +324,36 @@ export function closeCardModal() {
 
 export function onModalCategoryChange() {
   const box = document.getElementById('dynamicCategoryFieldsBox');
-  if (box) box.classList.add('hidden');
+  if (!box) return;
+  const cat = document.getElementById('fieldCategory')?.value || '景點';
+  const cur = editingCardCache || {};
+
+  const mustBuyLabel =
+    cat === '美食' ? '必點招牌菜色 (must_buy)' : cat === '購物' ? '必買清單 / 退稅提醒 (must_buy)' : '重點亮點 / 必看項目 (must_buy)';
+
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div>
+        <label class="block font-bold text-slate-700 mb-1">${mustBuyLabel}</label>
+        <input type="text" id="fieldMustBuy" value="${(cur.must_buy || '').replace(/"/g, '&quot;')}"
+          placeholder="例如：塔可飯、限定伴手禮..."
+          class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+      </div>
+      <div>
+        <label class="block font-bold text-slate-700 mb-1">營業時間 / 班次時段 (business_hours)</label>
+        <input type="text" id="fieldBusinessHours" value="${(cur.business_hours || '').replace(/"/g, '&quot;')}"
+          placeholder="例如：10:00 - 21:00（週三公休）"
+          class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+      </div>
+    </div>
+    <div>
+      <label class="block font-bold text-slate-700 mb-1">交通接駁 / 停車資訊 (parking_info)</label>
+      <input type="text" id="fieldParkingInfo" value="${(cur.parking_info || '').replace(/"/g, '&quot;')}"
+        placeholder="例如：單軌美榮橋站步行 5 分鐘 / 附設免費停車場"
+        class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+    </div>
+  `;
 }
 
 export function saveCardFromModal() {
@@ -331,7 +379,10 @@ export function saveCardFromModal() {
     mapUrl: document.getElementById('fieldMapUrl').value.trim(),
     image: document.getElementById('fieldImage').value.trim(),
     starred: document.getElementById('fieldStarred').checked,
-    meta: {}
+    must_buy: document.getElementById('fieldMustBuy')?.value.trim() || '',
+    business_hours: document.getElementById('fieldBusinessHours')?.value.trim() || '',
+    parking_info: document.getElementById('fieldParkingInfo')?.value.trim() || '',
+    meta: editingCardCache?.meta || {}
   };
 
   if (editId) {
