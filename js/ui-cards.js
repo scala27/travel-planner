@@ -16,7 +16,9 @@ import {
   geocodePlaceName,
   reverseGeocodeCoords,
   extractCoordsFromText,
-  extractTitleFromInputLine
+  extractTitleFromInputLine,
+  haversineKm,
+  formatDistanceLabel
 } from './geo.js';
 import { pushAllToGoogleSheets } from './api.js';
 import { getHotelActualStayNights } from './ui-board.js';
@@ -53,6 +55,56 @@ export function setPlanQuickFilter(val) {
       : 'plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600';
   });
   renderDatabaseCards();
+  // 在規劃模式下切換左側分類篩選時，同步更新地圖上疊加的口袋點位
+  if (state.mode === 'plan' && state.overlayPocketOnPlan) {
+    hooks.renderMapMarkers();
+  }
+}
+
+export function togglePlanProximitySort() {
+  state.planSortByProximity = !state.planSortByProximity;
+  renderDatabaseCards();
+}
+
+/**
+ * 計算口袋卡片與「目前選中天數已排行程」的最短距離與最近參考點名稱
+ */
+export function getCardProximityToSelectedDay(card) {
+  const lat = Number(card?.lat);
+  const lng = Number(card?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) {
+    return null;
+  }
+
+  const dayNum = state.selectedMapDay;
+  const dayItems = state.itinerary[dayNum]?.items || [];
+  let minKm = Infinity;
+  let nearestAnchorName = '';
+
+  dayItems.forEach(it => {
+    if (it.cardId === card.id) return;
+    const anchor = state.cards.find(c => c.id === it.cardId);
+    if (!anchor) return;
+    const aLat = Number(anchor.lat);
+    const aLng = Number(anchor.lng);
+    if (!Number.isFinite(aLat) || !Number.isFinite(aLng) || aLat === 0 || aLng === 0) return;
+
+    const d = haversineKm(lat, lng, aLat, aLng);
+    if (d < minKm) {
+      minKm = d;
+      nearestAnchorName = anchor.title;
+    }
+  });
+
+  if (!Number.isFinite(minKm)) return null;
+  return {
+    km: minKm,
+    anchorName: nearestAnchorName,
+    shortAnchor: nearestAnchorName.length > 7 ? nearestAnchorName.slice(0, 7) + '…' : nearestAnchorName,
+    label: formatDistanceLabel(minKm),
+    isVeryClose: minKm <= 0.6,
+    isNearby: minKm <= 1.8
+  };
 }
 
 export function setFilter(type, value, shouldRender = true) {
@@ -90,14 +142,14 @@ export function setFilter(type, value, shouldRender = true) {
 export function clearSearch() {
   document.getElementById('searchInput').value = '';
   renderDatabaseCards();
-  if (state.mode === 'collect') hooks.renderMapMarkers();
+  hooks.renderMapMarkers();
 }
 
 export function getFilteredAndSortedCards() {
   const kw = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
 
   if (state.mode === 'plan') {
-    return state.cards.filter(card => {
+    const filtered = state.cards.filter(card => {
       const scheduledDays = getCardScheduledDays(card.id);
       if (state.planQuickFilter === 'unscheduled' && scheduledDays.length > 0) return false;
       if (CATEGORY_LIST.includes(state.planQuickFilter) && card.category !== state.planQuickFilter) return false;
@@ -107,6 +159,18 @@ export function getFilteredAndSortedCards() {
       }
       return true;
     });
+
+    if (state.planSortByProximity) {
+      return [...filtered].sort((a, b) => {
+        const pa = getCardProximityToSelectedDay(a);
+        const pb = getCardProximityToSelectedDay(b);
+        const da = pa ? pa.km : 99999;
+        const db = pb ? pb.km : 99999;
+        if (Math.abs(da - db) > 0.01) return da - db;
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
+    }
+    return filtered;
   }
 
   const countryVal = document.getElementById('countryFilter')?.value || 'all';
@@ -232,10 +296,23 @@ export function renderDatabaseCards() {
   const dayOptionsHtml = Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">+ Day ${i + 1}</option>`).join('');
 
   if (state.mode === 'plan') {
-    container.innerHTML = cards.map(card => {
+    const hasDayStops = (state.itinerary[state.selectedMapDay]?.items || []).length > 0;
+    const sortHeaderHtml = hasDayStops ? `
+      <div class="flex items-center justify-between px-1 pb-0.5 text-[10px] text-slate-500 shrink-0">
+        <span>共 ${cards.length} 筆（點擊卡片可在地圖高亮）</span>
+        <button type="button" onclick="togglePlanProximitySort()"
+          class="px-1.5 py-0.5 rounded border transition font-bold flex items-center gap-1 ${state.planSortByProximity ? 'bg-teal-50 text-teal-800 border-teal-300' : 'bg-white text-slate-600 border-slate-200'}">
+          <i class="fa-solid fa-location-crosshairs"></i>
+          <span>${state.planSortByProximity ? `離 Day ${state.selectedMapDay} 最近` : '預設排序'}</span>
+        </button>
+      </div>
+    ` : '';
+
+    container.innerHTML = sortHeaderHtml + cards.map(card => {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
       const displayDays = getDisplayDaysForCard(card);
       const isScheduled = getCardScheduledDays(card.id).length > 0;
+      const isHighlighted = state.highlightedCardId === card.id;
       const chipText = card.category === '住宿' && displayDays.length > 0
         ? `D${displayDays.join(',')} (${displayDays.length}晚)`
         : `D${displayDays.join(',')}`;
@@ -244,12 +321,20 @@ export function renderDatabaseCards() {
         : '';
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
 
+      const prox = getCardProximityToSelectedDay(card);
+      const proxBadgeHtml = prox
+        ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${prox.isVeryClose ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : (prox.isNearby ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-500')}">
+             <i class="fa-solid fa-route text-[9px]"></i>
+             <span>距${prox.shortAnchor} ${prox.label}</span>
+           </div>`
+        : '';
+
       return `
         <div id="db-card-${card.id}"
           draggable="true"
           ondragstart="onDragStartCard(event, '${card.id}')"
           onclick="focusCardOnMap('${card.id}')"
-          class="shrink-0 bg-white rounded-xl border ${isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} hover:border-blue-400 p-2 shadow-2xs transition cursor-pointer space-y-1">
+          class="shrink-0 bg-white rounded-xl border ${isHighlighted ? 'border-blue-500 ring-2 ring-blue-200' : (isScheduled ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200')} hover:border-blue-400 p-2 shadow-2xs transition cursor-pointer space-y-1">
           
           <div class="flex items-start justify-between gap-1.5">
             <div class="flex items-start gap-1.5 min-w-0">
@@ -258,6 +343,8 @@ export function renderDatabaseCards() {
             </div>
             ${statusChip}
           </div>
+
+          ${proxBadgeHtml ? `<div>${proxBadgeHtml}</div>` : ''}
 
           <div class="flex items-center justify-between gap-1 pt-0.5" onclick="event.stopPropagation()">
             <span class="text-[10px] text-slate-500 truncate">${cleanDist}・${card.duration || 60}分</span>
