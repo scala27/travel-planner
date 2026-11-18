@@ -163,8 +163,22 @@ function renderPocketOverlayMarkersSync(dayNum, dayCardIds) {
 
     const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
     const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
+    const gmapsUrl = c.mapUrl || `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     const prox = getCardProximityToSelectedDay(c);
     const proxLine = prox ? `<div class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">📍 距 ${prox.anchorName} 約 ${prox.label}</div>` : '';
+
+    const snippetBlocks = [];
+    if (c.mustBuy) {
+      const lbl = c.category === '美食' ? '必吃' : (c.category === '購物' ? '必買' : '亮點');
+      snippetBlocks.push(`<div class="text-[10px] text-amber-800 bg-amber-50/90 px-1.5 py-0.5 rounded">⭐ ${lbl}：${c.mustBuy}</div>`);
+    }
+    if (c.businessHours) {
+      snippetBlocks.push(`<div class="text-[10px] text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded">🕒 ${c.businessHours}</div>`);
+    }
+    if (c.notes) {
+      const shortNote = c.notes.length > 75 ? c.notes.slice(0, 75) + '…' : c.notes;
+      snippetBlocks.push(`<div class="text-[10px] text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50/80 border border-slate-100 px-1.5 py-1 rounded">${shortNote}</div>`);
+    }
 
     const pocketMarker = L.marker([lat, lng], {
       icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true),
@@ -178,17 +192,28 @@ function renderPocketOverlayMarkersSync(dayNum, dayCardIds) {
     });
 
     pocketMarker.bindPopup(`
-      <div class="text-xs space-y-1.5 min-w-[180px]">
+      <div class="text-xs space-y-1.5 min-w-[205px] max-w-[250px]">
         <div class="flex items-center justify-between gap-1">
           <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border ${meta.badgeBg}">${c.category}</span>
-          <span class="text-[10px] text-slate-400">${cleanDist}</span>
+          <span class="text-[10px] text-slate-400">${cleanDist}・${c.duration || 60}分</span>
         </div>
         <div class="font-bold text-slate-800 leading-snug">${c.title}</div>
         ${proxLine}
-        <button onclick="addCardToDay('${c.id}', ${dayNum})"
-          class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs">
-          + 直接排入 Day ${dayNum}
-        </button>
+        ${snippetBlocks.join('')}
+        <div class="pt-0.5 flex items-center gap-1.5">
+          <button onclick="addCardToDay('${c.id}', ${dayNum})"
+            class="flex-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs">
+            + 排入 Day ${dayNum}
+          </button>
+          <button onclick="openCardModal('${c.id}')" title="檢視完整介紹與編輯"
+            class="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold shrink-0">
+            <i class="fa-solid fa-pen mr-0.5"></i>編輯
+          </button>
+          <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps"
+            class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] shrink-0">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i>
+          </a>
+        </div>
       </div>
     `);
 
@@ -263,7 +288,6 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
         L.polyline(driveData.latLngs, { color: roadColor, weight: 4.5, opacity: 0.88 }).addTo(mapRouteLayer);
       }
     } catch (err) {
-      // 外部路網查詢逾時或失敗時，改畫直線虛線並保留估算時間，避免中斷後續地圖渲染
       if (renderToken !== currentRenderToken) return null;
       L.polyline(
         [[Number(cardA.lat), Number(cardA.lng)], [Number(cardB.lat), Number(cardB.lng)]],
@@ -465,6 +489,10 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
                     class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs inline-flex items-center gap-1">
                     <i class="fa-solid fa-diamond-turn-right"></i>
                   </a>
+                  <button onclick="openCardModal('${card.id}')" title="編輯卡片"
+                    class="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold">
+                    <i class="fa-solid fa-pen"></i>
+                  </button>
                   <button onclick="selectDayFocus(${d})" title="切換檢視 Day ${d}"
                     class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold">
                     檢視 Day ${d}
@@ -547,7 +575,6 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
   let visiblePinCount = 0;
   let anyMetricUpdated = false;
 
-  // 第一步（同步立即執行）：先畫出當日已排站點 + 疊加口袋方塊，不等待外部路網查詢
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx];
     const card = state.cards.find(c => c.id === item.cardId);
@@ -613,12 +640,10 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     }
   }
 
-  // 立即同步渲染口袋疊加方塊，讓「疊加中」0 秒出現在地圖上
   const overlayRes = renderPocketOverlayMarkersSync(d, dayCardIds);
   visiblePinCount += overlayRes.count;
   document.getElementById('mapPinCounter').textContent = `${visiblePinCount} 釘`;
 
-  // 立即完成地圖視角縮放（若當日尚無站點但有疊加口袋，則自動對焦至沖繩口袋群聚區域）
   const includeFlightInZoom = document.getElementById('chkIncludeCrossSeaFlight')?.checked;
   let zoomTargetCoords = (!includeFlightInZoom && localDestinationCoords.length > 0)
     ? localDestinationCoords
@@ -633,7 +658,6 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     mapInstance.fitBounds(zoomTargetCoords, { padding: [50, 50], maxZoom: 14 });
   }
 
-  // 第二步（非同步背景計算）：繪製各段移動路線與估算時間
   for (let idx = 0; idx < items.length; idx++) {
     if (renderToken !== currentRenderToken) return;
     const item = items[idx];
