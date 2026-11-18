@@ -20,11 +20,46 @@ let multiDayCompactMode = true;
 let multiDayShowMap = false;
 let savedThreeColLayout = null;
 let collectTabGuardBound = false;
+let boardTouchSwipeBound = false;
 
-// 日期互換選擇列狀態
 let daySwapBarOpen = false;
 let swapFromDay = 2;
 let swapToDay = 4;
+
+function isMobileScreen() {
+  return window.innerWidth <= 768;
+}
+
+function bindBoardTouchSwipe() {
+  if (boardTouchSwipeBound) return;
+  const board = document.getElementById('kanbanColumnsContainer');
+  if (!board) return;
+  boardTouchSwipeBound = true;
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  board.addEventListener('touchstart', (e) => {
+    if (!isMobileScreen() || state.boardMultiDayMode || e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  board.addEventListener('touchend', (e) => {
+    if (!isMobileScreen() || state.boardMultiDayMode || e.changedTouches.length !== 1) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      const totalDays = Number(state.settings.totalDays) || 6;
+      const cur = Number(state.selectedMapDay) || 1;
+      if (dx < 0 && cur < totalDays) {
+        selectDayFocus(cur + 1);
+      } else if (dx > 0 && cur > 1) {
+        selectDayFocus(cur - 1);
+      }
+    }
+  }, { passive: true });
+}
 
 function bindCollectTabRestoreGuard() {
   if (collectTabGuardBound) return;
@@ -43,6 +78,7 @@ function bindCollectTabRestoreGuard() {
 }
 
 function applyMultiDayWorkspaceLayout(isMultiDay) {
+  if (isMobileScreen()) return;
   bindCollectTabRestoreGuard();
 
   const dbPanel = document.getElementById('databasePanel');
@@ -335,6 +371,7 @@ export function getHotelActualStayNights(cardId) {
 }
 
 export function toggleBoardMultiDayMode() {
+  if (isMobileScreen()) return;
   state.boardMultiDayMode = !state.boardMultiDayMode;
   if (state.boardMultiDayMode) {
     multiDayCompactMode = true;
@@ -359,11 +396,12 @@ export function moveItineraryItem(dayNum, idx, delta) {
 }
 
 export function renderKanbanBoard() {
+  bindBoardTouchSwipe();
   const totalDays = Number(state.settings.totalDays) || 6;
   const navPills = document.getElementById('dayNavPills');
   const board = document.getElementById('kanbanColumnsContainer');
   const globalProfile = document.getElementById('transitProfileSelect')?.value || 'smart';
-  const isCompactMulti = state.boardMultiDayMode && multiDayCompactMode;
+  const isCompactMulti = !isMobileScreen() && state.boardMultiDayMode && multiDayCompactMode;
 
   const pillsHtml = Array.from({ length: totalDays }, (_, i) => {
     const d = i + 1;
@@ -391,7 +429,7 @@ export function renderKanbanBoard() {
     </button>
   ` : '';
 
-  const multiDayExtraToolbar = state.boardMultiDayMode ? `
+  const multiDayExtraToolbar = (!isMobileScreen() && state.boardMultiDayMode) ? `
     <div class="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 shrink-0">
       <button type="button" onclick="toggleMultiDayCompactCards()"
         class="px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition ${multiDayCompactMode ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}"
@@ -410,7 +448,6 @@ export function renderKanbanBoard() {
 
   navPills.innerHTML = pillsHtml + swapTriggerBtn + multiDayExtraToolbar;
 
-  // 處理或更新日期互換選擇列（動態掛載於 navPills 所在標題列下方，無須更動 index.html）
   const boardHeader = navPills.parentElement;
   if (boardHeader && boardHeader.parentElement) {
     let swapBarEl = document.getElementById('daySwapInlineBar');
@@ -439,7 +476,7 @@ export function renderKanbanBoard() {
         <div class="flex items-center gap-2 flex-wrap">
           <span class="font-bold text-amber-900 flex items-center gap-1">
             <i class="fa-solid fa-right-left text-amber-600"></i>
-            <span>行程日期對調：</span>
+            <span>日期對調：</span>
           </span>
           <select onchange="updateSwapDaySelection('from', this.value)"
             class="px-2 py-1 rounded-lg bg-white border border-amber-300 font-bold text-slate-800 focus:outline-none focus:border-amber-500">
@@ -450,7 +487,6 @@ export function renderKanbanBoard() {
             class="px-2 py-1 rounded-lg bg-white border border-amber-300 font-bold text-slate-800 focus:outline-none focus:border-amber-500">
             ${dayOptionsTo}
           </select>
-          <span class="text-[11px] text-amber-800">（將完整互換兩天的景點順序與出發時間）</span>
         </div>
         <div class="flex items-center gap-1.5">
           <button type="button" onclick="executeSwapDays()"
@@ -468,13 +504,13 @@ export function renderKanbanBoard() {
     }
   }
 
-  const daysToRender = state.boardMultiDayMode
+  const daysToRender = (!isMobileScreen() && state.boardMultiDayMode)
     ? Array.from({ length: totalDays }, (_, i) => i + 1)
     : [state.selectedMapDay];
 
-  board.className = state.boardMultiDayMode
+  board.className = (!isMobileScreen() && state.boardMultiDayMode)
     ? 'flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-2.5 flex gap-2 items-stretch'
-    : 'flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch';
+    : 'flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-2.5 sm:p-3 flex gap-3 items-stretch';
 
   board.innerHTML = daysToRender.map(d => {
     const info = getFormattedDateInfo(d);
@@ -508,6 +544,8 @@ export function renderKanbanBoard() {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
       const dur = Number(card.duration) || 60;
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
+      const fullDist = normalizeAdministrativeDistrict(card.district, card.country);
+      const gmapsUrl = card.mapUrl || (card.lat && card.lng ? `https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + fullDist)}`);
       const lodgingInfo = card.category === '住宿' ? getLodgingStatusForItem(d, idx) : null;
       const airportRole = isTransportOrAirport(card.category) ? getAirportRoleInDay(items, idx) : null;
       const itemFlight = parseItemFlightSchedule(item);
@@ -640,7 +678,6 @@ export function renderKanbanBoard() {
               ? 'bg-amber-50 border-amber-300 text-amber-800'
               : 'bg-white border-slate-200 text-slate-700')));
 
-      // ==================== 方案 B：多日並列精簡總覽卡片 ====================
       if (isCompactMulti) {
         return `
           <div draggable="true"
@@ -691,7 +728,6 @@ export function renderKanbanBoard() {
         `;
       }
 
-      // ==================== 標準完整細節卡片（單日聚焦 / 切換完整細節時） ====================
       const nextDayItems = d < totalDays ? (state.itinerary[d + 1]?.items || []) : [];
       const alreadyOnNextDay = nextDayItems.some(it => it.cardId === card.id);
       const showExtendHotelBtn = card.category === '住宿' && d < totalDays && !alreadyOnNextDay &&
@@ -709,20 +745,24 @@ export function renderKanbanBoard() {
               ${lodgingInfo ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 ${lodgingInfo.badgeClass}">${lodgingInfo.label}</span>` : ''}
               ${roleBadgeHtml}
               <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-1 ${meta.badgeBg}">${card.category}</span>
+              <a href="${gmapsUrl}" target="_blank" rel="noopener" title="開啟 Google Maps 導航"
+                class="w-6 h-6 md:w-5 md:h-5 rounded hover:bg-blue-50 text-blue-600 text-[10px] flex items-center justify-center">
+                <i class="fa-solid fa-diamond-turn-right"></i>
+              </a>
               <button onclick="moveItineraryItem(${d}, ${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="往上移動"
-                class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
+                class="w-6 h-6 md:w-5 md:h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
                 <i class="fa-solid fa-arrow-up"></i>
               </button>
               <button onclick="moveItineraryItem(${d}, ${idx}, 1)" ${idx === items.length - 1 ? 'disabled' : ''} title="往下移動"
-                class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
+                class="w-6 h-6 md:w-5 md:h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
                 <i class="fa-solid fa-arrow-down"></i>
               </button>
               <button onclick="openCardModal('${card.id}')" title="編輯卡片"
-                class="w-5 h-5 rounded hover:bg-amber-50 text-slate-400 hover:text-amber-600 text-[10px] flex items-center justify-center">
+                class="w-6 h-6 md:w-5 md:h-5 rounded hover:bg-amber-50 text-slate-400 hover:text-amber-600 text-[10px] flex items-center justify-center">
                 <i class="fa-solid fa-pen"></i>
               </button>
               <button onclick="removeItineraryItem(${d}, ${idx})" title="移出此日"
-                class="w-5 h-5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 text-[10px] flex items-center justify-center">
+                class="w-6 h-6 md:w-5 md:h-5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 text-[10px] flex items-center justify-center">
                 <i class="fa-solid fa-xmark"></i>
               </button>
             </div>
@@ -765,7 +805,7 @@ export function renderKanbanBoard() {
               <span>↓ ${legPillText}</span>
             </button>
             <button onclick="editLegCustomTime(${d}, ${idx})" title="校準此段精確分鐘數與路線備註"
-              class="w-5 h-5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-slate-400 hover:text-blue-600 text-[9px] flex items-center justify-center shadow-2xs transition">
+              class="w-6 h-6 md:w-5 md:h-5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-slate-400 hover:text-blue-600 text-[9px] flex items-center justify-center shadow-2xs transition">
               <i class="fa-solid fa-pen"></i>
             </button>
           </div>
@@ -775,7 +815,7 @@ export function renderKanbanBoard() {
 
     const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : initialStart;
 
-    const colWidthClass = state.boardMultiDayMode
+    const colWidthClass = (!isMobileScreen() && state.boardMultiDayMode)
       ? (multiDayShowMap ? 'w-[260px] shrink-0' : 'flex-1 min-w-[205px]')
       : 'w-full';
 
@@ -814,7 +854,7 @@ export function renderKanbanBoard() {
           ${items.length > 0 ? cardsHtml : `
             <div class="h-32 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-3 text-center">
               <i class="fa-solid fa-hand-pointer mb-1 text-base"></i>
-              <span>可拖曳其他天行程至此</span>
+              <span>${isMobileScreen() ? '切換至底部「口袋清單」點擊「+ Day ' + d + '」排入' : '可拖曳口袋卡片或他日行程至此'}</span>
             </div>
           `}
         </div>
