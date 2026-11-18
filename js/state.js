@@ -8,13 +8,15 @@ export const state = {
   boardMultiDayMode: false,
   mapDrawerOpenCollect: true,
   mapDrawerOpenPlan: false,
-  overlayPocketOnPlan: false,
+  // 規劃模式預設開啟「疊加口袋」，讓地圖直接顯示周邊可安排的未排入點位
+  overlayPocketOnPlan: true,
   mapOverviewAllDays: false,
   selectedMapDay: 1,
   highlightedCardId: null,
   expandedCards: {},
   deletedIds: [],
   planQuickFilter: 'unscheduled',
+  planSortByProximity: true,
   hasUnsavedCloudChanges: false,
   // 快取每段真實路網計算後的距離與分鐘數，供左側時間軸與右側明細同步使用
   routeMetricsCache: {},
