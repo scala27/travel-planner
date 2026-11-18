@@ -50,13 +50,12 @@ function hasValidCoords(card) {
 }
 
 function createColoredPinIcon(color, labelText, isGhost = false, isWideBadge = false) {
-  // 疊加在規劃地圖上的口袋未排入點位：採用圓角小方徽章（rounded-md）並加白框，與當日圓形數字路線點位（1, 2, 3）清楚區分
   if (isGhost) {
     return L.divIcon({
       className: 'custom-pocket-overlay-pin',
-      html: `<div style="background:${color};color:#fff;width:22px;height:22px;font-size:10px;border-radius:6px;border:2px solid #fff;opacity:0.92;box-shadow:0 2px 5px rgba(0,0,0,0.32);display:flex;align-items:center;justify-content:center;font-weight:800;">${labelText}</div>`,
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+      html: `<div style="background:${color};color:#fff;width:23px;height:23px;font-size:10px;border-radius:6px;border:2px solid #fff;opacity:0.95;box-shadow:0 2px 6px rgba(0,0,0,0.34);display:flex;align-items:center;justify-content:center;font-weight:800;">${labelText}</div>`,
+      iconSize: [23, 23],
+      iconAnchor: [11.5, 11.5],
       popupAnchor: [0, -12]
     });
   }
@@ -370,7 +369,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
           if (isLayerVisible) {
             visiblePinCount++;
             const marker = L.marker([card.lat, card.lng], {
-              icon: createColoredPinIcon(dayColor, shortTag, false, true)
+              icon: createColoredPinIcon(dayColor, shortTag, false, true),
+              zIndexOffset: 200
             });
 
             marker.bindTooltip(`[Day ${d}] ${lodgingInfo ? `(${lodgingInfo.label}) ` : ''}${card.title}`, {
@@ -502,7 +502,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
       } else {
         visiblePinCount++;
         const marker = L.marker([card.lat, card.lng], {
-          icon: createColoredPinIcon(activeDayColor, label)
+          icon: createColoredPinIcon(activeDayColor, label),
+          zIndexOffset: 250
         });
 
         marker.bindTooltip(`${label}. ${lodgingInfo ? `[${lodgingInfo.label}] ` : ''}${card.title}`, {
@@ -566,7 +567,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
 
   if (renderToken !== currentRenderToken) return;
 
-  // 在規劃模式疊加顯示口袋點位，並與左側快速篩選膠囊即時連動
+  // 在規劃模式疊加顯示口袋點位（圓角方塊徽章），與左側快速篩選膠囊即時連動
   if (state.overlayPocketOnPlan) {
     const activeQuickCat = CATEGORY_LIST.includes(state.planQuickFilter) ? state.planQuickFilter : null;
     const onlyUnscheduled = state.planQuickFilter === 'unscheduled';
@@ -585,7 +586,8 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
       const proxLine = prox ? `<div class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">📍 距 ${prox.anchorName} 約 ${prox.label}</div>` : '';
 
       const pocketMarker = L.marker([c.lat, c.lng], {
-        icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true)
+        icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true),
+        zIndexOffset: -50
       });
 
       pocketMarker.bindTooltip(`${meta.emoji} ${c.title}${prox ? `（距${prox.shortAnchor} ${prox.label}）` : ''}`, {
