@@ -6,7 +6,7 @@ let mapInstance = null;
 let markersLayerGroup = null;
 let routesLayerGroup = null;
 const markerByCardId = {};
-const osrmRouteCache = {};
+const routeGeometryCache = {};
 
 let transitJsonCache = null;
 let transitLoadPromise = null;
@@ -28,7 +28,7 @@ export async function loadOkinawaTransitJson() {
       const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
       for (const path of candidatePaths) {
         try {
-          const res = await fetch(`${path}?v=20261118j`);
+          const res = await fetch(`${path}?v=20261118k`);
           if (res.ok) {
             const data = await res.json();
             if (data && data.yui_rail) {
@@ -260,27 +260,44 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
-// 取得 OSRM 實際街道貼合座標（帶記憶體快取）
-async function fetchOsrmRoadCoords(lat1, lng1, lat2, lng2, osrmMode = 'driving') {
-  const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
-  if (osrmRouteCache[cacheKey]) return osrmRouteCache[cacheKey];
+// 取得真實街道貼合座標（使用 OpenStreetMap 獨立行人 routed-foot 與車行 routed-car 伺服器）
+async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
+  const cacheKey = `${mode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
+  if (routeGeometryCache[cacheKey]) return routeGeometryCache[cacheKey];
+
+  const primaryUrl =
+    mode === 'foot'
+      ? `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
+      : `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
 
   try {
-    const res = await fetch(
-      `https://router.project-osrm.org/route/v1/${osrmMode}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
-    );
+    const res = await fetch(primaryUrl);
     const data = await res.json();
     if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
       const roadLatLngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      osrmRouteCache[cacheKey] = roadLatLngs;
+      routeGeometryCache[cacheKey] = roadLatLngs;
       return roadLatLngs;
     }
   } catch (e) {}
+
+  // 備援：若主路由暫時無回應，改用 project-osrm.org
+  try {
+    const fallbackRes = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
+    );
+    const fallbackData = await fallbackRes.json();
+    if (fallbackData.code === 'Ok' && fallbackData.routes && fallbackData.routes[0]?.geometry?.coordinates) {
+      const roadLatLngs = fallbackData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      routeGeometryCache[cacheKey] = roadLatLngs;
+      return roadLatLngs;
+    }
+  } catch (e) {}
+
   return null;
 }
 
-// 單軌電車專用：使用 okinawa_transit.json 的高密度高架軌道 shape 切片
-function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
+// 單軌電車專用：高架軌道精準切片 + 兩端實際行人街道接駁
+async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
   if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 10) return false;
 
   const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
@@ -288,38 +305,43 @@ function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLn
   const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
   const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
 
+  // 1. 起點 → 單軌站（沿實際人行道繪製虛線）
   if (stopA.km > 0.03) {
+    const walkStart = await fetchStreetAlignedCoords(lat1, lng1, stopA.lat, stopA.lng, 'foot');
     L.polyline(
-      [
+      walkStart || [
         [lat1, lng1],
         [stopA.lat, stopA.lng]
       ],
       {
         color: lineColor,
-        weight: 3,
-        opacity: 0.78,
-        dashArray: '4, 6'
+        weight: 3.5,
+        opacity: 0.85,
+        dashArray: '5, 6'
       }
     ).addTo(targetLayerGroup);
   }
 
+  // 2. 高架單軌軌道（粗實線）
   L.polyline(slicedLatLngs, {
     color: lineColor,
     weight: 5,
     opacity: 0.94
   }).addTo(targetLayerGroup);
 
+  // 3. 單軌站 → 終點（沿實際人行道繪製虛線）
   if (stopB.km > 0.03) {
+    const walkEnd = await fetchStreetAlignedCoords(stopB.lat, stopB.lng, lat2, lng2, 'foot');
     L.polyline(
-      [
+      walkEnd || [
         [stopB.lat, stopB.lng],
         [lat2, lng2]
       ],
       {
         color: lineColor,
-        weight: 3,
-        opacity: 0.78,
-        dashArray: '4, 6'
+        weight: 3.5,
+        opacity: 0.85,
+        dashArray: '5, 6'
       }
     ).addTo(targetLayerGroup);
   }
@@ -349,19 +371,19 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
   const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
   const transitData = await loadOkinawaTransitJson();
 
-  // 2. 沖繩單軌電車 (Yui Rail)：使用高密度高架軌道幾何精準切片
   if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
+    // 2. 沖繩單軌電車 (Yui Rail)
     const yui = transitData.yui_rail;
     if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
       const stA = findNearestStop(yui.stations, lat1, lng1);
       const stB = findNearestStop(yui.stations, lat2, lng2);
       if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
-        const ok = drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
+        const ok = await drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
         if (ok) return;
       }
     }
 
-    // 3. 沖繩幹線公車：兩端站牌間使用 OSRM 實際道路（國道58號等）貼齊繪製，兩端補步行虛線
+    // 3. 沖繩幹線公車：兩端接駁改用實際行人街道（繞過建築與美軍基地），公車主幹線沿實際公路繪製
     if (Array.isArray(transitData.buses)) {
       let bestBus = null;
       let bestWalkSum = Infinity;
@@ -378,17 +400,18 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
 
       if (bestBus) {
         const { bA, bB } = bestBus;
-        if (bA.km > 0.04) {
+        if (bA.km > 0.03) {
+          const walkToBus = await fetchStreetAlignedCoords(lat1, lng1, bA.lat, bA.lng, 'foot');
           L.polyline(
-            [
+            walkToBus || [
               [lat1, lng1],
               [bA.lat, bA.lng]
             ],
-            { color: dayColor, weight: 3, opacity: 0.75, dashArray: '4, 6' }
+            { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }
           ).addTo(targetLayerGroup);
         }
 
-        const busRoadCoords = await fetchOsrmRoadCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'driving');
+        const busRoadCoords = await fetchStreetAlignedCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'car');
         L.polyline(
           busRoadCoords || [
             [bA.lat, bA.lng],
@@ -397,13 +420,14 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
           { color: dayColor, weight: 4.5, opacity: 0.92 }
         ).addTo(targetLayerGroup);
 
-        if (bB.km > 0.04) {
+        if (bB.km > 0.03) {
+          const walkFromBus = await fetchStreetAlignedCoords(bB.lat, bB.lng, lat2, lng2, 'foot');
           L.polyline(
-            [
+            walkFromBus || [
               [bB.lat, bB.lng],
               [lat2, lng2]
             ],
-            { color: dayColor, weight: 3, opacity: 0.75, dashArray: '4, 6' }
+            { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }
           ).addTo(targetLayerGroup);
         }
         return;
@@ -411,9 +435,9 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
     }
   }
 
-  // 4. 一般陸地步行 / 自駕 / 無公車覆蓋路段：全程使用 OSRM 實際街道貼合
-  const osrmMode = profile === 'walk' || (legInfo.km <= 0.6 && !itemMode) ? 'foot' : 'driving';
-  const roadLatLngs = await fetchOsrmRoadCoords(lat1, lng1, lat2, lng2, osrmMode);
+  // 4. 一般陸地步行 / 自駕 / 無幹線公車覆蓋路段：依行人或車行路網貼齊繪製
+  const isWalk = profile === 'walk' || (legInfo.km <= 0.6 && !itemMode);
+  const roadLatLngs = await fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, isWalk ? 'foot' : 'car');
   L.polyline(
     roadLatLngs || [
       [lat1, lng1],
@@ -421,9 +445,9 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
     ],
     {
       color: dayColor,
-      weight: 4.5,
+      weight: isWalk ? 3.8 : 4.5,
       opacity: 0.9,
-      dashArray: osrmMode === 'foot' ? '5, 6' : null
+      dashArray: isWalk ? '5, 6' : null
     }
   ).addTo(targetLayerGroup);
 }
