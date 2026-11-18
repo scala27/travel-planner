@@ -29,6 +29,58 @@ function setSyncStatus(status, text) {
   if (label && text) label.textContent = text;
 }
 
+// 解析舊版試算表 Itinerary 分頁（支援陣列列資料或物件格式）
+function parseLegacyItinerary(rawItinerary, totalDays) {
+  const rebuilt = {};
+  for (let d = 1; d <= totalDays; d++) {
+    rebuilt[d] = { startTime: '09:00', items: [] };
+  }
+
+  if (Array.isArray(rawItinerary) && rawItinerary.length > 0) {
+    rawItinerary.forEach((row, idx) => {
+      const dayNum = parseInt(row.day, 10);
+      const cardId = String(row.card_id || row.cardId || '').trim();
+      if (dayNum >= 1 && dayNum <= totalDays && cardId) {
+        if (row.day_start_time) {
+          rebuilt[dayNum].startTime = String(row.day_start_time).slice(0, 5);
+        }
+        const customTransitVal = row.custom_transit ?? row.customTransitMin ?? '';
+        rebuilt[dayNum].items.push({
+          uid: String(row.uid || `it_${cardId}_${dayNum}_${idx}`),
+          cardId,
+          order: parseInt(row.sort_order ?? row.order, 10) || idx + 1,
+          isCheckout: row.is_checkout === true || String(row.is_checkout).toUpperCase() === 'TRUE',
+          transitMode: String(row.transit_mode || row.transitMode || 'auto'),
+          customTransitMin: customTransitVal !== '' && customTransitVal !== null && !isNaN(Number(customTransitVal))
+            ? Number(customTransitVal)
+            : null,
+          customNote: String(row.custom_note || row.customNote || '')
+        });
+      }
+    });
+
+    Object.keys(rebuilt).forEach(d => {
+      rebuilt[d].items.sort((a, b) => a.order - b.order);
+    });
+    return rebuilt;
+  }
+
+  if (rawItinerary && typeof rawItinerary === 'object' && !Array.isArray(rawItinerary)) {
+    Object.entries(rawItinerary).forEach(([dKey, dayObj]) => {
+      const dayNum = parseInt(dKey, 10);
+      if (dayNum >= 1 && dayNum <= totalDays && dayObj && Array.isArray(dayObj.items)) {
+        rebuilt[dayNum] = {
+          startTime: dayObj.startTime || '09:00',
+          items: dayObj.items
+        };
+      }
+    });
+    return rebuilt;
+  }
+
+  return null;
+}
+
 export async function pullFromGoogleSheets(manual = false) {
   const url = (state.settings.gasUrl || '').trim();
   if (!url) {
@@ -64,20 +116,28 @@ export async function pullFromGoogleSheets(manual = false) {
       }));
     }
 
-    // 若雲端有回傳多旅程 Trips 資料則優先載入；否則向下相容舊版 Spots 的 day/order 欄位
+    const total = Number(state.settings.totalDays) || 6;
+
+    // 1. 優先檢查是否有新版 Trips 多旅程資料
     if (Array.isArray(data.trips) && data.trips.length > 0) {
       state.trips = data.trips.map(t => createTripObject(t));
       if (!state.trips.some(t => t.id === state.activeTripId)) {
         state.activeTripId = state.trips[0].id;
       }
       syncActiveTripToLegacyState();
+    } else if (data.itinerary) {
+      // 2. 相容讀取您試算表中的 Itinerary 分頁（uid / day / sort_order / card_id）
+      const parsedItin = parseLegacyItinerary(data.itinerary, total);
+      if (parsedItin && Object.values(parsedItin).some(d => d.items.length > 0)) {
+        state.itinerary = parsedItin;
+        syncLegacyStateBackToActiveTrip();
+      }
     } else if (rawSpots.length > 0) {
+      // 3. 備援：檢查 Spots 分頁本身是否帶有 day/order 欄位
       const rebuiltItinerary = {};
-      const total = Number(state.settings.totalDays) || 6;
       for (let d = 1; d <= total; d++) {
         rebuiltItinerary[d] = { startTime: (state.itinerary[d] && state.itinerary[d].startTime) || '09:00', items: [] };
       }
-
       rawSpots.forEach((row, idx) => {
         const dayNum = parseInt(row.day, 10);
         if (dayNum >= 1 && dayNum <= total) {
@@ -91,13 +151,8 @@ export async function pullFromGoogleSheets(manual = false) {
           });
         }
       });
-
-      Object.keys(rebuiltItinerary).forEach(d => {
-        rebuiltItinerary[d].items.sort((a, b) => a.order - b.order);
-      });
-
-      const hasCloudSchedule = Object.values(rebuiltItinerary).some(d => d.items.length > 0);
-      if (hasCloudSchedule) {
+      Object.keys(rebuiltItinerary).forEach(d => rebuiltItinerary[d].items.sort((a, b) => a.order - b.order));
+      if (Object.values(rebuiltItinerary).some(d => d.items.length > 0)) {
         state.itinerary = rebuiltItinerary;
         syncLegacyStateBackToActiveTrip();
       }
@@ -110,7 +165,7 @@ export async function pullFromGoogleSheets(manual = false) {
     if (typeof hooks.renderAll === 'function') hooks.renderAll();
 
     setSyncStatus('connected', 'Google 試算表已連線');
-    if (manual) showToast(`已從試算表同步 ${state.cards.length} 筆口袋與 ${state.trips.length} 趟行程`, 'emerald');
+    if (manual) showToast(`已從試算表同步 ${state.cards.length} 筆口袋與排程資料`, 'emerald');
   } catch (err) {
     console.error('讀取試算表錯誤:', err);
     setSyncStatus('error', '雲端讀取失敗');
@@ -133,10 +188,24 @@ export async function pushAllToGoogleSheets(silent = false) {
   if (pushIcon) pushIcon.classList.add('fa-bounce');
   setSyncStatus('syncing', '正在寫入試算表...');
 
-  // 建立目前啟用行程的 day/order 對照表，保持與舊版 Spots 欄位 100% 向下相容
+  // 同時產生舊版 Itinerary 列格式，確保與現有試算表 100% 雙向相容
+  const itineraryRows = [];
   const activeDayMap = {};
   Object.entries(activeTrip.itinerary || {}).forEach(([dayStr, dayObj]) => {
+    const startTime = dayObj.startTime || '09:00';
     (dayObj.items || []).forEach((it, idx) => {
+      itineraryRows.push({
+        uid: it.uid || `it_${it.cardId}_${dayStr}_${idx + 1}`,
+        day: Number(dayStr),
+        day_start_time: startTime,
+        sort_order: idx + 1,
+        card_id: it.cardId,
+        is_checkout: Boolean(it.isCheckout),
+        transit_mode: it.transitMode || 'auto',
+        transit_min: 0,
+        custom_transit: it.customTransitMin ?? '',
+        custom_note: it.customNote || ''
+      });
       if (!activeDayMap[it.cardId]) {
         activeDayMap[it.cardId] = {
           day: Number(dayStr),
@@ -173,12 +242,13 @@ export async function pushAllToGoogleSheets(silent = false) {
         settings: state.settings,
         activeTripId: state.activeTripId,
         trips: state.trips,
-        spots: spotsPayload
+        spots: spotsPayload,
+        itinerary: itineraryRows
       })
     });
 
     setSyncStatus('connected', 'Google 試算表已同步');
-    if (!silent) showToast('已將多旅程與口袋資料寫入 Google 試算表', 'emerald');
+    if (!silent) showToast('已將旅程排程與口袋資料寫入 Google 試算表', 'emerald');
   } catch (err) {
     console.error('寫入試算表錯誤:', err);
     setSyncStatus('error', '雲端寫入失敗');
@@ -192,7 +262,8 @@ export function copyGasBackendCode() {
   const code = `function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var spotsSheet = ss.getSheetByName('Spots') || ss.insertSheet('Spots');
-  var tripsSheet = ss.getSheetByName('Trips') || ss.insertSheet('Trips');
+  var itinSheet = ss.getSheetByName('Itinerary');
+  var tripsSheet = ss.getSheetByName('Trips');
 
   var spotRows = spotsSheet.getDataRange().getValues();
   var spots = [];
@@ -210,20 +281,38 @@ export function copyGasBackendCode() {
     }
   }
 
-  var trips = [];
-  var tripRows = tripsSheet.getDataRange().getValues();
-  if (tripRows.length > 1) {
-    for (var k = 1; k < tripRows.length; k++) {
-      if (tripRows[k][1]) {
-        try {
-          trips.push(JSON.parse(tripRows[k][1]));
-        } catch (err) {}
+  var itinerary = [];
+  if (itinSheet) {
+    var itinRows = itinSheet.getDataRange().getValues();
+    if (itinRows.length > 1) {
+      var iHeaders = itinRows[0];
+      for (var r = 1; r < itinRows.length; r++) {
+        var iObj = {};
+        for (var c = 0; c < iHeaders.length; c++) {
+          iObj[iHeaders[c]] = itinRows[r][c];
+        }
+        itinerary.push(iObj);
       }
     }
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ spots: spots, trips: trips }))
-    .setMimeType(ContentService.MimeType.JSON);
+  var trips = [];
+  if (tripsSheet) {
+    var tripRows = tripsSheet.getDataRange().getValues();
+    if (tripRows.length > 1) {
+      for (var k = 1; k < tripRows.length; k++) {
+        if (tripRows[k][1]) {
+          try { trips.push(JSON.parse(tripRows[k][1])); } catch (err) {}
+        }
+      }
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    spots: spots,
+    itinerary: itinerary,
+    trips: trips
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
@@ -246,6 +335,20 @@ function doPost(e) {
     }
   }
 
+  if (Array.isArray(payload.itinerary)) {
+    var itinSheet = ss.getSheetByName('Itinerary') || ss.insertSheet('Itinerary');
+    var iHeaders = ['uid', 'day', 'day_start_time', 'sort_order', 'card_id', 'is_checkout', 'transit_mode', 'transit_min', 'custom_transit', 'custom_note', 'updated_at'];
+    itinSheet.clearContents();
+    itinSheet.appendRow(iHeaders);
+    if (payload.itinerary.length > 0) {
+      var now = new Date();
+      var iRows = payload.itinerary.map(function(it) {
+        return [it.uid, it.day, it.day_start_time, it.sort_order, it.card_id, it.is_checkout, it.transit_mode, it.transit_min, it.custom_transit, it.custom_note, now];
+      });
+      itinSheet.getRange(2, 1, iRows.length, iHeaders.length).setValues(iRows);
+    }
+  }
+
   if (Array.isArray(payload.trips)) {
     var tripsSheet = ss.getSheetByName('Trips') || ss.insertSheet('Trips');
     tripsSheet.clearContents();
@@ -264,7 +367,7 @@ function doPost(e) {
 }`;
 
   navigator.clipboard.writeText(code).then(() => {
-    showToast('已複製新版雙分頁 GAS 程式碼至剪貼簿', 'emerald');
+    showToast('已複製相容版 GAS 程式碼至剪貼簿', 'emerald');
   }).catch(() => {
     showToast('複製失敗，請手動授權剪貼簿權限', 'rose');
   });
