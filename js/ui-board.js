@@ -39,12 +39,13 @@ export function estimateLegTransit(cardA, cardB, itemB) {
     return { modeLabel: '航空飛航', icon: 'fa-plane', km: Number(km.toFixed(1)), min: flightMin };
   }
 
-  const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
+  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
+  const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
   let min = 15;
   let modeLabel = '市區移動';
   let icon = 'fa-bus';
 
-  if (km <= 0.8) {
+  if (km <= 0.8 && !itemMode) {
     min = Math.max(5, Math.round(km * 14));
     modeLabel = '步行前往';
     icon = 'fa-person-walking';
@@ -58,7 +59,7 @@ export function estimateLegTransit(cardA, cardB, itemB) {
     icon = 'fa-car';
   } else {
     min = Math.max(10, Math.round(km * 2.5 + 8));
-    modeLabel = '大眾運輸 / 接駁';
+    modeLabel = '大眾運輸 / 單軌';
     icon = 'fa-train-subway';
   }
 
@@ -79,6 +80,27 @@ function formatMinutes(totalMin) {
   const h = String(Math.floor(wrapped / 60)).padStart(2, '0');
   const m = String(wrapped % 60).padStart(2, '0');
   return `${h}:${m}`;
+}
+
+// 解析航班備註字串，例如 "flight|15:00/17:00|星宇" 或 "flight||19:00|星宇"
+function parseFlightNote(customNote) {
+  const str = String(customNote || '').trim();
+  if (!str.startsWith('flight|')) return null;
+  const parts = str.split('|');
+  if (parts.length >= 4) {
+    // 支援舊格式 flight||19:00|星宇
+    return {
+      depTime: parts[1] || '',
+      arrTime: parts[2] || '',
+      airline: parts[3] || ''
+    };
+  }
+  const timePair = (parts[1] || '').split('/');
+  return {
+    depTime: (timePair[0] || '').trim(),
+    arrTime: (timePair[1] || '').trim(),
+    airline: (parts[2] || '').trim()
+  };
 }
 
 export function toggleBoardMultiDayMode() {
@@ -122,7 +144,6 @@ export function renderKanbanBoard() {
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const activeDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
 
-  // Day 1 ~ Day N 快速切換膠囊
   const pillsHtml = [];
   for (let d = 1; d <= totalDays; d++) {
     const info = getFormattedDateInfo(d);
@@ -144,7 +165,6 @@ export function renderKanbanBoard() {
   }
   pillsBox.innerHTML = pillsHtml.join('');
 
-  // 決定要渲染哪些天數欄位
   const daysToRender = state.boardMultiDayMode
     ? Array.from({ length: totalDays }, (_, i) => i + 1)
     : [activeDay];
@@ -152,8 +172,7 @@ export function renderKanbanBoard() {
   const timeOptions = [];
   for (let h = 0; h < 24; h++) {
     for (const m of ['00', '30']) {
-      const t = `${String(h).padStart(2, '0')}:${m}`;
-      timeOptions.push(t);
+      timeOptions.push(`${String(h).padStart(2, '0')}:${m}`);
     }
   }
 
@@ -177,11 +196,12 @@ export function renderKanbanBoard() {
             totalTransitMin += leg.min;
             legHtml = `
               <div class="my-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200/90 flex items-center justify-between gap-2 text-[11px] text-slate-600 shadow-2xs">
-                <div class="flex items-center gap-1.5 truncate">
+                <button type="button" onclick="cycleTransitMode(${dayNum}, ${idx})" title="點擊切換交通方式（自動/單軌/開車/步行）"
+                  class="flex items-center gap-1.5 truncate hover:text-[#2C4D6E] text-left">
                   <span class="text-slate-400">↓</span>
                   <i class="fa-solid ${leg.icon} text-[#2C4D6E]"></i>
                   <span class="truncate">${leg.modeLabel}｜約 ${leg.km} 公里・<strong>${leg.min} 分</strong></span>
-                </div>
+                </button>
                 <button type="button" onclick="editLegCustomTime(${dayNum}, ${idx})" title="自訂此段交通時間"
                   class="w-5 h-5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center shrink-0">
                   <i class="fa-solid fa-pen text-[10px]"></i>
@@ -190,27 +210,69 @@ export function renderKanbanBoard() {
             `;
           }
 
-          const startStr = formatMinutes(cursorMin);
+          const flightInfo = parseFlightNote(item.customNote);
           const stayMin = Number(card.duration) || 60;
-          cursorMin += stayMin;
-          const endStr = formatMinutes(cursorMin);
+          let timeLineTop = formatMinutes(cursorMin);
+          let timeLineBottom = `~ ${formatMinutes(cursorMin + stayMin)}`;
+          let roleBadge = '';
+
+          if (card.category === '機場') {
+            if (flightInfo?.depTime && flightInfo?.arrTime) {
+              timeLineTop = `${flightInfo.depTime} 報到 ~`;
+              timeLineBottom = `${flightInfo.arrTime} 起飛`;
+              roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">出境搭機</span>';
+              cursorMin = parseMinutes(flightInfo.arrTime);
+            } else if (flightInfo?.arrTime) {
+              timeLineTop = `${flightInfo.arrTime} 抵達 ~`;
+              timeLineBottom = formatMinutes(parseMinutes(flightInfo.arrTime) + stayMin);
+              roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">入境抵達</span>';
+              cursorMin = parseMinutes(flightInfo.arrTime) + stayMin;
+            } else {
+              cursorMin += stayMin;
+            }
+          } else {
+            cursorMin += stayMin;
+            if (card.category === '住宿') {
+              roleBadge = item.isCheckout
+                ? '<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold">退房出發</span>'
+                : '<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold">入住/返回</span>';
+            }
+          }
+
           const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+          const airlineTag = flightInfo?.airline ? `・${flightInfo.airline}` : '';
+
+          const extraActionBtn =
+            card.category === '機場'
+              ? `<button type="button" onclick="editItemFlightSchedule(${dayNum}, ${idx})"
+                  class="mt-1.5 px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-bold inline-flex items-center gap-1">
+                  <i class="fa-solid fa-plane-departure"></i>
+                  <span>設定 Day ${dayNum} 專屬航班時刻</span>
+                </button>`
+              : card.category === '住宿' && dayNum < totalDays
+              ? `<button type="button" onclick="extendHotelToNextDay(${dayNum}, ${idx})"
+                  class="mt-1.5 px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[11px] font-bold inline-flex items-center gap-1">
+                  <i class="fa-solid fa-bed"></i>
+                  <span>延續為 Day ${dayNum + 1} 退房起點</span>
+                </button>`
+              : '';
 
           return `
             ${legHtml}
             <div draggable="true"
               ondragstart="onDragStartItineraryItem(event, ${dayNum}, ${idx})"
-              class="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-[#2C4D6E]/50 transition space-y-2">
-              <div class="flex items-start justify-between gap-2">
-                <div class="flex items-center gap-2 min-w-0">
-                  <div class="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0 text-center">
-                    <div>${startStr}</div>
-                    <div class="text-[10px] text-slate-400">~ ${endStr}</div>
+              class="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-[#2C4D6E]/50 transition space-y-1.5">
+              <div class="flex items-start justify-between gap-1.5">
+                <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <div class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0">
+                    <div>${timeLineTop}</div>
+                    <div class="text-[10px] text-slate-500">${timeLineBottom}</div>
                   </div>
+                  ${roleBadge}
                   <span class="px-2 py-0.5 rounded-md text-[11px] font-bold ${style.badge} shrink-0">${card.category}</span>
                 </div>
 
-                <div class="flex items-center gap-1 shrink-0">
+                <div class="flex items-center gap-0.5 shrink-0">
                   <button type="button" onclick="focusCardOnMap('${card.id}')" title="在地圖定位"
                     class="w-6 h-6 rounded-md hover:bg-blue-50 text-[#2C4D6E] flex items-center justify-center text-xs">
                     <i class="fa-solid fa-diamond-turn-right"></i>
@@ -234,15 +296,16 @@ export function renderKanbanBoard() {
                 </div>
               </div>
 
-              <div class="flex items-start gap-2">
+              <div class="flex items-start gap-2 pt-0.5">
                 <span class="w-5 h-5 rounded-full bg-[#2C4D6E] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
                   ${idx + 1}
                 </span>
                 <div class="min-w-0 flex-1">
                   <h4 class="font-bold text-sm text-slate-800 leading-snug break-words">${card.title}</h4>
                   <p class="text-[11px] text-slate-500 mt-0.5">
-                    ${card.district ? `${card.district}・` : ''}停留 ${stayMin} 分
+                    ${card.district ? `${card.district}・` : ''}停留 ${stayMin} 分${airlineTag}
                   </p>
+                  ${extraActionBtn}
                 </div>
               </div>
             </div>
@@ -258,7 +321,6 @@ export function renderKanbanBoard() {
       return `
         <div ondragover="onDragOverColumn(event)" ondragleave="onDragLeaveColumn(event)" ondrop="onDropOnDay(event, ${dayNum})"
           class="${state.boardMultiDayMode ? 'w-80 shrink-0' : 'w-full'} bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">
-          <!-- 單日標頭（修正手機版出發時間不被裁切） -->
           <div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <div class="flex items-baseline gap-1.5">
@@ -287,7 +349,6 @@ export function renderKanbanBoard() {
             </div>
           </div>
 
-          <!-- 行程卡片列表 -->
           <div class="flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">
             ${
               itemsHtml ||
@@ -311,8 +372,10 @@ export function addCardToDay(cardId, dayNum) {
     uid: `it_${cardId}_${d}_${Date.now()}`,
     cardId,
     order: state.itinerary[d].items.length + 1,
+    isCheckout: false,
     transitMode: 'auto',
-    customTransitMin: null
+    customTransitMin: null,
+    customNote: ''
   });
   persistState(true);
   if (typeof hooks.renderAll === 'function') hooks.renderAll();
@@ -353,6 +416,19 @@ export function updateDayStartTime(dayNum, newTime) {
   renderKanbanBoard();
 }
 
+export function cycleTransitMode(dayNum, idx) {
+  const item = state.itinerary[dayNum]?.items?.[idx];
+  if (!item) return;
+  const order = ['auto', 'transit', 'drive', 'walk'];
+  const labels = { auto: '智慧自動', transit: '單軌/大眾運輸', drive: '自駕/計程車', walk: '步行' };
+  const next = order[(order.indexOf(item.transitMode || 'auto') + 1) % order.length];
+  item.transitMode = next;
+  persistState(true);
+  renderKanbanBoard();
+  if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+  showToast(`此段交通切換為：${labels[next]}`, 'blue');
+}
+
 export function editLegCustomTime(dayNum, idx) {
   const item = state.itinerary[dayNum]?.items?.[idx];
   if (!item) return;
@@ -363,6 +439,41 @@ export function editLegCustomTime(dayNum, idx) {
   item.customTransitMin = trimmed === '' ? null : Math.max(0, parseInt(trimmed, 10) || 0);
   persistState(true);
   renderKanbanBoard();
+  if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+}
+
+export function editItemFlightSchedule(dayNum, idx) {
+  const item = state.itinerary[dayNum]?.items?.[idx];
+  if (!item) return;
+  const current = parseFlightNote(item.customNote) || { depTime: '15:00', arrTime: '17:00', airline: '星宇航空' };
+  const input = prompt(
+    '請輸入航班時刻與航空公司（格式：報到或起飛時間/起飛或抵達時間|航空公司，例如 15:00/17:00|星宇 或 /19:00|星宇）：',
+    `${current.depTime}/${current.arrTime}|${current.airline}`
+  );
+  if (input === null) return;
+  const trimmed = input.trim();
+  item.customNote = trimmed ? `flight|${trimmed}` : '';
+  persistState(true);
+  renderKanbanBoard();
+  showToast('已更新航班專屬時刻', 'emerald');
+}
+
+export function extendHotelToNextDay(dayNum, idx) {
+  const item = state.itinerary[dayNum]?.items?.[idx];
+  const nextDay = Number(dayNum) + 1;
+  if (!item || !state.itinerary[nextDay]) return;
+  state.itinerary[nextDay].items.unshift({
+    uid: `it_${item.cardId}_${nextDay}_${Date.now()}`,
+    cardId: item.cardId,
+    order: 1,
+    isCheckout: true,
+    transitMode: 'auto',
+    customTransitMin: null,
+    customNote: ''
+  });
+  persistState(true);
+  if (typeof hooks.renderAll === 'function') hooks.renderAll();
+  showToast(`已將住宿設為 Day ${nextDay} 退房起點`, 'emerald');
 }
 
 export function addReturnToHotel(dayNum) {
@@ -373,10 +484,6 @@ export function addReturnToHotel(dayNum) {
   }
   addCardToDay(hotelCard.id, dayNum);
 }
-
-export function cycleTransitMode() {}
-export function editItemFlightSchedule() {}
-export function extendHotelToNextDay() {}
 
 let dragPayload = null;
 
