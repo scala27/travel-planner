@@ -15,85 +15,32 @@ import {
   copyGasBackendCode,
   exportJsonBackup
 } from './api.js';
-import {
-  updateMiniCardButtonUi,
-  toggleMiniCardMode,
-  toggleBatchImportBox,
-  setPlanQuickFilter,
-  togglePlanProximitySort,
-  setFilter,
-  clearSearch,
-  getFilteredAndSortedCards,
-  toggleCardDetailExpand,
-  renderDatabaseCards,
-  handleCardClick,
-  populateRegionDropdowns,
-  onCountryFilterChange,
-  handleBatchImport,
-  batchUpdateAllDistricts,
-  handleLatLngPaste,
-  extractCoordsFromMapUrlField,
-  reverseGeocodeModalCoords,
-  onModalCategoryChange,
-  openCardModal,
-  closeCardModal,
-  saveCardFromModal,
-  deleteCard,
-  toggleStarCard
-} from './ui-cards.js';
-import {
-  getFormattedDateInfo,
-  toggleBoardMultiDayMode,
-  moveItineraryItem,
-  renderKanbanBoard,
-  onDragStartCard,
-  onDragStartItineraryItem,
-  onDragOverColumn,
-  onDragLeaveColumn,
-  onDropOnDay,
-  quickAssignCardToDay,
-  addCardToDay,
-  removeItineraryItem,
-  updateDayStartTime,
-  cycleTransitMode,
-  editLegCustomTime,
-  editItemFlightSchedule,
-  extendHotelToNextDay,
-  addReturnToHotel,
-  selectDayFocus,
-  onMapDayChange,
-  recalculateAllDayTimes
-} from './ui-board.js';
-import {
-  initLeafletMap,
-  invalidateMapSize,
-  renderMapCategoryToggles,
-  toggleMapCategoryLayer,
-  setOnlyAttractionsLayer,
-  setAllMapLayersVisible,
-  toggleOverlayPocketOnPlanMap,
-  renderMapMarkers,
-  fitMapToFilteredCards,
-  focusCardOnMap,
-  highlightDatabaseCard
-} from './map.js';
+import * as cardsMod from './ui-cards.js';
+import * as boardMod from './ui-board.js';
+import * as mapMod from './map.js';
 
 hooks.pushAllToGoogleSheets = pushAllToGoogleSheets;
 hooks.renderAll = renderAll;
-hooks.renderDatabaseCards = renderDatabaseCards;
-hooks.renderKanbanBoard = renderKanbanBoard;
-hooks.renderMapMarkers = () => renderMapMarkers(getFilteredAndSortedCards);
-hooks.renderMapCategoryToggles = renderMapCategoryToggles;
-hooks.populateRegionDropdowns = populateRegionDropdowns;
+hooks.renderDatabaseCards = cardsMod.renderDatabaseCards;
+hooks.renderKanbanBoard = boardMod.renderKanbanBoard;
+hooks.renderMapMarkers = () => {
+  if (typeof mapMod.renderMapMarkers === 'function') {
+    mapMod.renderMapMarkers(cardsMod.getFilteredAndSortedCards);
+  }
+};
+hooks.renderMapCategoryToggles = mapMod.renderMapCategoryToggles;
+hooks.populateRegionDropdowns = cardsMod.populateRegionDropdowns;
 hooks.focusCardOnMap = (cardId, warnIfMissing = true) => {
   if (isMobileViewport()) {
     switchMobileTab('map');
   }
-  focusCardOnMap(cardId, warnIfMissing);
+  if (typeof mapMod.focusCardOnMap === 'function') {
+    mapMod.focusCardOnMap(cardId, warnIfMissing);
+  }
 };
-hooks.openCardModal = openCardModal;
-hooks.addCardToDay = addCardToDay;
-hooks.invalidateMapSize = invalidateMapSize;
+hooks.openCardModal = cardsMod.openCardModal;
+hooks.addCardToDay = boardMod.addCardToDay;
+hooks.invalidateMapSize = mapMod.invalidateMapSize;
 
 function isMobileViewport() {
   return window.innerWidth <= 768;
@@ -295,7 +242,7 @@ function deleteTripProject(tripId) {
   showToast('已刪除旅程專案', 'slate');
 }
 
-// ==================== 手機端三頁籤切換（我的行程 → 路線地圖 → 口袋清單） ====================
+// ==================== 手機端三頁籤切換 ====================
 function switchMobileTab(tabName) {
   currentMobileTab = tabName;
   document.body.setAttribute('data-mobile-tab', tabName);
@@ -314,7 +261,7 @@ function switchMobileTab(tabName) {
     if (state.tripViewStep === 'list') {
       renderTripProjectsGrid();
     } else {
-      renderKanbanBoard();
+      boardMod.renderKanbanBoard();
     }
   } else if (tabName === 'map') {
     state.mode = 'plan';
@@ -326,11 +273,11 @@ function switchMobileTab(tabName) {
     updateOverlayPocketButtonUi();
     populateMapDaySelector();
     syncMapDrawerUi();
-    renderMapMarkers(getFilteredAndSortedCards);
-    setTimeout(() => invalidateMapSize(), 80);
+    hooks.renderMapMarkers();
+    setTimeout(() => mapMod.invalidateMapSize(), 80);
   } else if (tabName === 'pocket') {
     state.mode = 'collect';
-    renderDatabaseCards();
+    cardsMod.renderDatabaseCards();
   }
 }
 
@@ -348,6 +295,7 @@ function initSplitResizers() {
   const boardPanel = document.getElementById('itineraryBoardSection');
   const resizerLeft = document.getElementById('resizerLeft');
   const resizerRight = document.getElementById('resizerRight');
+  if (!mainEl || !resizerLeft || !resizerRight) return;
 
   let activeResizer = null;
 
@@ -382,7 +330,7 @@ function initSplitResizers() {
       const clampedBoardPx = Math.max(280, Math.min(maxBoardPx, rawBoardPx));
       boardPanel.style.width = `${(clampedBoardPx / totalW) * 100}%`;
     }
-    invalidateMapSize();
+    mapMod.invalidateMapSize();
   });
 
   window.addEventListener('mouseup', () => {
@@ -391,7 +339,7 @@ function initSplitResizers() {
     resizerLeft.classList.remove('is-dragging');
     resizerRight.classList.remove('is-dragging');
     document.body.style.cursor = '';
-    invalidateMapSize();
+    mapMod.invalidateMapSize();
   });
 
   window.addEventListener('resize', () => {
@@ -401,7 +349,7 @@ function initSplitResizers() {
     } else if (!document.body.getAttribute('data-mobile-tab')) {
       switchMobileTab(currentMobileTab);
     }
-    invalidateMapSize();
+    mapMod.invalidateMapSize();
   });
 }
 
@@ -422,6 +370,7 @@ function syncMapDrawerUi() {
   const drawer = document.getElementById('mapCollapsibleDrawer');
   const planLegsSec = document.getElementById('planRouteLegsDrawerSection');
   const chevron = document.getElementById('mapDrawerChevron');
+  if (!drawer || !planLegsSec) return;
   const isOpen = state.mode === 'collect' ? state.mapDrawerOpenCollect : state.mapDrawerOpenPlan;
 
   if (isOpen) {
@@ -446,7 +395,7 @@ function toggleMapDrawer() {
     state.mapDrawerOpenPlan = !state.mapDrawerOpenPlan;
   }
   syncMapDrawerUi();
-  setTimeout(() => invalidateMapSize(), 80);
+  setTimeout(() => mapMod.invalidateMapSize(), 80);
 }
 
 // ==================== 電腦端工作區模式切換（我的行程 / 口袋清單） ====================
@@ -505,7 +454,7 @@ function switchWorkspaceMode(targetMode) {
     dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
     mapHeaderCollect.classList.remove('hidden');
     mapHeaderPlan.classList.add('hidden');
-    updateMiniCardButtonUi();
+    cardsMod.updateMiniCardButtonUi();
   } else {
     tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs';
     tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
@@ -566,7 +515,7 @@ function switchWorkspaceMode(targetMode) {
 
   syncMapDrawerUi();
   renderAll();
-  setTimeout(() => invalidateMapSize(), 120);
+  setTimeout(() => mapMod.invalidateMapSize(), 120);
 }
 
 function togglePocketCollapse() {
@@ -580,7 +529,7 @@ function populateMapDaySelector() {
   const total = Number(state.settings.totalDays) || 6;
   const options = [];
   for (let d = 1; d <= total; d++) {
-    const info = getFormattedDateInfo(d);
+    const info = boardMod.getFormattedDateInfo(d);
     options.push(`<option value="${d}" ${(!state.mapOverviewAllDays && d === state.selectedMapDay) ? 'selected' : ''}>Day ${d} (${info.md} ${info.week})</option>`);
   }
   options.push(`<option value="all" ${state.mapOverviewAllDays ? 'selected' : ''}>🗺️ 全部已排行程 (多日分色)</option>`);
@@ -632,15 +581,16 @@ function saveSettings() {
 
 export function renderAll() {
   renderTripProjectsGrid();
-  renderDatabaseCards();
+  cardsMod.renderDatabaseCards();
   syncMobileNavBadges();
   if (state.mode === 'plan' && state.tripViewStep === 'detail') {
     populateMapDaySelector();
-    renderKanbanBoard();
+    boardMod.renderKanbanBoard();
   }
-  renderMapMarkers(getFilteredAndSortedCards);
+  hooks.renderMapMarkers();
 }
 
+// 立即將所有按鈕事件掛載至 window
 Object.assign(window, {
   openTripListOverview,
   selectAndOpenTrip,
@@ -651,56 +601,56 @@ Object.assign(window, {
   switchWorkspaceMode,
   switchMobileTab,
   togglePocketCollapse,
-  toggleMiniCardMode,
-  toggleBatchImportBox,
-  setPlanQuickFilter,
-  togglePlanProximitySort,
-  setFilter,
-  clearSearch,
-  toggleCardDetailExpand,
-  renderDatabaseCards,
-  handleCardClick,
-  onCountryFilterChange,
-  handleBatchImport,
-  batchUpdateAllDistricts,
-  handleLatLngPaste,
-  extractCoordsFromMapUrlField,
-  reverseGeocodeModalCoords,
-  onModalCategoryChange,
-  openCardModal,
-  closeCardModal,
-  saveCardFromModal,
-  deleteCard,
-  toggleStarCard,
-  toggleBoardMultiDayMode,
-  moveItineraryItem,
-  renderKanbanBoard,
-  onDragStartCard,
-  onDragStartItineraryItem,
-  onDragOverColumn,
-  onDragLeaveColumn,
-  onDropOnDay,
-  quickAssignCardToDay,
-  addCardToDay,
-  removeItineraryItem,
-  updateDayStartTime,
-  cycleTransitMode,
-  editLegCustomTime,
-  editItemFlightSchedule,
-  extendHotelToNextDay,
-  addReturnToHotel,
-  selectDayFocus,
-  onMapDayChange,
-  recalculateAllDayTimes,
+  toggleMiniCardMode: cardsMod.toggleMiniCardMode,
+  toggleBatchImportBox: cardsMod.toggleBatchImportBox,
+  setPlanQuickFilter: cardsMod.setPlanQuickFilter,
+  togglePlanProximitySort: cardsMod.togglePlanProximitySort,
+  setFilter: cardsMod.setFilter,
+  clearSearch: cardsMod.clearSearch,
+  toggleCardDetailExpand: cardsMod.toggleCardDetailExpand,
+  renderDatabaseCards: cardsMod.renderDatabaseCards,
+  handleCardClick: cardsMod.handleCardClick,
+  onCountryFilterChange: cardsMod.onCountryFilterChange,
+  handleBatchImport: cardsMod.handleBatchImport,
+  batchUpdateAllDistricts: cardsMod.batchUpdateAllDistricts,
+  handleLatLngPaste: cardsMod.handleLatLngPaste,
+  extractCoordsFromMapUrlField: cardsMod.extractCoordsFromMapUrlField,
+  reverseGeocodeModalCoords: cardsMod.reverseGeocodeModalCoords,
+  onModalCategoryChange: cardsMod.onModalCategoryChange,
+  openCardModal: cardsMod.openCardModal,
+  closeCardModal: cardsMod.closeCardModal,
+  saveCardFromModal: cardsMod.saveCardFromModal,
+  deleteCard: cardsMod.deleteCard,
+  toggleStarCard: cardsMod.toggleStarCard,
+  toggleBoardMultiDayMode: boardMod.toggleBoardMultiDayMode,
+  moveItineraryItem: boardMod.moveItineraryItem,
+  renderKanbanBoard: boardMod.renderKanbanBoard,
+  onDragStartCard: boardMod.onDragStartCard,
+  onDragStartItineraryItem: boardMod.onDragStartItineraryItem,
+  onDragOverColumn: boardMod.onDragOverColumn,
+  onDragLeaveColumn: boardMod.onDragLeaveColumn,
+  onDropOnDay: boardMod.onDropOnDay,
+  quickAssignCardToDay: boardMod.quickAssignCardToDay,
+  addCardToDay: boardMod.addCardToDay,
+  removeItineraryItem: boardMod.removeItineraryItem,
+  updateDayStartTime: boardMod.updateDayStartTime,
+  cycleTransitMode: boardMod.cycleTransitMode,
+  editLegCustomTime: boardMod.editLegCustomTime,
+  editItemFlightSchedule: boardMod.editItemFlightSchedule,
+  extendHotelToNextDay: boardMod.extendHotelToNextDay,
+  addReturnToHotel: boardMod.addReturnToHotel,
+  selectDayFocus: boardMod.selectDayFocus,
+  onMapDayChange: boardMod.onMapDayChange,
+  recalculateAllDayTimes: boardMod.recalculateAllDayTimes,
   toggleMapDrawer,
-  toggleMapCategoryLayer,
-  setOnlyAttractionsLayer,
-  setAllMapLayersVisible,
-  toggleOverlayPocketOnPlanMap,
-  renderMapMarkers: () => renderMapMarkers(getFilteredAndSortedCards),
-  fitMapToFilteredCards,
+  toggleMapCategoryLayer: mapMod.toggleMapCategoryLayer,
+  setOnlyAttractionsLayer: mapMod.setOnlyAttractionsLayer,
+  setAllMapLayersVisible: mapMod.setAllMapLayersVisible,
+  toggleOverlayPocketOnPlanMap: mapMod.toggleOverlayPocketOnPlanMap,
+  renderMapMarkers: hooks.renderMapMarkers,
+  fitMapToFilteredCards: mapMod.fitMapToFilteredCards,
   focusCardOnMap: hooks.focusCardOnMap,
-  highlightDatabaseCard,
+  highlightDatabaseCard: mapMod.highlightDatabaseCard,
   pullFromGoogleSheets,
   pushAllToGoogleSheets,
   copyGasBackendCode,
@@ -711,30 +661,34 @@ Object.assign(window, {
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
-  loadLocalState();
-  ensureItineraryDays();
-  updateHeaderInfo();
-  initLeafletMap();
-  initSplitResizers();
-  renderMapCategoryToggles();
-  populateRegionDropdowns();
-  syncMapDrawerUi();
+  try {
+    loadLocalState();
+    ensureItineraryDays();
+    updateHeaderInfo();
+    mapMod.initLeafletMap();
+    initSplitResizers();
+    mapMod.renderMapCategoryToggles();
+    cardsMod.populateRegionDropdowns();
+    syncMapDrawerUi();
 
-  state.tripViewStep = 'list';
-  syncTripStepAttributes();
+    state.tripViewStep = 'list';
+    syncTripStepAttributes();
 
-  if (isMobileViewport()) {
-    switchMobileTab('trips');
-  } else {
-    switchWorkspaceMode('plan');
-  }
-
-  if (state.settings.gasUrl) {
-    await pullFromGoogleSheets(false);
     if (isMobileViewport()) {
-      switchMobileTab(currentMobileTab);
+      switchMobileTab('trips');
     } else {
-      switchWorkspaceMode(state.mode);
+      switchWorkspaceMode('plan');
     }
+
+    if (state.settings.gasUrl) {
+      await pullFromGoogleSheets(false);
+      if (isMobileViewport()) {
+        switchMobileTab(currentMobileTab);
+      } else {
+        switchWorkspaceMode(state.mode);
+      }
+    }
+  } catch (err) {
+    console.error('初始化畫面時發生錯誤:', err);
   }
 });
