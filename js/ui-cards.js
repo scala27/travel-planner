@@ -55,7 +55,6 @@ export function setPlanQuickFilter(val) {
       : 'plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600';
   });
   renderDatabaseCards();
-  // 在規劃模式下切換左側分類篩選時，同步更新地圖上疊加的口袋點位
   if (state.mode === 'plan' && state.overlayPocketOnPlan) {
     hooks.renderMapMarkers();
   }
@@ -66,9 +65,6 @@ export function togglePlanProximitySort() {
   renderDatabaseCards();
 }
 
-/**
- * 計算口袋卡片與「目前選中天數已排行程」的最短距離與最近參考點名稱
- */
 export function getCardProximityToSelectedDay(card) {
   const lat = Number(card?.lat);
   const lng = Number(card?.lng);
@@ -228,8 +224,8 @@ function renderCategorySummaryHtml(card) {
       blocks.push(`
         <div class="text-[11px] font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 flex items-center gap-1.5 flex-wrap">
           <i class="fa-solid ${iconCls}"></i>
-          <span>${card.departTime ? '出發/起飛：' + card.departTime : ''}</span>
-          ${card.arriveTime ? `<span class="text-blue-700">→ 抵達：${card.arriveTime}</span>` : ''}
+          <span>${card.departTime ? '出境/起飛：' + card.departTime : ''}</span>
+          ${card.arriveTime ? `<span class="text-blue-700">入境/抵達：${card.arriveTime}</span>` : ''}
         </div>
       `);
     } else if (card.businessHours) {
@@ -722,20 +718,30 @@ function renderCategoryDynamicFields(category, card = {}) {
   const box = document.getElementById('dynamicCategoryFieldsBox');
 
   if (category === '機場') {
+    // 若先前誤把「抵達」填在 departTime，打開視窗時自動歸位到 arriveTime
+    let depVal = card.departTime || '';
+    let arrVal = card.arriveTime || '';
+    if (depVal.includes('抵達') && !arrVal) {
+      arrVal = depVal.replace(/抵達/g, '').trim();
+      depVal = '';
+    }
+
     box.innerHTML = `
-      <div class="flex items-center gap-1.5 text-sky-800 font-bold text-xs">
-        <i class="fa-solid fa-plane-departure"></i>
-        <span>機場航班與報到時刻資訊</span>
+      <div class="flex items-center justify-between text-sky-800 font-bold text-xs">
+        <div class="flex items-center gap-1.5">
+          <i class="fa-solid fa-plane-departure"></i>
+          <span>機場航班與報到時刻資訊（去程／回程可分開填寫）</span>
+        </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block font-bold text-slate-700 mb-1">報到 / 起飛時間</label>
-          <input type="text" id="dynDepartTime" value="${card.departTime || ''}" placeholder="例如：15:00 報到 / 17:00 起飛"
+          <label class="block font-bold text-slate-700 mb-1">出境／回程報到或起飛時間</label>
+          <input type="text" id="dynDepartTime" value="${depVal}" placeholder="例如：18:30 報到 / 20:30 起飛"
             class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
         </div>
         <div>
-          <label class="block font-bold text-slate-700 mb-1">抵達時間</label>
-          <input type="text" id="dynArriveTime" value="${card.arriveTime || ''}" placeholder="例如：19:30"
+          <label class="block font-bold text-slate-700 mb-1">入境／去程抵達時間</label>
+          <input type="text" id="dynArriveTime" value="${arrVal}" placeholder="例如：19:30"
             class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
         </div>
       </div>
