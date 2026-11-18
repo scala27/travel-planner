@@ -291,9 +291,9 @@ function switchWorkspaceMode(targetMode) {
     btnExpand.classList.add('hidden');
 
     dbTitle.textContent = '全球口袋資料庫';
-    btnAddCollect.classList.remove('hidden');
-    btnBatch.classList.remove('hidden');
-    btnMini.classList.remove('hidden');
+    if (btnAddCollect) btnAddCollect.classList.remove('hidden');
+    if (btnBatch) btnBatch.classList.remove('hidden');
+    if (btnMini) btnMini.classList.remove('hidden');
     btnCollapse.classList.add('hidden');
     btnCollapse.classList.remove('flex');
     sortWrap.classList.remove('hidden');
@@ -310,10 +310,11 @@ function switchWorkspaceMode(targetMode) {
     tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
     dbTitle.textContent = '口袋待排清單';
-    btnAddCollect.classList.add('hidden');
-    btnBatch.classList.add('hidden');
-    btnMini.classList.add('hidden');
-    document.getElementById('batchImportBox').classList.add('hidden');
+    if (btnAddCollect) btnAddCollect.classList.add('hidden');
+    if (btnBatch) btnBatch.classList.add('hidden');
+    if (btnMini) btnMini.classList.add('hidden');
+    const batchBox = document.getElementById('batchImportBox');
+    if (batchBox) batchBox.classList.add('hidden');
     btnCollapse.classList.remove('hidden');
     btnCollapse.classList.add('flex');
     sortWrap.classList.add('hidden');
@@ -370,7 +371,7 @@ function populateMapDaySelector() {
 }
 
 function updateHeaderInfo() {
-  document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle || DEFAULT_SETTINGS.tripTitle;
+  document.getElementById('tripTitleDisplay').textContent = state.settings.tripTitle || 'e-chi Go';
   const total = Number(state.settings.totalDays) || 6;
   const start = new Date(state.settings.startDate + 'T00:00:00');
   if (!isNaN(start.getTime())) {
@@ -393,7 +394,7 @@ function closeSettingsModal() {
 }
 
 function saveSettings() {
-  state.settings.tripTitle = document.getElementById('setTripTitle').value.trim() || DEFAULT_SETTINGS.tripTitle;
+  state.settings.tripTitle = document.getElementById('setTripTitle').value.trim() || 'e-chi Go';
   state.settings.startDate = document.getElementById('setStartDate').value || '2027-02-17';
   state.settings.totalDays = Math.max(1, Math.min(15, parseInt(document.getElementById('setTotalDays').value, 10) || 6));
   state.settings.gasUrl = document.getElementById('setGasUrl').value.trim();
