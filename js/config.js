@@ -62,7 +62,7 @@ export const PRESET_DISTRICTS = [
 
 export const CATEGORY_LIST = ['景點', '美食', '購物', '住宿', '機場', '交通', '體驗'];
 
-// 「體驗」採用日系青磁莫蘭迪灰綠 (#4f7b74)，呈現文青獨立書店、選物雜貨與手作工藝質感
+// 「體驗」採用 RGB(222, 88, 130) -> #de5882，同步套用於地圖圖釘、圖層圓點與卡片標籤
 export const CATEGORY_META = {
   '景點': { emoji: '🏞️', pinChar: '景', color: '#16a34a', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   '美食': { emoji: '🍜', pinChar: '美', color: '#f59e0b', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -70,7 +70,7 @@ export const CATEGORY_META = {
   '住宿': { emoji: '🏨', pinChar: '宿', color: '#9333ea', badgeBg: 'bg-purple-50 text-purple-700 border-purple-200' },
   '機場': { emoji: '✈️', pinChar: '機', color: '#0284c7', badgeBg: 'bg-sky-50 text-sky-700 border-sky-200' },
   '交通': { emoji: '🚆', pinChar: '行', color: '#475569', badgeBg: 'bg-slate-100 text-slate-700 border-slate-300' },
-  '體驗': { emoji: '🎡', pinChar: '驗', color: '#4f7b74', badgeBg: 'bg-teal-50/90 text-teal-800 border-teal-300' }
+  '體驗': { emoji: '🎡', pinChar: '驗', color: '#de5882', badgeBg: 'bg-[#fdf2f5] text-[#de5882] border-[#f4c6d4]' }
 };
 
 export const DAY_ROUTE_COLORS = [
