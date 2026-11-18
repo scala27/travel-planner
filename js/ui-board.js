@@ -1,6 +1,11 @@
 import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
 import { state, hooks, persistState, showToast } from './state.js';
 
+// 將 Day 3 顏色調整為高對比緋紅色，確保中間看板與右側地圖完全一致
+if (Array.isArray(DAY_COLORS) && DAY_COLORS.length > 2) {
+  DAY_COLORS[2] = '#dc2626';
+}
+
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 let okinawaTransitData = null;
 
@@ -225,7 +230,6 @@ export function renderKanbanBoard() {
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const activeDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
 
-  // 上方天數藥丸圓點與地圖 DAY_COLORS 顏色一一對應
   const pillsHtml = [];
   for (let d = 1; d <= totalDays; d++) {
     const info = getFormattedDateInfo(d);
