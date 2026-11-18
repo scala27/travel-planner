@@ -1,0 +1,19 @@
+{
+  "name": "沖繩卡片式旅遊規劃系統",
+  "short_name": "沖繩行程",
+  "description": "沖繩自由行卡片式排程與路線地圖規劃系統",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f6fa",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%232563eb'/%3E%3Ccircle cx='256' cy='256' r='148' fill='none' stroke='%23ffffff' stroke-width='26'/%3E%3Cellipse cx='256' cy='256' rx='74' ry='148' fill='none' stroke='%23ffffff' stroke-width='22'/%3E%3Cline x1='108' y1='256' x2='404' y2='256' stroke='%23ffffff' stroke-width='22'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
