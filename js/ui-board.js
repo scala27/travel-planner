@@ -16,6 +16,188 @@ import {
 } from './geo.js';
 
 let dragPayload = null;
+let multiDayCompactMode = true;
+let multiDayShowMap = false;
+let savedThreeColLayout = null;
+let collectTabGuardBound = false;
+
+// 日期互換選擇列狀態
+let daySwapBarOpen = false;
+let swapFromDay = 2;
+let swapToDay = 4;
+
+function bindCollectTabRestoreGuard() {
+  if (collectTabGuardBound) return;
+  const collectBtn = document.getElementById('tabModeCollect');
+  if (!collectBtn) return;
+  collectTabGuardBound = true;
+  collectBtn.addEventListener('click', () => {
+    if (state.boardMultiDayMode) {
+      state.boardMultiDayMode = false;
+      multiDayShowMap = false;
+      const label = document.getElementById('boardModeLabel');
+      if (label) label.textContent = '多日並列';
+      applyMultiDayWorkspaceLayout(false);
+    }
+  }, true);
+}
+
+function applyMultiDayWorkspaceLayout(isMultiDay) {
+  bindCollectTabRestoreGuard();
+
+  const dbPanel = document.getElementById('databasePanel');
+  const resizerLeft = document.getElementById('resizerLeft');
+  const btnExpandPocket = document.getElementById('btnExpandPocket');
+  const boardSection = document.getElementById('itineraryBoardSection');
+  const resizerRight = document.getElementById('resizerRight');
+  const mapPanel = document.getElementById('mapPanel');
+
+  if (!dbPanel || !boardSection || !mapPanel) return;
+
+  if (isMultiDay) {
+    if (!savedThreeColLayout) {
+      savedThreeColLayout = {
+        dbWidth: dbPanel.style.width || '22%',
+        dbHidden: dbPanel.classList.contains('hidden'),
+        expandBtnHidden: btnExpandPocket ? btnExpandPocket.classList.contains('hidden') : true,
+        boardWidth: boardSection.style.width || '34%'
+      };
+    }
+
+    dbPanel.classList.add('hidden');
+    if (resizerLeft) resizerLeft.classList.add('hidden');
+    if (btnExpandPocket) {
+      btnExpandPocket.classList.add('hidden');
+      btnExpandPocket.classList.remove('flex');
+    }
+
+    if (multiDayShowMap) {
+      boardSection.style.width = '64%';
+      boardSection.style.flex = '0 0 64%';
+      if (resizerRight) resizerRight.classList.remove('hidden');
+      mapPanel.classList.remove('hidden');
+      mapPanel.classList.add('flex');
+      state.mapOverviewAllDays = true;
+      const mapDaySel = document.getElementById('mapDaySelect');
+      if (mapDaySel) mapDaySel.value = 'all';
+      setTimeout(() => {
+        if (typeof hooks.invalidateMapSize === 'function') hooks.invalidateMapSize();
+        if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+      }, 60);
+    } else {
+      boardSection.style.width = '100%';
+      boardSection.style.flex = '1 1 100%';
+      if (resizerRight) resizerRight.classList.add('hidden');
+      mapPanel.classList.add('hidden');
+      mapPanel.classList.remove('flex');
+    }
+  } else {
+    if (savedThreeColLayout) {
+      dbPanel.style.width = savedThreeColLayout.dbWidth;
+      if (savedThreeColLayout.dbHidden) {
+        dbPanel.classList.add('hidden');
+        if (resizerLeft) resizerLeft.classList.add('hidden');
+        if (btnExpandPocket && !savedThreeColLayout.expandBtnHidden) {
+          btnExpandPocket.classList.remove('hidden');
+          btnExpandPocket.classList.add('flex');
+        }
+      } else {
+        dbPanel.classList.remove('hidden');
+        if (resizerLeft) resizerLeft.classList.remove('hidden');
+        if (btnExpandPocket) {
+          btnExpandPocket.classList.add('hidden');
+          btnExpandPocket.classList.remove('flex');
+        }
+      }
+      boardSection.style.width = savedThreeColLayout.boardWidth;
+      boardSection.style.flex = '';
+      savedThreeColLayout = null;
+    } else {
+      boardSection.style.flex = '';
+    }
+
+    if (state.mode === 'plan' && resizerRight) {
+      resizerRight.classList.remove('hidden');
+    }
+    mapPanel.classList.remove('hidden');
+    mapPanel.classList.add('flex');
+    setTimeout(() => {
+      if (typeof hooks.invalidateMapSize === 'function') hooks.invalidateMapSize();
+    }, 60);
+  }
+}
+
+export function toggleMultiDayCompactCards() {
+  multiDayCompactMode = !multiDayCompactMode;
+  renderKanbanBoard();
+}
+
+export function toggleMultiDayShowMap() {
+  multiDayShowMap = !multiDayShowMap;
+  applyMultiDayWorkspaceLayout(true);
+  renderKanbanBoard();
+}
+
+export function toggleDaySwapBar() {
+  daySwapBarOpen = !daySwapBarOpen;
+  if (daySwapBarOpen) {
+    const totalDays = Number(state.settings.totalDays) || 6;
+    const current = Number(state.selectedMapDay) || 1;
+    swapFromDay = current;
+    if (swapToDay === swapFromDay || swapToDay > totalDays || swapToDay < 1) {
+      swapToDay = current < totalDays ? current + 1 : Math.max(1, current - 1);
+    }
+  }
+  renderKanbanBoard();
+}
+
+export function updateSwapDaySelection(which, val) {
+  const dayNum = parseInt(val, 10) || 1;
+  if (which === 'from') {
+    swapFromDay = dayNum;
+  } else {
+    swapToDay = dayNum;
+  }
+}
+
+export function executeSwapDays() {
+  const totalDays = Number(state.settings.totalDays) || 6;
+  const d1 = Number(swapFromDay);
+  const d2 = Number(swapToDay);
+
+  if (!d1 || !d2 || d1 < 1 || d1 > totalDays || d2 < 1 || d2 > totalDays) {
+    showToast('請選擇有效的日期進行互換', 'amber');
+    return;
+  }
+  if (d1 === d2) {
+    showToast('請選擇兩個不同的日期進行互換', 'amber');
+    return;
+  }
+
+  ensureItineraryDays();
+  const data1 = state.itinerary[d1] || { startTime: '09:00', items: [] };
+  const data2 = state.itinerary[d2] || { startTime: '09:00', items: [] };
+
+  state.itinerary[d1] = {
+    startTime: data2.startTime || '09:00',
+    items: Array.isArray(data2.items) ? [...data2.items] : []
+  };
+  state.itinerary[d2] = {
+    startTime: data1.startTime || '09:00',
+    items: Array.isArray(data1.items) ? [...data1.items] : []
+  };
+
+  daySwapBarOpen = false;
+  persistState(true);
+  hooks.renderAll();
+  showToast(`已將 Day ${d1} 與 Day ${d2} 的行程完整對調並同步至試算表！`, 'emerald');
+}
+
+window.toggleMultiDayCompactCards = toggleMultiDayCompactCards;
+window.toggleMultiDayShowMap = toggleMultiDayShowMap;
+window.toggleDaySwapBar = toggleDaySwapBar;
+window.updateSwapDaySelection = updateSwapDaySelection;
+window.executeSwapDays = executeSwapDays;
 
 export function getFormattedDateInfo(dayNum) {
   const start = new Date(state.settings.startDate + 'T00:00:00');
@@ -47,10 +229,6 @@ function extractClockTimes(text) {
   return matches ? matches.map(t => t.padStart(5, '0')) : [];
 }
 
-/**
- * 解析單筆排程項目的獨立航班／交通時刻（格式：flight|報到起飛|抵達|班次）
- * 讓同一張機場卡片（如那霸空港）在 Day 1 入境與 Day 6 回程出境可各自設定不同時刻，互不覆蓋
- */
 function parseItemFlightSchedule(item) {
   const raw = String(item?.customNote || '').trim();
   if (!raw.startsWith('flight|')) return null;
@@ -62,11 +240,6 @@ function parseItemFlightSchedule(item) {
   };
 }
 
-/**
- * 判斷某排程項目的機場／交通角色：
- * - 'arrival'   ：入境／抵達機場（前一站為跨海飛航段，如 Day 1 臺中機場 → 那霸空港）
- * - 'departure' ：出境／搭機出發機場（位於行程第 1 站，或從飯店／市區前往機場準備搭機，如 Day 6）
- */
 function getAirportRoleInDay(items, idx) {
   const item = items[idx];
   const card = state.cards.find(c => c.id === item?.cardId);
@@ -163,8 +336,13 @@ export function getHotelActualStayNights(cardId) {
 
 export function toggleBoardMultiDayMode() {
   state.boardMultiDayMode = !state.boardMultiDayMode;
+  if (state.boardMultiDayMode) {
+    multiDayCompactMode = true;
+    multiDayShowMap = false;
+  }
   const label = document.getElementById('boardModeLabel');
   if (label) label.textContent = state.boardMultiDayMode ? '單日聚焦' : '多日並列';
+  applyMultiDayWorkspaceLayout(state.boardMultiDayMode);
   renderKanbanBoard();
 }
 
@@ -185,12 +363,13 @@ export function renderKanbanBoard() {
   const navPills = document.getElementById('dayNavPills');
   const board = document.getElementById('kanbanColumnsContainer');
   const globalProfile = document.getElementById('transitProfileSelect')?.value || 'smart';
+  const isCompactMulti = state.boardMultiDayMode && multiDayCompactMode;
 
-  navPills.innerHTML = Array.from({ length: totalDays }, (_, i) => {
+  const pillsHtml = Array.from({ length: totalDays }, (_, i) => {
     const d = i + 1;
     const info = getFormattedDateInfo(d);
     const count = (state.itinerary[d]?.items || []).length;
-    const active = state.selectedMapDay === d;
+    const active = !state.boardMultiDayMode && state.selectedMapDay === d;
     const dayColor = DAY_ROUTE_COLORS[(d - 1) % DAY_ROUTE_COLORS.length];
     return `
       <button onclick="selectDayFocus(${d})"
@@ -203,9 +382,99 @@ export function renderKanbanBoard() {
       </button>`;
   }).join('');
 
+  const swapTriggerBtn = totalDays >= 2 ? `
+    <button type="button" onclick="toggleDaySwapBar()"
+      class="px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 shrink-0 transition ${daySwapBarOpen ? 'bg-amber-600 border-amber-600 text-white shadow-2xs' : 'bg-amber-50/90 hover:bg-amber-100 border-amber-200 text-amber-800'}"
+      title="將兩天的行程順序與出發時間完整互換（例如 D2 與 D4 對調）">
+      <i class="fa-solid fa-right-left"></i>
+      <span>日期互換</span>
+    </button>
+  ` : '';
+
+  const multiDayExtraToolbar = state.boardMultiDayMode ? `
+    <div class="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 shrink-0">
+      <button type="button" onclick="toggleMultiDayCompactCards()"
+        class="px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition ${multiDayCompactMode ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}"
+        title="切換多日並列時的卡片精簡或完整細節顯示">
+        <i class="fa-solid ${multiDayCompactMode ? 'fa-compress' : 'fa-expand'}"></i>
+        <span>${multiDayCompactMode ? '精簡卡片' : '完整細節'}</span>
+      </button>
+      <button type="button" onclick="toggleMultiDayShowMap()"
+        class="px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition ${multiDayShowMap ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}"
+        title="在多日並列旁展開或收合分色總覽地圖">
+        <i class="fa-solid fa-map-location-dot"></i>
+        <span>${multiDayShowMap ? '全寬排程' : '顯示地圖'}</span>
+      </button>
+    </div>
+  ` : '';
+
+  navPills.innerHTML = pillsHtml + swapTriggerBtn + multiDayExtraToolbar;
+
+  // 處理或更新日期互換選擇列（動態掛載於 navPills 所在標題列下方，無須更動 index.html）
+  const boardHeader = navPills.parentElement;
+  if (boardHeader && boardHeader.parentElement) {
+    let swapBarEl = document.getElementById('daySwapInlineBar');
+    if (daySwapBarOpen) {
+      const dayOptionsFrom = Array.from({ length: totalDays }, (_, i) => {
+        const d = i + 1;
+        const info = getFormattedDateInfo(d);
+        const cnt = (state.itinerary[d]?.items || []).length;
+        return `<option value="${d}" ${d === swapFromDay ? 'selected' : ''}>Day ${d} (${info.md}・${cnt}項)</option>`;
+      }).join('');
+
+      const dayOptionsTo = Array.from({ length: totalDays }, (_, i) => {
+        const d = i + 1;
+        const info = getFormattedDateInfo(d);
+        const cnt = (state.itinerary[d]?.items || []).length;
+        return `<option value="${d}" ${d === swapToDay ? 'selected' : ''}>Day ${d} (${info.md}・${cnt}項)</option>`;
+      }).join('');
+
+      if (!swapBarEl) {
+        swapBarEl = document.createElement('div');
+        swapBarEl.id = 'daySwapInlineBar';
+        boardHeader.parentElement.insertBefore(swapBarEl, board);
+      }
+      swapBarEl.className = 'px-3 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-2 flex-wrap shrink-0 text-xs';
+      swapBarEl.innerHTML = `
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-bold text-amber-900 flex items-center gap-1">
+            <i class="fa-solid fa-right-left text-amber-600"></i>
+            <span>行程日期對調：</span>
+          </span>
+          <select onchange="updateSwapDaySelection('from', this.value)"
+            class="px-2 py-1 rounded-lg bg-white border border-amber-300 font-bold text-slate-800 focus:outline-none focus:border-amber-500">
+            ${dayOptionsFrom}
+          </select>
+          <span class="font-bold text-amber-700">⇄</span>
+          <select onchange="updateSwapDaySelection('to', this.value)"
+            class="px-2 py-1 rounded-lg bg-white border border-amber-300 font-bold text-slate-800 focus:outline-none focus:border-amber-500">
+            ${dayOptionsTo}
+          </select>
+          <span class="text-[11px] text-amber-800">（將完整互換兩天的景點順序與出發時間）</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="executeSwapDays()"
+            class="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-2xs transition">
+            確認互換
+          </button>
+          <button type="button" onclick="toggleDaySwapBar()"
+            class="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 font-semibold transition">
+            取消
+          </button>
+        </div>
+      `;
+    } else if (swapBarEl) {
+      swapBarEl.remove();
+    }
+  }
+
   const daysToRender = state.boardMultiDayMode
     ? Array.from({ length: totalDays }, (_, i) => i + 1)
     : [state.selectedMapDay];
+
+  board.className = state.boardMultiDayMode
+    ? 'flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-2.5 flex gap-2 items-stretch'
+    : 'flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch';
 
   board.innerHTML = daysToRender.map(d => {
     const info = getFormattedDateInfo(d);
@@ -243,7 +512,6 @@ export function renderKanbanBoard() {
       const airportRole = isTransportOrAirport(card.category) ? getAirportRoleInDay(items, idx) : null;
       const itemFlight = parseItemFlightSchedule(item);
 
-      // 解析本筆航班時刻：優先採用本天專屬設定，否則依「入境抵達」或「出境搭機」角色自動過濾共用欄位
       let effectiveDepartText = '';
       let effectiveArriveText = '';
       let effectiveFlightNo = itemFlight?.flightNo || card.flightNo || '';
@@ -253,10 +521,8 @@ export function renderKanbanBoard() {
           effectiveDepartText = itemFlight.depart;
           effectiveArriveText = itemFlight.arrive;
         } else if (airportRole === 'arrival') {
-          // 入境機場（如 Day 1 那霸空港）：採用抵達時間，若誤填在 departTime（含「抵達」字樣）亦自動識別
           effectiveArriveText = card.arriveTime || (String(card.departTime || '').includes('抵達') ? card.departTime : '');
         } else {
-          // 出境搭機機場（如 Day 1 臺中機場、Day 6 那霸空港）：忽略含「抵達」的入境時間
           effectiveDepartText = String(card.departTime || '').includes('抵達') ? '' : (card.departTime || '');
           effectiveArriveText = card.arriveTime || '';
         }
@@ -289,6 +555,7 @@ export function renderKanbanBoard() {
       let isHotelTransfer = false;
       let transitMin = 0;
       let legPillText = '';
+      let compactLegText = '';
 
       if (nextCard) {
         const est = resolveLegModeAndEstimate(card, nextCard, item.transitMode || 'auto');
@@ -315,6 +582,15 @@ export function renderKanbanBoard() {
         const distLabel = formatDistanceLabel(legKm);
         const lockBadge = hasCustomLock ? ' 🔒' : '';
 
+        const modeIcon = activeMode === 'flight'
+          ? '✈️'
+          : (activeMode === 'walk'
+            ? '🚶'
+            : (activeMode === 'taxi'
+              ? '🚕'
+              : (activeMode === 'drive' ? '🚗' : '🚝')));
+        compactLegText = `${modeIcon} ${transitMin}分${lockBadge}`;
+
         if (activeMode === 'flight' && arrTimes.length > 0) {
           legPillText = `${modeLabel}｜${depTimes[depTimes.length - 1] || endStr} 起飛 → ${arrTimes[arrTimes.length - 1]} 抵達・約 ${transitMin} 分`;
         } else if (distLabel) {
@@ -331,17 +607,20 @@ export function renderKanbanBoard() {
       const pinBgColor = lodgingInfo ? lodgingInfo.pinColor : meta.color;
 
       let timePillText = `${startStr} ~ ${endStr}`;
+      let compactStartTime = startStr;
       let roleBadgeHtml = '';
 
       if (isTransportOrAirport(card.category)) {
         if (airportRole === 'arrival') {
           roleBadgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 bg-sky-100 text-sky-800 border-sky-200">入境抵達</span>`;
           if (arrTimes.length > 0) {
+            compactStartTime = arrTimes[0];
             timePillText = `${arrTimes[0]} 抵達 ~ ${minutesToTime(timeToMinutes(arrTimes[0]) + dur)}`;
           }
         } else {
           roleBadgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 bg-indigo-50 text-indigo-700 border-indigo-200">出境搭機</span>`;
           if (depTimes.length >= 2) {
+            compactStartTime = depTimes[0];
             timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
           } else if (effectiveDepartText) {
             timePillText = effectiveDepartText.replace(/：/g, ':');
@@ -361,6 +640,58 @@ export function renderKanbanBoard() {
               ? 'bg-amber-50 border-amber-300 text-amber-800'
               : 'bg-white border-slate-200 text-slate-700')));
 
+      // ==================== 方案 B：多日並列精簡總覽卡片 ====================
+      if (isCompactMulti) {
+        return `
+          <div draggable="true"
+            ondragstart="onDragStartItineraryItem(event, ${d}, ${idx})"
+            title="${timePillText}｜${card.title}（${cleanDist}・停留 ${dur} 分）"
+            class="group bg-white rounded-lg border border-slate-200 hover:border-blue-400 px-2 py-1.5 shadow-2xs transition">
+            <div class="flex items-center justify-between gap-1 mb-0.5">
+              <div class="flex items-center gap-1 min-w-0">
+                <span class="text-[11px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded shrink-0">${compactStartTime}</span>
+                ${lodgingInfo ? `<span class="px-1 py-0.2 rounded text-[9px] font-bold border shrink-0 ${lodgingInfo.badgeClass}">${lodgingInfo.char}</span>` : ''}
+                <span class="text-[10px] text-slate-400 truncate">${dur}分</span>
+              </div>
+              <div class="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-opacity">
+                <button onclick="moveItineraryItem(${d}, ${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="上移"
+                  class="w-4 h-4 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[9px] flex items-center justify-center">
+                  <i class="fa-solid fa-arrow-up"></i>
+                </button>
+                <button onclick="moveItineraryItem(${d}, ${idx}, 1)" ${idx === items.length - 1 ? 'disabled' : ''} title="下移"
+                  class="w-4 h-4 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[9px] flex items-center justify-center">
+                  <i class="fa-solid fa-arrow-down"></i>
+                </button>
+                <button onclick="openCardModal('${card.id}')" title="編輯卡片"
+                  class="w-4 h-4 rounded hover:bg-amber-50 text-slate-400 hover:text-amber-600 text-[9px] flex items-center justify-center">
+                  <i class="fa-solid fa-pen"></i>
+                </button>
+                <button onclick="removeItineraryItem(${d}, ${idx})" title="移出"
+                  class="w-4 h-4 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 text-[9px] flex items-center justify-center">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-start gap-1.5 cursor-pointer" onclick="openCardModal('${card.id}')">
+              <span class="w-4 h-4 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5"
+                style="background-color:${pinBgColor}">${badgeNum}</span>
+              <div class="text-xs font-bold text-slate-800 leading-snug break-words flex-1">${card.title}</div>
+            </div>
+          </div>
+
+          ${nextCard ? `
+            <div class="my-0.5 flex items-center justify-center">
+              <button onclick="cycleTransitMode(${d}, ${idx})" title="${legPillText}（點擊切換交通方式）"
+                class="px-2 py-0.2 rounded-full ${pillColorClass} border hover:border-blue-400 text-[10px] font-semibold leading-tight transition">
+                ↓ ${compactLegText}
+              </button>
+            </div>
+          ` : ''}
+        `;
+      }
+
+      // ==================== 標準完整細節卡片（單日聚焦 / 切換完整細節時） ====================
       const nextDayItems = d < totalDays ? (state.itinerary[d + 1]?.items || []) : [];
       const alreadyOnNextDay = nextDayItems.some(it => it.cardId === card.id);
       const showExtendHotelBtn = card.category === '住宿' && d < totalDays && !alreadyOnNextDay &&
@@ -443,7 +774,10 @@ export function renderKanbanBoard() {
     }).join('');
 
     const endTimeStr = items.length > 0 ? minutesToTime(cursorMin) : initialStart;
-    const colWidthClass = state.boardMultiDayMode ? 'w-[300px] shrink-0' : 'w-full';
+
+    const colWidthClass = state.boardMultiDayMode
+      ? (multiDayShowMap ? 'w-[260px] shrink-0' : 'flex-1 min-w-[205px]')
+      : 'w-full';
 
     return `
       <div id="day-col-${d}"
@@ -452,35 +786,35 @@ export function renderKanbanBoard() {
         ondrop="onDropOnDay(event, ${d})"
         class="${colWidthClass} bg-slate-50/95 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
         
-        <div class="p-3 bg-white border-b border-slate-200 space-y-1 shrink-0" style="border-top: 3px solid ${dayColor};">
-          <div class="flex items-center justify-between">
-            <div class="flex items-baseline gap-1.5">
-              <span class="font-extrabold text-sm" style="color:${dayColor}">Day ${d}</span>
-              <span class="text-xs font-semibold text-slate-500">${info.md} (${info.week})</span>
+        <div class="${isCompactMulti ? 'px-2.5 py-2' : 'p-3'} bg-white border-b border-slate-200 space-y-1 shrink-0" style="border-top: 3px solid ${dayColor};">
+          <div class="flex items-center justify-between gap-1">
+            <div class="flex items-baseline gap-1 min-w-0">
+              <span class="font-extrabold text-sm shrink-0" style="color:${dayColor}">Day ${d}</span>
+              <span class="text-xs font-semibold text-slate-500 truncate">${info.md} (${info.week})</span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <label class="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1">
-                <span>出發</span>
+            <div class="flex items-center gap-1 shrink-0">
+              <label class="text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                ${isCompactMulti ? '' : '<span>出發</span>'}
                 <input type="time" value="${initialStart}" onchange="updateDayStartTime(${d}, this.value)"
-                  class="bg-transparent font-bold text-slate-700 focus:outline-none w-14" />
+                  class="bg-transparent font-bold text-slate-700 focus:outline-none w-12" />
               </label>
               <button onclick="addReturnToHotel(${d})" title="將當晚住宿飯店加入行程最後作為回程"
-                class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold">
-                ↩ 回住宿
+                class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold">
+                ${isCompactMulti ? '↩宿' : '↩ 回住宿'}
               </button>
             </div>
           </div>
           <div class="flex items-center justify-between text-[11px] text-slate-500">
-            <span>共 ${items.length} 項・活動 ${(totalActMin / 60).toFixed(1).replace('.0', '')}h</span>
-            <span class="text-blue-600 font-semibold">移動 ${totalTransitMin} 分・約 ${endTimeStr} 結束</span>
+            <span>${items.length}項・${(totalActMin / 60).toFixed(1).replace('.0', '')}h</span>
+            <span class="text-blue-600 font-semibold">${isCompactMulti ? `~${endTimeStr}結束` : `移動 ${totalTransitMin} 分・約 ${endTimeStr} 結束`}</span>
           </div>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1">
+        <div class="flex-1 min-h-0 overflow-y-auto ${isCompactMulti ? 'p-2 space-y-1' : 'p-2.5 space-y-1'}">
           ${items.length > 0 ? cardsHtml : `
-            <div class="h-36 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-4 text-center">
-              <i class="fa-solid fa-hand-pointer mb-1.5 text-base"></i>
-              <span>從左側口袋拖曳卡片至此，或點擊「+ Day ${d}」排入</span>
+            <div class="h-32 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs p-3 text-center">
+              <i class="fa-solid fa-hand-pointer mb-1 text-base"></i>
+              <span>可拖曳其他天行程至此</span>
             </div>
           `}
         </div>
@@ -707,8 +1041,15 @@ export function addReturnToHotel(dayNum) {
 }
 
 export function selectDayFocus(dayNum) {
+  const wasMulti = state.boardMultiDayMode;
+  state.boardMultiDayMode = false;
   state.mapOverviewAllDays = false;
   state.selectedMapDay = dayNum;
+  const label = document.getElementById('boardModeLabel');
+  if (label) label.textContent = '多日並列';
+  if (wasMulti) {
+    applyMultiDayWorkspaceLayout(false);
+  }
   document.getElementById('mapDaySelect').value = String(dayNum);
   renderKanbanBoard();
   hooks.renderMapMarkers();
