@@ -4,7 +4,7 @@ import {
   DAY_ROUTE_COLORS,
   isTransportOrAirport
 } from './config.js';
-import { state, hooks, persistState, showToast } from './state.js';
+import { state, hooks, persistState, getCardScheduledDays, showToast } from './state.js';
 import {
   normalizeAdministrativeDistrict,
   computeWalkingMinutes,
@@ -16,6 +16,7 @@ import {
   buildCurvedFlightArc
 } from './geo.js';
 import { getFormattedDateInfo, getLodgingStatusForItem } from './ui-board.js';
+import { getCardProximityToSelectedDay } from './ui-cards.js';
 
 let mapInstance = null;
 let mapMarkersLayer = null;
@@ -49,11 +50,21 @@ function hasValidCoords(card) {
 }
 
 function createColoredPinIcon(color, labelText, isGhost = false, isWideBadge = false) {
-  const opacityStyle = isGhost ? 'opacity:0.78;border-style:dashed;' : '';
+  // 疊加在規劃地圖上的口袋未排入點位：採用圓角小方徽章（rounded-md）並加白框，與當日圓形數字路線點位（1, 2, 3）清楚區分
+  if (isGhost) {
+    return L.divIcon({
+      className: 'custom-pocket-overlay-pin',
+      html: `<div style="background:${color};color:#fff;width:22px;height:22px;font-size:10px;border-radius:6px;border:2px solid #fff;opacity:0.92;box-shadow:0 2px 5px rgba(0,0,0,0.32);display:flex;align-items:center;justify-content:center;font-weight:800;">${labelText}</div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      popupAnchor: [0, -12]
+    });
+  }
+
   const sizeStyle = isWideBadge ? 'min-width:30px;height:24px;padding:0 5px;font-size:10px;' : 'width:26px;height:26px;font-size:11px;';
   return L.divIcon({
     className: 'custom-map-pin',
-    html: `<div style="background:${color};color:#fff;${sizeStyle}border-radius:9999px;border:2.5px solid #fff;${opacityStyle}box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-weight:800;white-space:nowrap;">${labelText}</div>`,
+    html: `<div style="background:${color};color:#fff;${sizeStyle}border-radius:9999px;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-weight:800;white-space:nowrap;">${labelText}</div>`,
     iconSize: isWideBadge ? [32, 24] : [26, 26],
     iconAnchor: isWideBadge ? [16, 12] : [13, 13],
     popupAnchor: [0, -14]
@@ -167,7 +178,6 @@ async function drawAndComputeLegRoute(cardA, cardB, item, dayColorOverride, rend
       }
 
       if (multiSeg.hasStopSplit) {
-        // 單日與多日均統一採用該日的專屬路線主題色（dayColorOverride）
         const rideColor = dayColorOverride || multiSeg.routeColor || (multiSeg.isMonorail ? '#dc2626' : '#7c3aed');
         L.polyline(multiSeg.walk1Path, { color: rideColor, weight: 3.5, opacity: 0.72, dashArray: '4, 6' }).addTo(mapRouteLayer);
         L.polyline(multiSeg.ridePath, { color: rideColor, weight: 4.5, opacity: 0.94 }).addTo(mapRouteLayer);
@@ -440,7 +450,7 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     return;
   }
 
-  // ==================== 模式 2：單日聚焦路線檢核模式（與多日分色維持完全一致主題色） ====================
+  // ==================== 模式 2：單日聚焦路線檢核模式 ====================
   const d = state.selectedMapDay;
   const activeDayColor = DAY_ROUTE_COLORS[(d - 1) % DAY_ROUTE_COLORS.length];
 
@@ -527,7 +537,6 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
     const nextItem = items[idx + 1];
     const nextCard = nextItem ? state.cards.find(c => c.id === nextItem.cardId) : null;
     if (nextCard) {
-      // 傳入 activeDayColor，確保單日模式與多日模式的該日路線顏色完全一致
       const legRes = await drawAndComputeLegRoute(card, nextCard, item, activeDayColor, renderToken);
       if (!legRes || renderToken !== currentRenderToken) return;
       if (legRes.changed) anyMetricUpdated = true;
@@ -557,37 +566,52 @@ export async function renderMapMarkers(filteredCardsProvider = null) {
 
   if (renderToken !== currentRenderToken) return;
 
+  // 在規劃模式疊加顯示口袋點位，並與左側快速篩選膠囊即時連動
   if (state.overlayPocketOnPlan) {
+    const activeQuickCat = CATEGORY_LIST.includes(state.planQuickFilter) ? state.planQuickFilter : null;
+    const onlyUnscheduled = state.planQuickFilter === 'unscheduled';
+
     state.cards.forEach(c => {
       if (dayCardIds.has(c.id)) return;
       if (state.mapVisibleCategories[c.category] === false) return;
+      if (activeQuickCat && c.category !== activeQuickCat) return;
+      if (onlyUnscheduled && getCardScheduledDays(c.id).length > 0) return;
       if (!hasValidCoords(c)) return;
 
       visiblePinCount++;
       const meta = CATEGORY_META[c.category] || CATEGORY_META['景點'];
       const cleanDist = normalizeAdministrativeDistrict(c.district, c.country);
+      const prox = getCardProximityToSelectedDay(c);
+      const proxLine = prox ? `<div class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">📍 距 ${prox.anchorName} 約 ${prox.label}</div>` : '';
+
       const pocketMarker = L.marker([c.lat, c.lng], {
         icon: createColoredPinIcon(meta.color, meta.pinChar || c.category[0], true)
       });
 
-      pocketMarker.bindTooltip(`${meta.emoji} ${c.title}`, {
+      pocketMarker.bindTooltip(`${meta.emoji} ${c.title}${prox ? `（距${prox.shortAnchor} ${prox.label}）` : ''}`, {
         direction: 'top',
-        offset: [0, -14],
+        offset: [0, -12],
         className: 'spot-hover-tooltip'
       });
 
       pocketMarker.bindPopup(`
-        <div class="text-xs space-y-1.5 min-w-[170px]">
-          <div class="font-bold text-slate-800">${c.title}</div>
-          <div class="text-[11px] text-slate-500">${cleanDist}・${c.category}</div>
+        <div class="text-xs space-y-1.5 min-w-[180px]">
+          <div class="flex items-center justify-between gap-1">
+            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border ${meta.badgeBg}">${c.category}</span>
+            <span class="text-[10px] text-slate-400">${cleanDist}</span>
+          </div>
+          <div class="font-bold text-slate-800 leading-snug">${c.title}</div>
+          ${proxLine}
           <button onclick="addCardToDay('${c.id}', ${d})"
-            class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold">
-            + Day ${d}
+            class="w-full mt-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs">
+            + 直接排入 Day ${d}
           </button>
         </div>
       `);
 
+      pocketMarker.on('click', () => highlightDatabaseCard(c.id));
       pocketMarker.addTo(mapMarkersLayer);
+      markerLookup[c.id] = pocketMarker;
     });
   }
 
@@ -643,6 +667,9 @@ export function focusCardOnMap(cardId, warnIfMissing = true) {
       hooks.renderMapMarkers();
     }
     mapInstance.setView([card.lat, card.lng], 15, { animate: true });
+    if (markerLookup[cardId]) {
+      setTimeout(() => markerLookup[cardId]?.openPopup(), 250);
+    }
   } else if (warnIfMissing) {
     showToast('此卡片尚未設定座標，請在編輯視窗填入經緯度', 'amber');
   }
