@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>沖繩卡片式旅遊規劃系統</title>
+  <title>e-chi Go｜一起去旅行</title>
 
   <!-- PWA 全螢幕 App 設定（加到主畫面後隱藏網址列） -->
-  <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#2563eb" />
+  <link rel="manifest" href="./manifest.json?v=20261118b" />
+  <meta name="theme-color" content="#2C4D6E" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="沖繩行程" />
+  <meta name="apple-mobile-web-app-title" content="e-chi Go" />
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -23,19 +23,25 @@
   <!-- Turf.js 空間幾何切片引擎（軌道與公車路線精準貼合） -->
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <!-- 自訂樣式表 -->
-  <link rel="stylesheet" href="./css/style.css?v=20261118" />
+  <link rel="stylesheet" href="./css/style.css?v=20261118b" />
 </head>
 <body class="h-dvh flex flex-col select-none overflow-hidden">
 
   <!-- ==================== 頂部導覽列 ==================== -->
   <header class="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
     <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-      <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-        <i class="fa-solid fa-globe text-sm sm:text-base"></i>
+      <!-- e-chi Go 專屬文青灰藍 Logo -->
+      <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2C4D6E] text-white flex items-center justify-center shrink-0 shadow-xs">
+        <svg viewBox="0 0 64 64" class="w-5 h-5 sm:w-6 sm:h-6" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 44 C 24 28, 38 46, 48 26" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="16" cy="44" r="5" fill="#F8FAFC"/>
+          <path d="M48 14 C 43 14, 39 18, 39 23 C 39 29, 48 37, 48 37 C 48 37, 57 29, 57 23 C 57 18, 53 14, 48 14 Z" fill="#FBBF24"/>
+          <circle cx="48" cy="22.5" r="3" fill="#2C4D6E"/>
+        </svg>
       </div>
       <div class="truncate">
-        <h1 id="tripTitleDisplay" class="font-bold text-sm sm:text-base text-slate-800 truncate">2027沖繩首發自由行</h1>
-        <p id="tripDateDisplay" class="hidden sm:block text-[11px] text-slate-500">2027-02-17 ~ 2027-02-22 (6天5夜)</p>
+        <h1 id="tripTitleDisplay" class="font-bold text-sm sm:text-base text-slate-800 truncate">e-chi Go</h1>
+        <p id="tripDateDisplay" class="hidden sm:block text-[11px] text-slate-500">一起去旅行 GO・卡片式行程規劃</p>
       </div>
     </div>
 
@@ -87,23 +93,18 @@
         <div class="flex items-center justify-between gap-1.5 flex-wrap">
           <div class="flex items-center gap-1.5">
             <span class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-              <i class="fa-solid fa-database text-blue-600"></i>
+              <i class="fa-solid fa-database text-[#2C4D6E]"></i>
               <span id="dbPanelTitleText">全球口袋資料庫</span>
             </span>
             <button id="btnAddCardCollect" onclick="openCardModal()"
               class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
               <i class="fa-solid fa-plus"></i> 新增卡片
             </button>
-            <button id="btnToggleBatchBox" onclick="toggleBatchImportBox()"
-              class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium flex items-center gap-1 transition">
-              <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
-              <span>批次匯入</span>
-            </button>
           </div>
 
           <div class="flex items-center gap-1.5">
             <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
-              class="hidden md:flex px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold items-center gap-1 transition"
+              class="hidden md:inline-flex px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold items-center gap-1 transition"
               title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
               <i class="fa-solid fa-compress text-blue-600"></i>
               <span id="miniCardBtnLabel">迷你卡片</span>
@@ -112,42 +113,6 @@
             <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
               class="hidden px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:bg-slate-200/70 items-center gap-1">
               <i class="fa-solid fa-angles-left"></i> 收合
-            </button>
-          </div>
-        </div>
-
-        <!-- 批次自動定位並分類入庫面板 -->
-        <div id="batchImportBox" class="hidden bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div class="flex items-center gap-2 flex-wrap">
-              <select id="batchDefaultCategory" class="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:border-blue-500">
-                <option value="景點">🏞️ 預設類別：景點</option>
-                <option value="美食">🍜 預設類別：美食</option>
-                <option value="購物">🛍️ 預設類別：購物</option>
-                <option value="住宿">🏨 預設類別：住宿</option>
-                <option value="機場">✈️ 預設類別：機場</option>
-                <option value="交通">🚆 預設類別：交通</option>
-                <option value="體驗">🎡 預設類別：體驗</option>
-              </select>
-              <label class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 cursor-pointer">
-                <input type="checkbox" id="batchAutoGeocode" checked class="accent-emerald-600 rounded" />
-                <span>✨ 自動抓座標與行政區</span>
-              </label>
-            </div>
-            <button onclick="batchUpdateAllDistricts()"
-              class="text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1 transition">
-              <i class="fa-solid fa-compass"></i> 補齊並統一全部行政區
-            </button>
-          </div>
-
-          <div class="flex flex-col sm:flex-row gap-2">
-            <textarea id="batchInputText" rows="2"
-              placeholder="貼上 Google Maps 網址，或輸入地點名稱（一行一筆，自動置頂並標示 NEW）..."
-              class="flex-1 text-xs p-2 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-500 resize-none bg-slate-50/50"></textarea>
-            <button id="btnBatchImport" onclick="handleBatchImport()"
-              class="sm:w-44 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 transition shadow-xs">
-              <i class="fa-solid fa-magnifying-glass-location"></i>
-              <span>批次定位並置頂入庫</span>
             </button>
           </div>
         </div>
@@ -199,7 +164,7 @@
             class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">全部</button>
         </div>
 
-        <!-- 模式 1 專屬：完整多層級篩選膠囊 -->
+        <!-- 模式 1 專屬：地區與分類篩選膠囊 -->
         <div id="advancedFilterGroup" class="space-y-1.5">
           <div class="flex flex-wrap items-center gap-1.5">
             <button onclick="setFilter('scope', 'all')" data-filter-scope="all"
@@ -219,36 +184,23 @@
             </select>
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-1">
-            <div class="flex flex-wrap items-center gap-1">
-              <button onclick="setFilter('category', 'all')" data-filter-cat="all"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">全部</button>
-              <button onclick="setFilter('category', '景點')" data-filter-cat="景點"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
-              <button onclick="setFilter('category', '美食')" data-filter-cat="美食"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
-              <button onclick="setFilter('category', '購物')" data-filter-cat="購物"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
-              <button onclick="setFilter('category', '住宿')" data-filter-cat="住宿"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
-              <button onclick="setFilter('category', '機場')" data-filter-cat="機場"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
-              <button onclick="setFilter('category', '交通')" data-filter-cat="交通"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
-              <button onclick="setFilter('category', '體驗')" data-filter-cat="體驗"
-                class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
-            </div>
-
-            <div class="flex items-center gap-1">
-              <button onclick="setFilter('status', 'all')" data-filter-status="all"
-                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-700 text-white">全部</button>
-              <button onclick="setFilter('status', 'unscheduled')" data-filter-status="unscheduled"
-                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">未排入</button>
-              <button onclick="setFilter('status', 'scheduled')" data-filter-status="scheduled"
-                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✅ 已納入</button>
-              <button onclick="setFilter('status', 'starred')" data-filter-status="starred"
-                class="status-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">⭐ 二訪</button>
-            </div>
+          <div class="flex flex-wrap items-center gap-1">
+            <button onclick="setFilter('category', 'all')" data-filter-cat="all"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-600 text-white">全部</button>
+            <button onclick="setFilter('category', '景點')" data-filter-cat="景點"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
+            <button onclick="setFilter('category', '美食')" data-filter-cat="美食"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
+            <button onclick="setFilter('category', '購物')" data-filter-cat="購物"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
+            <button onclick="setFilter('category', '住宿')" data-filter-cat="住宿"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+            <button onclick="setFilter('category', '機場')" data-filter-cat="機場"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
+            <button onclick="setFilter('category', '交通')" data-filter-cat="交通"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+            <button onclick="setFilter('category', '體驗')" data-filter-cat="體驗"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
           </div>
         </div>
       </div>
@@ -296,7 +248,7 @@
       <!-- 模式 1 頂部標題列 -->
       <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div class="flex items-center gap-2">
-          <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-[#2C4D6E]"></span>
           <span class="text-xs font-bold text-slate-800">景點分布檢核地圖</span>
         </div>
         <div class="flex items-center gap-1.5">
@@ -429,7 +381,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="sm:col-span-2">
             <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
-            <input type="text" id="fieldTitle" placeholder="例如：那霸空港 / 那霸久茂地巢穴酒店"
+            <input type="text" id="fieldTitle" placeholder="輸入景點、餐廳、飯店或機場名稱"
               class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 font-semibold text-slate-800" />
           </div>
           <div>
@@ -483,13 +435,13 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[11px] font-semibold text-slate-600 mb-1">緯度 (lat)</label>
-              <input type="number" step="any" id="fieldLat" placeholder="26.2124"
+              <input type="number" step="any" id="fieldLat" placeholder="25.0330"
                 onpaste="handleLatLngPaste(event)"
                 class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <label class="block text-[11px] font-semibold text-slate-600 mb-1">經度 (lng)</label>
-              <input type="number" step="any" id="fieldLng" placeholder="127.6792"
+              <input type="number" step="any" id="fieldLng" placeholder="121.5654"
                 class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500" />
             </div>
           </div>
@@ -596,7 +548,16 @@
   <!-- Toast 提示訊息 -->
   <div id="toastContainer" class="fixed bottom-16 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-max max-w-[92vw]"></div>
 
+  <!-- 註冊 Service Worker 以啟用純淨獨立 App 安裝 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+
   <!-- ES6 模組化總入口 -->
-  <script type="module" src="./js/app.js?v=20261118"></script>
+  <script type="module" src="./js/app.js?v=20261118b"></script>
 </body>
 </html>
