@@ -316,6 +316,12 @@ export function renderDatabaseCards() {
         ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">${chipText}</span>`
         : '';
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
+      const fullDist = normalizeAdministrativeDistrict(card.district, card.country);
+      const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + fullDist)}`;
+
+      const detailsHtml = renderCategorySummaryHtml(card);
+      const hasDetails = Boolean(detailsHtml);
+      const isExpanded = !!state.expandedCards[card.id];
 
       const prox = getCardProximityToSelectedDay(card);
       const proxBadgeHtml = prox
@@ -323,6 +329,13 @@ export function renderDatabaseCards() {
              <i class="fa-solid fa-route text-[9px]"></i>
              <span>距${prox.shortAnchor} ${prox.label}</span>
            </div>`
+        : '';
+
+      const detailToggleBtn = hasDetails
+        ? `<button type="button" onclick="toggleCardDetailExpand('${card.id}')" title="展開或收合景點詳細介紹"
+             class="px-1.5 py-0.5 rounded border text-[10px] font-semibold transition shrink-0 ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border-slate-200'}">
+             ${isExpanded ? '收合' : '詳情'}
+           </button>`
         : '';
 
       return `
@@ -344,11 +357,33 @@ export function renderDatabaseCards() {
 
           <div class="flex items-center justify-between gap-1 pt-0.5" onclick="event.stopPropagation()">
             <span class="text-[10px] text-slate-500 truncate">${cleanDist}・${card.duration || 60}分</span>
-            <button onclick="addCardToDay('${card.id}', ${state.selectedMapDay})"
-              class="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 text-[10px] font-bold shrink-0 transition">
-              + Day ${state.selectedMapDay}
-            </button>
+            <div class="flex items-center gap-1 shrink-0">
+              ${detailToggleBtn}
+              <button type="button" onclick="openCardModal('${card.id}')" title="檢視與編輯完整資訊"
+                class="w-5 h-5 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-600 border border-slate-200 text-[10px] flex items-center justify-center transition">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              <button type="button" onclick="addCardToDay('${card.id}', ${state.selectedMapDay})"
+                class="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 text-[10px] font-bold shrink-0 transition">
+                + Day ${state.selectedMapDay}
+              </button>
+            </div>
           </div>
+
+          ${hasDetails && isExpanded ? `
+            <div class="space-y-1 pt-1.5 mt-1 border-t border-dashed border-slate-200" onclick="event.stopPropagation()">
+              ${detailsHtml}
+              <div class="pt-0.5 flex items-center justify-between text-[10px]">
+                <a href="${gmapsUrl}" target="_blank" rel="noopener" class="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1">
+                  <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                  <span>開啟 Google Maps</span>
+                </a>
+                <button type="button" onclick="openCardModal('${card.id}')" class="text-amber-700 hover:underline font-semibold">
+                  編輯資料
+                </button>
+              </div>
+            </div>
+          ` : ''}
         </div>
       `;
     }).join('');
@@ -718,7 +753,6 @@ function renderCategoryDynamicFields(category, card = {}) {
   const box = document.getElementById('dynamicCategoryFieldsBox');
 
   if (category === '機場') {
-    // 若先前誤把「抵達」填在 departTime，打開視窗時自動歸位到 arriveTime
     let depVal = card.departTime || '';
     let arrVal = card.arriveTime || '';
     if (depVal.includes('抵達') && !arrVal) {
