@@ -1,3 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>e-chi Go｜一起去旅行</title>
+
+  <!-- PWA 全螢幕 App 設定（加到主畫面後隱藏網址列） -->
+  <link rel="manifest" href="./manifest.json?v=20261118c" />
+  <meta name="theme-color" content="#2C4D6E" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="e-chi Go" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- Leaflet Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Turf.js 空間幾何切片引擎（軌道與公車路線精準貼合） -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <!-- 自訂樣式表 -->
+  <link rel="stylesheet" href="./css/style.css?v=20261118c" />
+</head>
+<body class="h-dvh flex flex-col select-none overflow-hidden">
+
+  <!-- ==================== 頂部導覽列 ==================== -->
+  <header class="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <!-- e-chi Go 專屬文青灰藍 Logo（點擊可返回所有行程總覽） -->
+      <button type="button" onclick="openTripListOverview()" title="返回我的行程總覽"
+        class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2C4D6E] text-white flex items-center justify-center shrink-0 shadow-xs hover:opacity-95 transition">
+        <svg viewBox="0 0 64 64" class="w-5 h-5 sm:w-6 sm:h-6" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 44 C 24 28, 38 46, 48 26" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="16" cy="44" r="5" fill="#F8FAFC"/>
+          <path d="M48 14 C 43 14, 39 18, 39 23 C 39 29, 48 37, 48 37 C 48 37, 57 29, 57 23 C 57 18, 53 14, 48 14 Z" fill="#FBBF24"/>
+          <circle cx="48" cy="22.5" r="3" fill="#2C4D6E"/>
+        </svg>
+      </button>
+      <div class="truncate">
+        <h1 id="tripTitleDisplay" class="font-bold text-sm sm:text-base text-slate-800 truncate">e-chi Go</h1>
+        <p id="tripDateDisplay" class="hidden sm:block text-[11px] text-slate-500">一起去旅行 GO・多旅程卡片式規劃</p>
+      </div>
+    </div>
+
+    <!-- 桌面版雙模式切換器（預設：我的行程 → 口袋清單） -->
+    <div id="desktopModeSwitcher" class="hidden md:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+      <button id="tabModePlan" onclick="switchWorkspaceMode('plan')"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs">
+        <i class="fa-solid fa-suitcase-rolling"></i>
+        <span>我的行程</span>
+        <span id="badgeTripsCount" class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white">1</span>
+      </button>
+      <button id="tabModeCollect" onclick="switchWorkspaceMode('collect')"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900">
+        <i class="fa-solid fa-layer-group"></i>
+        <span>口袋清單</span>
+        <span id="badgeTotalCount" class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">0</span>
+      </button>
+    </div>
+
+    <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <div id="syncStatusPill" class="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <span id="syncStatusText" class="hidden lg:inline">Google 試算表已連線</span>
+      </div>
+      <button onclick="openSettingsModal()" title="設定行程專案與 Google Apps Script 網址"
+        class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
+        <i class="fa-solid fa-gear text-sm"></i>
+      </button>
+      <button id="btnPushSync" onclick="pushAllToGoogleSheets(false)" title="立即將所有旅程與口袋資料寫回 Google 試算表"
+        class="px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
+        <i id="pushIcon" class="fa-solid fa-cloud-arrow-up"></i>
+        <span class="hidden sm:inline">寫入試算表</span>
+        <span class="sm:hidden">寫入</span>
+      </button>
+      <button id="btnManualSync" onclick="pullFromGoogleSheets(true)" title="從 Google 試算表重新載入最新資料"
+        class="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
+        <i id="syncIcon" class="fa-solid fa-rotate"></i>
+        <span id="syncBtnLabel" class="hidden sm:inline">重新載入</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== 主工作區容器 ==================== -->
+  <main id="workspaceMain" class="flex-1 flex overflow-hidden relative min-h-0">
+
+    <!-- ==================== 視圖 0：我的行程專案總覽牆（建立 / 切換多趟旅程） ==================== -->
+    <section id="tripProjectsSection" class="flex-1 bg-slate-50/70 overflow-y-auto p-3.5 sm:p-6 z-20 min-h-0">
+      <div class="max-w-5xl mx-auto space-y-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
+          <div>
+            <h2 class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-compass text-[#2C4D6E]"></i>
+              <span>我的旅程專案</span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">選擇一趟旅程進入每日排程與路線地圖，或建立全新的國內外自由行計畫</p>
+          </div>
+          <button type="button" onclick="openCreateTripModal()"
+            class="px-3.5 py-2 rounded-xl bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-xs transition">
+            <i class="fa-solid fa-plus"></i>
+            <span>建立新行程</span>
+          </button>
+        </div>
+
+        <!-- 旅程專案卡片網格 -->
+        <div id="tripProjectsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5"></div>
+      </div>
+    </section>
+
+    <!-- ==================== 區塊 A：全球口袋資料庫 / 規劃待排口袋 ==================== -->
+    <section id="databasePanel" style="width: 62%;" class="hidden bg-white flex-col shrink-0 z-20 min-h-0 min-w-[230px]">
+      <div id="dbToolbarContainer" class="p-2.5 border-b border-slate-100 space-y-2 bg-slate-50/70 shrink-0">
+        <div class="flex items-center justify-between gap-1.5 flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+              <i class="fa-solid fa-database text-[#2C4D6E]"></i>
+              <span id="dbPanelTitleText">全球口袋資料庫</span>
+            </span>
+            <button id="btnAddCardCollect" onclick="openCardModal()"
+              class="px-2.5 py-1 rounded-lg bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold flex items-center gap-1 shadow-xs transition">
+              <i class="fa-solid fa-plus"></i> 新增卡片
+            </button>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <!-- 僅在電腦端（md 以上）顯示迷你/完整卡片切換，手機端自動隱藏 -->
+            <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
+              class="hidden md:inline-flex px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold items-center gap-1 transition"
+              title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
+              <i class="fa-solid fa-compress text-[#2C4D6E]"></i>
+              <span id="miniCardBtnLabel">迷你卡片</span>
+            </button>
+
+            <button id="btnCollapsePocket" onclick="togglePocketCollapse()"
+              class="hidden px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:bg-slate-200/70 items-center gap-1">
+              <i class="fa-solid fa-angles-left"></i> 收合
+            </button>
+          </div>
+        </div>
+
+        <!-- 關鍵字搜尋 ＋ 排序切換器（統一 h-9 高度與比例對齊） -->
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1 min-w-0 h-9">
+            <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input type="text" id="searchInput" oninput="renderDatabaseCards()"
+              placeholder="搜尋地點、行政區..."
+              class="w-full h-9 pl-8 pr-7 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E] text-slate-700" />
+            <button type="button" onclick="clearSearch()" title="清除搜尋"
+              class="text-slate-400 hover:text-slate-600 text-xs absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <div id="sortSelectWrapper" class="h-9 shrink-0 flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5">
+            <i class="fa-solid fa-arrow-down-wide-short text-[#2C4D6E] text-xs shrink-0"></i>
+            <select id="sortSelect" onchange="renderDatabaseCards()"
+              class="h-full text-xs font-semibold text-slate-700 bg-transparent focus:outline-none cursor-pointer pr-0.5">
+              <option value="newest">最新加入優先</option>
+              <option value="unscheduled">未排入優先</option>
+              <option value="district">依行政區排列</option>
+              <option value="original">試算表順序</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 模式 2 專屬：精簡快速篩選條 -->
+        <div id="planQuickFilterBar" class="hidden flex-wrap items-center gap-1">
+          <button onclick="setPlanQuickFilter('unscheduled')" data-plan-q="unscheduled"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-[#2C4D6E] text-white">未排入</button>
+          <button onclick="setPlanQuickFilter('景點')" data-plan-q="景點"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
+          <button onclick="setPlanQuickFilter('美食')" data-plan-q="美食"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
+          <button onclick="setPlanQuickFilter('購物')" data-plan-q="購物"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
+          <button onclick="setPlanQuickFilter('住宿')" data-plan-q="住宿"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+          <button onclick="setPlanQuickFilter('機場')" data-plan-q="機場"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
+          <button onclick="setPlanQuickFilter('交通')" data-plan-q="交通"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+          <button onclick="setPlanQuickFilter('體驗')" data-plan-q="體驗"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
+          <button onclick="setPlanQuickFilter('all')" data-plan-q="all"
+            class="plan-q-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">全部</button>
+        </div>
+
+        <!-- 模式 1 專屬：地區與分類篩選膠囊 -->
+        <div id="advancedFilterGroup" class="space-y-1.5">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button onclick="setFilter('scope', 'all')" data-filter-scope="all"
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-800 text-white">全部 (0)</button>
+            <button onclick="setFilter('scope', 'domestic')" data-filter-scope="domestic"
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">TW 國內 (0)</button>
+            <button onclick="setFilter('scope', 'international')" data-filter-scope="international"
+              class="scope-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">✈️ 國外 (0)</button>
+
+            <select id="countryFilter" onchange="onCountryFilterChange()"
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
+              <option value="all">全部國家 / 地區</option>
+            </select>
+            <select id="cityFilter" onchange="renderDatabaseCards()"
+              class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
+              <option value="all">全部城市 / 町村</option>
+            </select>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-1">
+            <button onclick="setFilter('category', 'all')" data-filter-cat="all"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-bold bg-[#2C4D6E] text-white">全部</button>
+            <button onclick="setFilter('category', '景點')" data-filter-cat="景點"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏞️ 景點</button>
+            <button onclick="setFilter('category', '美食')" data-filter-cat="美食"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🍜 美食</button>
+            <button onclick="setFilter('category', '購物')" data-filter-cat="購物"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🛍️ 購物</button>
+            <button onclick="setFilter('category', '住宿')" data-filter-cat="住宿"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🏨 住宿</button>
+            <button onclick="setFilter('category', '機場')" data-filter-cat="機場"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">✈️ 機場</button>
+            <button onclick="setFilter('category', '交通')" data-filter-cat="交通"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🚆 交通</button>
+            <button onclick="setFilter('category', '體驗')" data-filter-cat="體驗"
+              class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 卡片列表容器 -->
+      <div id="databaseCardsContainer" class="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40"></div>
+    </section>
+
+    <!-- 分隔拖曳桿 1 -->
+    <div id="resizerLeft" class="split-resizer hidden" title="按住左右拖曳可自由調整區塊寬度"></div>
+
+    <!-- 模式2收合口袋後的展開浮動按鈕 -->
+    <button id="btnExpandPocket" onclick="togglePocketCollapse()"
+      class="hidden absolute left-2 top-3 z-30 bg-white border border-slate-300 shadow-md rounded-lg px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700 items-center gap-1.5">
+      <i class="fa-solid fa-angles-right text-[#2C4D6E]"></i>
+      <span>展開口袋</span>
+    </button>
+
+    <!-- ==================== 區塊 B：行程規劃區 ==================== -->
+    <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
+      <!-- 頂部返回行程總覽與操作列 -->
+      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <button type="button" onclick="openTripListOverview()"
+          class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition shrink-0">
+          <i class="fa-solid fa-arrow-left text-[#2C4D6E]"></i>
+          <span>所有行程</span>
+        </button>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="btnBoardMultiDayToggle" onclick="toggleBoardMultiDayMode()"
+            class="hidden md:flex px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 items-center gap-1"
+            title="在單日聚焦與多日並列檢視間切換">
+            <i class="fa-solid fa-columns"></i>
+            <span id="boardModeLabel">多日並列</span>
+          </button>
+          <button onclick="pushAllToGoogleSheets(false)"
+            class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition">
+            <i class="fa-solid fa-floppy-disk"></i> 儲存排程
+          </button>
+        </div>
+      </div>
+
+      <!-- Day 1 ~ Day N 橫向快速切換膠囊列 -->
+      <div class="px-3 py-1.5 bg-slate-50 border-b border-slate-200 shrink-0">
+        <div id="dayNavPills" class="flex items-center gap-1.5 overflow-x-auto py-0.5"></div>
+      </div>
+
+      <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch"></div>
+    </section>
+
+    <!-- 分隔拖曳桿 2 -->
+    <div id="resizerRight" class="split-resizer hidden" title="按住左右拖曳可自由調整地圖寬度"></div>
+
+    <!-- ==================== 區塊 C：地圖與路線檢核面板 ==================== -->
+    <aside id="mapPanel" class="hidden flex-1 bg-white flex-col min-w-[260px] z-10 min-h-0">
+      <!-- 模式 1 頂部標題列 -->
+      <div id="mapHeaderCollectMode" class="p-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0 flex-wrap">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#2C4D6E]"></span>
+          <span class="text-xs font-bold text-slate-800">景點分布檢核地圖</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button onclick="toggleMapDrawer()"
+            class="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-bold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-layer-group text-[#2C4D6E]"></i>
+            <span>分類圖層</span>
+          </button>
+          <button onclick="fitMapToFilteredCards()"
+            class="px-2 py-1 rounded-md bg-white border border-slate-200 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-expand text-[#2C4D6E]"></i> 全覽
+          </button>
+        </div>
+      </div>
+
+      <!-- 模式 2 單行精簡控制列 -->
+      <div id="mapHeaderPlanMode" class="hidden px-2.5 py-2 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <select id="mapDaySelect" onchange="onMapDayChange()"
+            class="text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-none">
+          </select>
+          <select id="transitProfileSelect" onchange="recalculateAllDayTimes()"
+            class="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none">
+            <option value="smart">🔀 智慧混搭</option>
+            <option value="transit">🚝 單軌/公車</option>
+            <option value="taxi">🚕 計程車</option>
+            <option value="drive">🚗 自駕道路</option>
+            <option value="walk">🚶 步行路徑</option>
+          </select>
+          <span id="dailyTransitBadge" class="px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[#2C4D6E] text-[11px] font-bold">
+            0 分 (0 km)
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button id="btnOverlayPocket" onclick="toggleOverlayPocketOnPlanMap()"
+            class="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold flex items-center gap-1 transition"
+            title="在地圖疊加顯示尚未排入的口袋點位">
+            <i class="fa-solid fa-location-dot text-[#2C4D6E]"></i>
+            <span id="overlayPocketStatusText">疊加口袋</span>
+          </button>
+          <button id="btnToggleMapDrawer" onclick="toggleMapDrawer()"
+            class="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold flex items-center gap-1 transition">
+            <i class="fa-solid fa-sliders text-[#2C4D6E]"></i>
+            <span>圖層與明細</span>
+            <i id="mapDrawerChevron" class="fa-solid fa-chevron-down text-[9px]"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 可收合抽屜：分類圖層開關 ＋ 多日顏色圖例 ＋ 路線明細 -->
+      <div id="mapCollapsibleDrawer" class="px-2.5 py-2 bg-white border-b border-slate-200 space-y-2 shrink-0">
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold text-slate-700 flex items-center gap-1">
+              <i class="fa-solid fa-eye text-[#2C4D6E]"></i>
+              <span>分類圖層（點擊可隱藏/開啟）</span>
+            </span>
+            <div class="flex items-center gap-1">
+              <button onclick="setOnlyAttractionsLayer()"
+                class="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                只看景點
+              </button>
+              <button onclick="setAllMapLayersVisible(true)"
+                class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold">
+                全開
+              </button>
+              <span id="mapPinCounter" class="text-[10px] text-slate-400 font-medium ml-1">0 釘</span>
+            </div>
+          </div>
+          <div id="mapCategoryToggleContainer" class="flex items-center gap-1 flex-wrap"></div>
+        </div>
+
+        <div id="planRouteLegsDrawerSection" class="hidden pt-1.5 border-t border-slate-100 space-y-1.5">
+          <div id="multiDayLegendBox" class="hidden flex-wrap items-center gap-1.5 pb-1 border-b border-slate-100"></div>
+
+          <div class="flex items-center justify-between text-[11px]">
+            <span id="routeLegsDrawerTitle" class="font-bold text-slate-700"><i class="fa-solid fa-route text-[#2C4D6E] mr-1"></i>當日路線分段明細</span>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+              <input type="checkbox" id="chkIncludeCrossSeaFlight" onchange="renderMapMarkers()" class="accent-[#2C4D6E] rounded" />
+              <span>視野含跨海航線</span>
+            </label>
+          </div>
+          <div id="dailyTransitLegsList" class="space-y-1 text-[11px] text-slate-600 max-h-32 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <div id="mapContainer" class="flex-1 w-full relative z-0 min-h-0"></div>
+    </aside>
+  </main>
+
+  <!-- ==================== 手機端專屬底部 App 導覽列（我的行程 → 路線地圖 → 口袋清單） ==================== -->
+  <nav id="mobileBottomNav" class="md:hidden h-14 bg-white border-t border-slate-200 grid grid-cols-3 shrink-0 z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
+    <button type="button" data-mobile-tab="trips" onclick="switchMobileTab('trips')"
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-[#2C4D6E] font-bold text-[11px] relative bg-slate-100/70">
+      <div class="relative flex items-center">
+        <i class="fa-solid fa-suitcase-rolling text-base"></i>
+        <span id="mobileBadgeTrips" class="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-[#2C4D6E]/15 text-[#2C4D6E]">1</span>
+      </div>
+      <span>我的行程</span>
+    </button>
+    <button type="button" data-mobile-tab="map" onclick="switchMobileTab('map')"
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
+      <i class="fa-solid fa-map-location-dot text-base"></i>
+      <span>路線地圖</span>
+    </button>
+    <button type="button" data-mobile-tab="pocket" onclick="switchMobileTab('pocket')"
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
+      <div class="relative flex items-center">
+        <i class="fa-solid fa-layer-group text-base"></i>
+        <span id="mobileBadgePocket" class="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-slate-100 text-slate-600">0</span>
+      </div>
+      <span>口袋清單</span>
+    </button>
+  </nav>
+
+  <!-- ==================== 彈窗 1：建立 / 編輯新旅程專案 ==================== -->
+  <div id="createTripModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden flex flex-col">
+      <div class="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <h3 id="createTripModalTitle" class="font-bold text-base text-slate-800">
+          <i class="fa-solid fa-plane-departure text-[#2C4D6E] mr-1.5"></i>建立新行程專案
+        </h3>
+        <button type="button" onclick="closeCreateTripModal()" class="text-slate-400 hover:text-slate-700 text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="p-4 sm:p-5 space-y-3.5 text-xs">
+        <input type="hidden" id="editTripId" />
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">行程名稱 *</label>
+          <input type="text" id="newTripTitle" placeholder="例如：2027 九州鐵道溫泉旅 / 花東三日慢遊"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E] font-semibold text-slate-800" />
+        </div>
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">目的地國家 / 城市</label>
+          <input type="text" id="newTripDestination" placeholder="例如：日本・福岡／台灣・花蓮"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">出發日期</label>
+            <input type="date" id="newTripStartDate"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">旅遊天數</label>
+            <input type="number" id="newTripTotalDays" min="1" max="15" value="4"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+          </div>
+        </div>
+      </div>
+      <div class="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button type="button" onclick="closeCreateTripModal()" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
+        <button type="button" onclick="saveTripProject()" class="px-4 py-2 rounded-lg bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold shadow-xs">
+          儲存並開始規劃
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈窗 2：精簡聚焦的編輯卡片視窗 ==================== -->
+  <div id="cardModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
+        <h3 id="cardModalTitle" class="font-bold text-base text-slate-800">編輯卡片資料</h3>
+        <button onclick="closeCardModal()" class="text-slate-400 hover:text-slate-700 text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-4 sm:p-5 overflow-y-auto space-y-3.5 text-xs">
+        <input type="hidden" id="editCardId" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-2">
+            <label class="block font-bold text-slate-700 mb-1">地點 / 機場 / 店家名稱 *</label>
+            <input type="text" id="fieldTitle" placeholder="輸入景點、餐廳、飯店或機場名稱"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E] font-semibold text-slate-800" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">類別（自動切換欄位）</label>
+            <select id="fieldCategory" onchange="onModalCategoryChange()"
+              class="w-full px-2.5 py-2 border-2 border-blue-200 bg-blue-50/40 rounded-lg focus:outline-none focus:border-[#2C4D6E] font-bold text-blue-900">
+              <option value="景點">🏞️ 景點</option>
+              <option value="美食">🍜 美食</option>
+              <option value="購物">🛍️ 購物</option>
+              <option value="住宿">🏨 住宿</option>
+              <option value="機場">✈️ 機場</option>
+              <option value="交通">🚆 交通</option>
+              <option value="體驗">🎡 體驗</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">國家 / 地區</label>
+            <input type="text" id="fieldCountry" list="countrySuggestions" value="日本" placeholder="選擇或輸入國家"
+              class="w-full px-2.5 sm:px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+            <datalist id="countrySuggestions">
+              <option value="日本"></option>
+              <option value="台灣"></option>
+              <option value="韓國"></option>
+              <option value="泰國"></option>
+            </datalist>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">行政區 (area)</label>
+            <input type="text" id="fieldDistrict" list="districtSuggestions" placeholder="選擇或輸入行政區"
+              class="w-full px-2.5 sm:px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+            <datalist id="districtSuggestions"></datalist>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">停留 (分鐘)</label>
+            <input type="number" id="fieldDuration" value="60" min="0" step="15"
+              class="w-full px-2.5 sm:px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+          </div>
+        </div>
+
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between gap-1 flex-wrap">
+            <span class="font-bold text-slate-700"><i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>經緯度座標與行政區反查</span>
+            <button type="button" onclick="reverseGeocodeModalCoords()"
+              class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs">
+              <i class="fa-solid fa-compass"></i> 依座標反查行政區
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">緯度 (lat)</label>
+              <input type="number" step="any" id="fieldLat" placeholder="25.0330"
+                onpaste="handleLatLngPaste(event)"
+                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">經度 (lng)</label>
+              <input type="number" step="any" id="fieldLng" placeholder="121.5654"
+                class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+            </div>
+          </div>
+        </div>
+
+        <div id="dynamicCategoryFieldsBox" class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/35 space-y-3"></div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">詳細介紹 / 注意事項 (description)</label>
+          <textarea id="fieldNotes" rows="3" placeholder="輸入完整備註、報到提醒、交通方式或必玩重點..."
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E] leading-relaxed"></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Google Maps 網址</label>
+            <input type="url" id="fieldMapUrl" placeholder="https://maps.app.goo.gl/..."
+              onchange="extractCoordsFromMapUrlField()"
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">封面圖片網址</label>
+            <input type="url" id="fieldImage" placeholder="https://..."
+              class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#2C4D6E]" />
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-1 flex-wrap gap-2">
+          <label class="inline-flex items-center gap-2 cursor-pointer font-semibold text-slate-700">
+            <input type="checkbox" id="fieldStarred" class="accent-amber-500 w-4 h-4 rounded" />
+            <span>⭐ 標記為必去 / 二訪口袋</span>
+          </label>
+          <div id="quickAssignOnSaveBox" class="flex items-center gap-1.5">
+            <span class="text-slate-500">儲存並排入目前行程：</span>
+            <select id="fieldAssignDay" class="border border-slate-200 rounded-lg px-2 py-1 text-slate-700">
+              <option value="">僅存入口袋資料庫</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+        <button onclick="closeCardModal()" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-100">取消</button>
+        <button onclick="saveCardFromModal()" class="px-4 py-2 rounded-lg bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold shadow-xs">
+          儲存並寫入試算表
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈窗 3：系統與 Google 試算表設定 ==================== -->
+  <div id="settingsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
+        <h3 class="font-bold text-base text-slate-800"><i class="fa-solid fa-gear text-[#2C4D6E] mr-1.5"></i>目前行程與試算表同步設定</h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-700 text-lg p-1"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="p-4 sm:p-5 overflow-y-auto space-y-3.5 text-xs">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">目前行程專案名稱</label>
+          <input type="text" id="setTripTitle" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">出發日期</label>
+            <input type="date" id="setStartDate" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">總天數</label>
+            <input type="number" id="setTotalDays" min="1" max="15" class="w-full px-3 py-2 border border-slate-200 rounded-lg" />
+          </div>
+        </div>
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Google Apps Script Web App 網址</label>
+          <input type="url" id="setGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-[11px]" />
+        </div>
+
+        <div class="p-3 rounded-xl bg-amber-50/90 border border-amber-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-amber-900"><i class="fa-solid fa-code mr-1"></i>GAS 多旅程雙分頁後端程式碼</span>
+            <button type="button" onclick="copyGasBackendCode()"
+              class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold">
+              複製 GAS 程式碼
+            </button>
+          </div>
+          <p class="text-[11px] text-amber-800 leading-relaxed">
+            同時支援 <strong>Spots（全球共用口袋庫）</strong> 與 <strong>Trips（多趟旅程排程檔）</strong> 雙工作表雲端同步。
+          </p>
+        </div>
+      </div>
+      <div class="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-between shrink-0">
+        <button onclick="exportJsonBackup()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-100">
+          <i class="fa-solid fa-download mr-1"></i>匯出 JSON 備份
+        </button>
+        <div class="flex gap-2">
+          <button onclick="closeSettingsModal()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
+          <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-[#2C4D6E] text-white text-xs font-bold">套用並讀取</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 提示訊息 -->
+  <div id="toastContainer" class="fixed bottom-16 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-max max-w-[92vw]"></div>
+
+  <!-- 註冊 Service Worker 以啟用純淨獨立 App 安裝 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+
 <!-- ES6 模組化總入口 -->
   <script type="module" src="./js/app.js?v=20261118l"></script>
 </body>
