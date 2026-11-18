@@ -1,5 +1,6 @@
 import { CATEGORY_STYLES } from './config.js';
 import { state, hooks, persistState, showToast } from './state.js';
+import { reverseGeocodeCoords, extractCoordsFromText } from './geo.js';
 
 export function updateMiniCardButtonUi() {
   const label = document.getElementById('miniCardBtnLabel');
@@ -267,10 +268,55 @@ export function handleCardClick(cardId) {
 export function toggleCardDetailExpand() {}
 
 let editingCardCache = null;
+let lastGeocodedCoordsKey = '';
+
+function bindModalCoordAutoGeocode() {
+  const latEl = document.getElementById('fieldLat');
+  const lngEl = document.getElementById('fieldLng');
+  if (!latEl || !lngEl) return;
+
+  if (!latEl.dataset.geoBound) {
+    latEl.dataset.geoBound = '1';
+    latEl.addEventListener('change', () => autoFillRegionFromModalCoords(false));
+    latEl.addEventListener('blur', () => autoFillRegionFromModalCoords(false));
+  }
+  if (!lngEl.dataset.geoBound) {
+    lngEl.dataset.geoBound = '1';
+    lngEl.addEventListener('change', () => autoFillRegionFromModalCoords(false));
+    lngEl.addEventListener('blur', () => autoFillRegionFromModalCoords(false));
+  }
+}
+
+async function autoFillRegionFromModalCoords(force = false) {
+  const latRaw = document.getElementById('fieldLat')?.value.trim() || '';
+  const lngRaw = document.getElementById('fieldLng')?.value.trim() || '';
+  if (!latRaw || !lngRaw) return;
+
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return;
+
+  const coordsKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+  if (!force && coordsKey === lastGeocodedCoordsKey) return;
+  lastGeocodedCoordsKey = coordsKey;
+
+  const result = await reverseGeocodeCoords(lat, lng);
+  if (result) {
+    const countryEl = document.getElementById('fieldCountry');
+    const districtEl = document.getElementById('fieldDistrict');
+    if (countryEl && result.country) countryEl.value = result.country;
+    if (districtEl && result.district) districtEl.value = result.district;
+    showToast(`已自動帶入地區：${result.country}・${result.district}`, 'emerald');
+  } else if (force) {
+    showToast('反查國家與行政區失敗，請確認經緯度格式', 'rose');
+  }
+}
 
 export function openCardModal(cardId = null) {
   const modal = document.getElementById('cardModal');
   if (!modal) return;
+
+  bindModalCoordAutoGeocode();
 
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const assignSel = document.getElementById('fieldAssignDay');
@@ -297,8 +343,11 @@ export function openCardModal(cardId = null) {
     document.getElementById('fieldMapUrl').value = card.mapUrl || '';
     document.getElementById('fieldImage').value = card.image || '';
     document.getElementById('fieldStarred').checked = Boolean(card.starred);
+    lastGeocodedCoordsKey =
+      card.lat != null && card.lng != null ? `${Number(card.lat).toFixed(5)},${Number(card.lng).toFixed(5)}` : '';
   } else {
     editingCardCache = {};
+    lastGeocodedCoordsKey = '';
     document.getElementById('cardModalTitle').textContent = '新增口袋卡片';
     document.getElementById('editCardId').value = '';
     document.getElementById('fieldTitle').value = '';
@@ -425,21 +474,23 @@ export function toggleStarCard(cardId) {
 
 export function handleLatLngPaste(event) {
   const text = (event.clipboardData || window.clipboardData)?.getData('text') || '';
-  const match = text.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-  if (match) {
+  const coords = extractCoordsFromText(text);
+  if (coords) {
     event.preventDefault();
-    document.getElementById('fieldLat').value = match[1];
-    document.getElementById('fieldLng').value = match[2];
+    document.getElementById('fieldLat').value = coords.lat;
+    document.getElementById('fieldLng').value = coords.lng;
+    autoFillRegionFromModalCoords(true);
   }
 }
 
 export function extractCoordsFromMapUrlField() {
   const url = document.getElementById('fieldMapUrl')?.value || '';
-  const match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (match) {
-    document.getElementById('fieldLat').value = match[1];
-    document.getElementById('fieldLng').value = match[2];
+  const coords = extractCoordsFromText(url);
+  if (coords) {
+    document.getElementById('fieldLat').value = coords.lat;
+    document.getElementById('fieldLng').value = coords.lng;
     showToast('已從網址自動擷取經緯度', 'emerald');
+    autoFillRegionFromModalCoords(true);
   }
 }
 
@@ -450,16 +501,5 @@ export async function reverseGeocodeModalCoords() {
     showToast('請先輸入緯度與經度座標', 'amber');
     return;
   }
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=zh-TW`);
-    const data = await res.json();
-    const addr = data.address || {};
-    const area = addr.city || addr.town || addr.village || addr.county || '';
-    if (area) {
-      document.getElementById('fieldDistrict').value = area;
-      showToast(`已反查行政區：${area}`, 'emerald');
-    }
-  } catch (e) {
-    showToast('反查行政區失敗', 'rose');
-  }
+  await autoFillRegionFromModalCoords(true);
 }
