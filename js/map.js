@@ -11,6 +11,16 @@ const osrmRouteCache = {};
 let transitJsonCache = null;
 let transitLoadPromise = null;
 
+const CATEGORY_SHORT_CHAR = {
+  '景點': '景',
+  '美食': '美',
+  '購物': '購',
+  '住宿': '宿',
+  '機場': '機',
+  '交通': '交',
+  '體驗': '體'
+};
+
 // 自動從 ./data/okinawa_transit.json 或 ./okinawa_transit.json 載入 GTFS 路線資料
 export async function loadOkinawaTransitJson() {
   if (transitJsonCache) return transitJsonCache;
@@ -19,7 +29,7 @@ export async function loadOkinawaTransitJson() {
       const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
       for (const path of candidatePaths) {
         try {
-          const res = await fetch(`${path}?v=20261118h`);
+          const res = await fetch(`${path}?v=20261118i`);
           if (res.ok) {
             const data = await res.json();
             if (data && data.yui_rail) {
@@ -133,7 +143,7 @@ export function toggleOverlayPocketOnPlanMap() {
 }
 
 function createPinIcon(hexColor, labelText = '', isScheduled = false) {
-  const size = isScheduled ? 28 : 22;
+  const size = isScheduled ? 28 : 24;
   return L.divIcon({
     className: 'custom-map-pin',
     iconSize: [size, size],
@@ -145,13 +155,14 @@ function createPinIcon(hexColor, labelText = '', isScheduled = false) {
         border-radius:9999px;
         background:${hexColor};
         color:#ffffff;
-        border:2.5px solid #ffffff;
+        border:2px solid #ffffff;
         box-shadow:0 2px 6px rgba(15,23,42,0.35);
         display:flex;
         align-items:center;
         justify-content:center;
-        font-size:${isScheduled ? '11px' : '9px'};
+        font-size:${isScheduled ? '11px' : '11px'};
         font-weight:800;
+        line-height:1;
       ">${labelText}</div>
     `
   });
@@ -164,45 +175,57 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
-function attachSpotTooltipAndPopup(marker, card, prefixTag = '') {
-  const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
-  const descRaw = (card.notes || '').trim();
-  const shortDesc = descRaw.length > 95 ? `${descRaw.slice(0, 95)}...` : descRaw;
+function attachSpotTooltipAndPopup(marker, card) {
+  const cleanTitle = escapeHtml(card.title);
+  const fallbackMapUrl =
+    card.mapUrl ||
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${card.title} ${card.lat || ''},${card.lng || ''}`)}`;
 
-  const tooltipHtml = `
-    <div style="min-width:190px;max-width:260px;white-space:normal;line-height:1.45;padding:2px 0;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;">
-        <strong style="font-size:12px;color:#0f172a;">${escapeHtml(prefixTag)}${escapeHtml(card.title)}</strong>
-        <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:${style.hex}18;color:${style.hex};flex-shrink:0;">
-          ${escapeHtml(card.category)}
-        </span>
-      </div>
-      <div style="font-size:11px;color:#64748b;margin-bottom:${shortDesc ? '4px' : '0'};">
-        ${escapeHtml(card.district || card.country || '')}・⏱ 停留 ${card.duration || 60} 分
-      </div>
-      ${shortDesc ? `<div style="font-size:11px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">\${escapeHtml(shortDesc)}</div>` : ''}
-    </div>
-  `;
+  // 1. 懸浮提示僅顯示地點名稱（不含口袋等其他標籤）
+  marker.bindTooltip(
+    `<span style="font-size:12px;font-weight:700;color:#0f172a;">${cleanTitle}</span>`,
+    {
+      direction: 'top',
+      offset: [0, -10],
+      opacity: 0.96
+    }
+  );
 
-  marker.bindTooltip(tooltipHtml, {
-    direction: 'top',
-    offset: [0, -10],
-    opacity: 0.97
-  });
-
+  // 2. 點擊彈窗僅顯示地點名稱 + 編輯卡片與 Google Maps 純圖示按鈕
   const popupHtml = `
-    <div class="text-xs space-y-1.5" style="min-width:200px;max-width:270px;">
-      <div class="font-bold text-slate-800 text-sm">${escapeHtml(prefixTag)}${escapeHtml(card.title)}</div>
-      <div class="text-slate-500">${escapeHtml(card.category)}・${escapeHtml(card.district || card.country || '')}・停留 ${card.duration || 60} 分</div>
-      ${descRaw ? `<p class="text-slate-600 leading-relaxed max-h-28 overflow-y-auto border-t border-slate-100 pt-1">\${escapeHtml(descRaw)}</p>` : ''}
-      <div class="pt-1 flex items-center gap-2">
-        <button type="button" onclick="openCardModal('${card.id}')"
-          class="px-2 py-1 rounded bg-[#2C4D6E] text-white text-[11px] font-bold">編輯卡片</button>
-        ${card.mapUrl ? `<a href="\${card.mapUrl}" target="_blank" rel="noopener" class="px-2 py-1 rounded border border-slate-200 text-slate-700 text-[11px] font-semibold">Google Maps</a>` : ''}
+    <div style="min-width:150px;max-width:230px;padding:2px 0;">
+      <div style="font-weight:800;font-size:13px;color:#0f172a;line-height:1.35;margin-bottom:8px;">
+        ${cleanTitle}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button type="button" onclick="openCardModal('${card.id}')" title="編輯卡片"
+          style="width:32px;height:32px;border-radius:8px;background:#2C4D6E;color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:13px;">
+          <i class="fa-solid fa-pen"></i>
+        </button>
+        <a href="${fallbackMapUrl}" target="_blank" rel="noopener" title="在 Google Maps 開啟"
+          style="width:32px;height:32px;border-radius:8px;background:#f8fafc;color:#1d4ed8;border:1px solid #cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-size:14px;text-decoration:none;">
+          <i class="fa-solid fa-map-location-dot"></i>
+        </a>
       </div>
     </div>
   `;
   marker.bindPopup(popupHtml);
+}
+
+function buildGoogleMapsLegUrl(cardA, cardB, itemB) {
+  const origin = `${Number(cardA.lat)},${Number(cardA.lng)}`;
+  const dest = `${Number(cardB.lat)},${Number(cardB.lng)}`;
+  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
+  const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
+
+  let travelmode = 'transit';
+  if (profile === 'drive' || profile === 'taxi') {
+    travelmode = 'driving';
+  } else if (profile === 'walk') {
+    travelmode = 'walking';
+  }
+
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=${travelmode}`;
 }
 
 function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
@@ -241,17 +264,14 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
-// 使用 okinawa_transit.json 的 shape 與 Turf.js 切出精準大眾運輸軌跡
 function drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
   if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 2) return false;
 
-  // shape 在 okinawa_transit.json 為 [lat, lng]，轉為 Turf 所需的 [lng, lat]
   const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
   const fullLine = turf.lineString(lineCoords);
   const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
   const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
 
-  // 1. 起點步行至上車站（虛線）
   if (stopA.km > 0.03) {
     L.polyline(
       [
@@ -267,14 +287,12 @@ function drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs,
     ).addTo(targetLayerGroup);
   }
 
-  // 2. GTFS 精準貼軌／貼路主線（粗實線）
   L.polyline(slicedLatLngs, {
     color: lineColor,
     weight: 5,
     opacity: 0.94
   }).addTo(targetLayerGroup);
 
-  // 3. 下車站步行至終點（虛線）
   if (stopB.km > 0.03) {
     L.polyline(
       [
@@ -299,7 +317,6 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
   const lat2 = Number(cardB.lat);
   const lng2 = Number(cardB.lng);
 
-  // 1. 跨海飛航（>250 km）
   if (legInfo.km > 250) {
     const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
     L.polyline(arcCoords, {
@@ -311,12 +328,10 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     return;
   }
 
-  // 2. 優先使用 okinawa_transit.json 進行沖繩單軌與幹線公車精準切片
   const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
   const transitData = await loadOkinawaTransitJson();
 
   if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
-    // 2a. 檢查沖繩都市單軌電車 (Yui Rail)
     const yui = transitData.yui_rail;
     if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
       const stA = findNearestStop(yui.stations, lat1, lng1);
@@ -327,7 +342,6 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
       }
     }
 
-    // 2b. 檢查沖繩幹線公車 (120/20、28/29、山原急行巴士)
     if (Array.isArray(transitData.buses)) {
       let bestBus = null;
       let bestWalkSum = Infinity;
@@ -358,7 +372,6 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     }
   }
 
-  // 3. 一般陸地自駕 / 步行 / 無捷運公車覆蓋路段：呼叫 OSRM 實際道路貼合
   const osrmMode = profile === 'walk' || legInfo.km <= 0.8 ? 'foot' : 'driving';
   const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
 
@@ -426,8 +439,9 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       const lat = Number(card.lat);
       const lng = Number(card.lng);
       const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+      const catChar = CATEGORY_SHORT_CHAR[card.category] || '景';
       const marker = L.marker([lat, lng], {
-        icon: createPinIcon(style.hex, '', false)
+        icon: createPinIcon(style.hex, catChar, false)
       });
       attachSpotTooltipAndPopup(marker, card);
 
@@ -474,11 +488,10 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
 
         pinCount++;
         const label = state.mapOverviewAllDays ? `D${dayNum}` : String(idx + 1);
-        const prefixTag = state.mapOverviewAllDays ? `[Day ${dayNum} #${idx + 1}] ` : `#${idx + 1} `;
         const marker = L.marker([lat, lng], {
           icon: createPinIcon(dayColor, label, true)
         });
-        attachSpotTooltipAndPopup(marker, card, prefixTag);
+        attachSpotTooltipAndPopup(marker, card);
         marker.addTo(markersLayerGroup);
         markerByCardId[card.id] = marker;
 
@@ -493,7 +506,8 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
               dayColor,
               fromTitle: prevCard.title,
               toTitle: card.title,
-              leg
+              leg,
+              gmapsUrl: buildGoogleMapsLegUrl(prevCard, card, it)
             });
             drawRoadSnappedLeg(prevCard, card, leg, dayColor, routesLayerGroup);
           }
@@ -506,6 +520,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       badgeEl.textContent = `${totalMinSum} 分 (${totalKmSum.toFixed(1)} km)`;
     }
 
+    // 4. 當日路線分段明細：加入可連結 Google Maps 路線與即時公車資訊的圖示按鈕
     const legsListEl = document.getElementById('dailyTransitLegsList');
     if (legsListEl) {
       legsListEl.innerHTML =
@@ -514,11 +529,18 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
               .map(
                 r => `
               <div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-50 border border-slate-100">
-                <span class="truncate">
+                <span class="truncate min-w-0">
                   <span class="inline-block w-2 h-2 rounded-full mr-1" style="background:${r.dayColor}"></span>
                   ${escapeHtml(r.fromTitle)} → ${escapeHtml(r.toTitle)}
                 </span>
-                <span class="font-bold text-[#2C4D6E] shrink-0">${r.leg.modeLabel}・${r.leg.km}km / ${r.leg.min}分</span>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <span class="font-bold text-[#2C4D6E]">${r.leg.modeLabel}・${r.leg.km}km / ${r.leg.min}分</span>
+                  <a href="${r.gmapsUrl}" target="_blank" rel="noopener"
+                    title="開啟 Google Maps 查看即時公車與導航路線"
+                    class="w-6 h-6 rounded-md bg-white hover:bg-blue-50 border border-slate-200 text-blue-600 flex items-center justify-center transition">
+                    <i class="fa-solid fa-diamond-turn-right text-xs"></i>
+                  </a>
+                </div>
               </div>
             `
               )
@@ -546,6 +568,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       }
     }
 
+    // 3. 疊加口袋標示中央顯示分類單字（景/美/購/宿/機/交/體）
     if (state.overlayPocketOnPlan) {
       state.cards.forEach(card => {
         if (scheduledIds.has(card.id)) return;
@@ -557,11 +580,12 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
         if (isNaN(lat) || isNaN(lng)) return;
 
         const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+        const catChar = CATEGORY_SHORT_CHAR[card.category] || '景';
         const marker = L.marker([lat, lng], {
-          icon: createPinIcon(style.hex, '', false),
-          opacity: 0.82
+          icon: createPinIcon(style.hex, catChar, false),
+          opacity: 0.9
         });
-        attachSpotTooltipAndPopup(marker, card, '【口袋】');
+        attachSpotTooltipAndPopup(marker, card);
         marker.addTo(markersLayerGroup);
         if (!markerByCardId[card.id]) markerByCardId[card.id] = marker;
         pinCount++;
