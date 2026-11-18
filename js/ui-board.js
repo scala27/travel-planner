@@ -1,17 +1,30 @@
 import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
 import { state, hooks, persistState, showToast } from './state.js';
 
-// 將 Day 3 顏色調整為高對比緋紅色，確保中間看板與右側地圖完全一致
-if (Array.isArray(DAY_COLORS) && DAY_COLORS.length > 2) {
-  DAY_COLORS[2] = '#dc2626';
-}
-
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 let okinawaTransitData = null;
 
 export function setOkinawaTransitData(data) {
   okinawaTransitData = data;
 }
+
+export function getDayColor(dayNum) {
+  const idx = (Number(dayNum) - 1) % DAY_COLORS.length;
+  const customMap = state.settings?.dayColors || {};
+  return customMap[dayNum] || customMap[String(dayNum)] || DAY_COLORS[idx] || '#2C4D6E';
+}
+
+export function updateDayColor(dayNum, hexColor) {
+  if (!hexColor) return;
+  if (!state.settings.dayColors) state.settings.dayColors = {};
+  state.settings.dayColors[dayNum] = hexColor;
+  persistState(true);
+  renderKanbanBoard();
+  if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+  showToast(`已將 Day ${dayNum} 代表色更新為 ${hexColor}`, 'emerald');
+}
+
+window.updateDayColor = updateDayColor;
 
 export function getFormattedDateInfo(dayNum) {
   const base = new Date((state.settings.startDate || '2027-02-17') + 'T00:00:00');
@@ -101,8 +114,8 @@ export function estimateLegTransit(cardA, cardB, itemB) {
         let bestBus = null;
         let bestWalk = Infinity;
         okinawaTransitData.buses.forEach(bus => {
-          const bA = findNearestStop(bus.stops, cardA.lat, cardA.lng);
-          const bB = findNearestStop(bus.stops, cardB.lat, cardB.lng);
+          const bA = findNearestTransitStop(bus.stops, cardA.lat, cardA.lng);
+          const bB = findNearestTransitStop(bus.stops, cardB.lat, cardB.lng);
           if (bA && bB && bA.id !== bB.id && bA.km <= 1.5 && bB.km <= 1.5 && bA.km + bB.km < bestWalk) {
             bestWalk = bA.km + bB.km;
             bestBus = { bus, bA, bB };
@@ -131,10 +144,6 @@ export function estimateLegTransit(cardA, cardB, itemB) {
   }
 
   return { modeLabel, icon, km: Number(km.toFixed(1)), min };
-}
-
-function findNearestStop(stops, lat, lng) {
-  return findNearestTransitStop(stops, lat, lng);
 }
 
 function normalizeTimeStr(hhmm) {
@@ -235,7 +244,7 @@ export function renderKanbanBoard() {
     const info = getFormattedDateInfo(d);
     const count = (state.itinerary[d]?.items || []).length;
     const isSelected = !state.boardMultiDayMode && d === activeDay;
-    const dayColor = DAY_COLORS[(d - 1) % DAY_COLORS.length];
+    const dayColor = getDayColor(d);
     pillsHtml.push(`
       <button type="button" onclick="selectDayFocus(${d})"
         style="${isSelected ? `background:${dayColor};border-color:${dayColor};color:#ffffff;` : ''}"
@@ -266,7 +275,7 @@ export function renderKanbanBoard() {
 
   boardContainer.innerHTML = daysToRender
     .map(dayNum => {
-      const dayColor = DAY_COLORS[(dayNum - 1) % DAY_COLORS.length];
+      const dayColor = getDayColor(dayNum);
       const dayData = state.itinerary[dayNum] || { startTime: '09:00', items: [] };
       const info = getFormattedDateInfo(dayNum);
       let cursorMin = parseMinutes(dayData.startTime || '09:00');
@@ -422,7 +431,14 @@ export function renderKanbanBoard() {
           class="${state.boardMultiDayMode ? 'w-80 shrink-0' : 'w-full'} bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">
           <div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">
             <div class="flex items-center justify-between gap-2 flex-wrap">
-              <div class="flex items-baseline gap-1.5">
+              <div class="flex items-center gap-1.5">
+                <label title="點擊自訂 Day ${dayNum} 路線與看板顏色"
+                  style="background:${dayColor}"
+                  class="w-4 h-4 rounded-full border-2 border-white shadow-xs ring-1 ring-slate-300 cursor-pointer shrink-0 relative overflow-hidden hover:scale-110 transition">
+                  <input type="color" value="${dayColor}"
+                    onchange="updateDayColor(${dayNum}, this.value)"
+                    class="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
+                </label>
                 <span class="text-base font-extrabold" style="color:${dayColor}">Day ${dayNum}</span>
                 <span class="text-xs font-semibold text-slate-500">${info.md} (${info.week})</span>
               </div>
