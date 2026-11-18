@@ -24,7 +24,7 @@ export function extractRowsFromGasPayload(payload) {
     return payload;
   }
   if (typeof payload === 'object') {
-    const priorityKeys = ['spots', 'Spots', 'data', 'records', 'cards', 'rows', 'items', 'list'];
+    const priorityKeys = ['pois', 'spots', 'Spots', 'data', 'records', 'cards', 'rows', 'items', 'list'];
     for (const key of priorityKeys) {
       if (Array.isArray(payload[key]) && payload[key].length > 0) {
         return extractRowsFromGasPayload(payload[key]);
@@ -195,12 +195,42 @@ export function serializeCardToSheetRow(card, index) {
     parking_info: card.parkingInfo || '',
     source_url: card.mapUrl || '',
     photo_url: card.image || '',
+    starred: !!card.starred,
     status: isScheduled ? 'scheduled' : 'pocket',
     assigned_day: isScheduled ? scheduledDays.map(d => `Day ${d}`).join(',') : 'pocket',
     sort_order: index + 1,
     lat: card.lat ?? '',
     lng: card.lng ?? ''
   };
+}
+
+// 將每日排程序列化為獨立「每日行程排程」工作表列位（完整保留手動鎖定分鐘數與車次備註）
+export function serializeItineraryToSheetRows() {
+  const totalDays = Number(state.settings.totalDays) || 6;
+  const rows = [];
+
+  for (let d = 1; d <= totalDays; d++) {
+    const dayObj = state.itinerary[d] || { startTime: '09:00', items: [] };
+    const startTime = dayObj.startTime || '09:00';
+    const items = dayObj.items || [];
+
+    items.forEach((it, idx) => {
+      rows.push({
+        uid: it.uid || `it_${d}_${idx + 1}_${it.cardId}`,
+        day: d,
+        day_start_time: startTime,
+        sort_order: idx + 1,
+        card_id: it.cardId,
+        is_checkout: !!it.isCheckout,
+        transit_mode: it.transitMode || 'auto',
+        transit_min: Number(it.transitMin) || 0,
+        custom_transit_note: it.customTransitNote || '',
+        custom_note: it.customNote || ''
+      });
+    });
+  }
+
+  return rows;
 }
 
 function getItinerarySequenceWeight(cardId) {
@@ -240,16 +270,17 @@ export async function pullFromGoogleSheets(showNotification = true) {
   setSyncPillStatus('syncing', '正在從試算表載入...');
 
   try {
-    const candidateQueries = ['', 'sheet=Spots', 'action=getSpots', 'action=read&sheet=Spots'];
+    const json = await fetchGasEndpoint(state.settings.gasUrl, '');
     let rows = [];
+    let dualItineraryRows = null;
 
-    for (const q of candidateQueries) {
-      const json = await fetchGasEndpoint(state.settings.gasUrl, q);
-      const extracted = extractRowsFromGasPayload(json).filter(r => r && (r.name || r.title));
-      if (extracted.length > 0) {
-        rows = extracted;
-        break;
+    if (json && typeof json === 'object' && Array.isArray(json.pois)) {
+      rows = json.pois.filter(r => r && (r.name || r.title));
+      if (Array.isArray(json.itinerary)) {
+        dualItineraryRows = json.itinerary;
       }
+    } else {
+      rows = extractRowsFromGasPayload(json).filter(r => r && (r.name || r.title));
     }
 
     if (rows.length > 0) {
@@ -260,49 +291,80 @@ export async function pullFromGoogleSheets(showNotification = true) {
       state.cards = mappedCards;
 
       ensureItineraryDays();
-      const rebuilt = {};
       const totalDays = Number(state.settings.totalDays) || 6;
+      const rebuilt = {};
       for (let d = 1; d <= totalDays; d++) {
         rebuilt[d] = { startTime: state.itinerary[d]?.startTime || '09:00', items: [] };
       }
 
-      mappedCards
-        .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .forEach(c => {
-          const dayNums = resolveAssignedDayNumbers(c.assignedDayRaw);
-          dayNums.forEach((dayNum, dIdx) => {
-            if (rebuilt[dayNum]) {
-              rebuilt[dayNum].items.push({
-                uid: `it_${c.id}_${dayNum}`,
-                cardId: c.id,
-                customNote: c.businessHours || '',
-                isCheckout: c.category === '住宿' && dIdx > 0,
-                // 統一設為 'auto'，載入後立即依「智慧混搭」自動判斷步行或大眾運輸
-                transitMode: 'auto',
-                transitMin: 0
-              });
-            }
-          });
-        });
+      if (Array.isArray(dualItineraryRows)) {
+        // 雙工作表模式：精準還原每日排程順序、出發時間與手動鎖定分鐘數
+        dualItineraryRows
+          .slice()
+          .sort((a, b) => (Number(a.day) - Number(b.day)) || (Number(a.sort_order) - Number(b.sort_order)))
+          .forEach((row, idx) => {
+            const d = Number(row.day);
+            const cardId = String(row.card_id || row.poiId || '').trim();
+            if (!d || d < 1 || d > totalDays || !cardId) return;
+            if (!mappedCards.some(c => c.id === cardId)) return;
 
-      const hasSheetSchedule = Object.values(rebuilt).some(d => d.items.length > 0);
-      if (hasSheetSchedule) {
+            if (row.day_start_time && String(row.day_start_time).includes(':')) {
+              rebuilt[d].startTime = String(row.day_start_time).trim().slice(0, 5);
+            }
+
+            rebuilt[d].items.push({
+              uid: String(row.uid || `it_${d}_${idx + 1}_${cardId}`),
+              cardId,
+              customNote: String(row.custom_note || '').trim(),
+              isCheckout: row.is_checkout === true || String(row.is_checkout).toUpperCase() === 'TRUE',
+              transitMode: String(row.transit_mode || 'auto').trim() || 'auto',
+              transitMin: Number(row.transit_min) || 0,
+              customTransitNote: String(row.custom_transit_note || '').trim()
+            });
+          });
         state.itinerary = rebuilt;
+      } else {
+        // 相容舊版單表 fallback
+        mappedCards
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .forEach(c => {
+            const dayNums = resolveAssignedDayNumbers(c.assignedDayRaw);
+            dayNums.forEach((dayNum, dIdx) => {
+              if (rebuilt[dayNum]) {
+                rebuilt[dayNum].items.push({
+                  uid: `it_${c.id}_${dayNum}`,
+                  cardId: c.id,
+                  customNote: c.businessHours || '',
+                  isCheckout: c.category === '住宿' && dIdx > 0,
+                  transitMode: 'auto',
+                  transitMin: 0,
+                  customTransitNote: ''
+                });
+              }
+            });
+          });
+
+        const hasSheetSchedule = Object.values(rebuilt).some(d => d.items.length > 0);
+        if (hasSheetSchedule) {
+          state.itinerary = rebuilt;
+        }
       }
 
+      state.hasUnsavedCloudChanges = false;
       persistState(false);
       hooks.populateRegionDropdowns();
       hooks.renderAll();
       const nowStr = new Date().toTimeString().slice(0, 5);
-      setSyncPillStatus('ok', `已載入 ${mappedCards.length} 筆 (${nowStr})`);
+      const totalScheduledItems = Object.values(state.itinerary).reduce((sum, d) => sum + (d.items?.length || 0), 0);
+      setSyncPillStatus('ok', `已載入 ${mappedCards.length} 景點 / ${totalScheduledItems} 排程 (${nowStr})`);
       if (showNotification) {
-        showToast(`已成功從 Google 試算表載入 ${mappedCards.length} 筆資料！`, 'emerald');
+        showToast(`已成功從 Google 試算表載入 ${mappedCards.length} 筆景點與 ${totalScheduledItems} 筆排程！`, 'emerald');
       }
     } else {
       setSyncPillStatus('warning', '試算表無資料列');
       if (showNotification) {
-        showToast('試算表無資料列，請確認 GAS 腳本是否讀取「Spots」工作表', 'amber');
+        showToast('試算表無資料列，請確認 GAS 腳本已部署最新版本', 'amber');
       }
     }
   } catch (err) {
@@ -326,7 +388,7 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
 
   const pushIcon = document.getElementById('pushIcon');
   if (pushIcon) pushIcon.classList.add('fa-bounce');
-  setSyncPillStatus('syncing', '正在覆蓋寫入試算表...');
+  setSyncPillStatus('syncing', '正在同步雙工作表...');
 
   try {
     const orderedCards = state.cards
@@ -345,6 +407,7 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
     const sheetRows = state.cards.map((c, idx) =>
       serializeCardToSheetRow(c, sortOrderMap[c.id] ?? idx)
     );
+    const itineraryRows = serializeItineraryToSheetRows();
 
     if (extraDeletedId) {
       try {
@@ -354,7 +417,6 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'deleteSpot',
-            sheet: 'Spots',
             id: extraDeletedId
           })
         });
@@ -367,13 +429,11 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'syncAll',
-        mode: 'overwrite',
-        clearRemaining: true,
-        sheet: 'Spots',
+        schemaVersion: '2.0',
         deletedIds: state.deletedIds,
+        pois: sheetRows,
         data: sheetRows,
-        spots: sheetRows,
-        cards: sheetRows,
+        itineraryRows: itineraryRows,
         itinerary: state.itinerary
       })
     });
@@ -385,16 +445,17 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
       throw new Error(respJson.message || 'GAS 寫入回傳錯誤');
     }
 
+    state.hasUnsavedCloudChanges = false;
     const nowStr = new Date().toTimeString().slice(0, 5);
-    setSyncPillStatus('ok', `已寫入試算表 ${sheetRows.length} 筆 (${nowStr})`);
+    setSyncPillStatus('ok', `已同步 ${sheetRows.length} 景點 / ${itineraryRows.length} 排程 (${nowStr})`);
     if (!isSilentAuto) {
-      showToast(`已將最新 ${sheetRows.length} 筆資料完整寫入 Google 試算表！`, 'emerald');
+      showToast(`已將 ${sheetRows.length} 筆景點與 ${itineraryRows.length} 筆每日排程完整寫入試算表！`, 'emerald');
     }
   } catch (err) {
     console.error('GAS POST Error:', err);
-    setSyncPillStatus('warning', '試算表寫入異常（請點齒輪檢查GAS）');
+    setSyncPillStatus('warning', '試算表寫入異常（請檢查 GAS 部署）');
     if (!isSilentAuto) {
-      showToast('寫入試算表異常，請點右上角齒輪檢查 GAS 覆蓋寫入程式碼', 'amber');
+      showToast('寫入試算表異常，請點右上角齒輪檢查 GAS 最新雙工作表程式碼', 'amber');
     }
   } finally {
     if (pushIcon) pushIcon.classList.remove('fa-bounce');
@@ -402,57 +463,182 @@ export async function pushAllToGoogleSheets(isSilentAuto = false, extraDeletedId
 }
 
 export function copyGasBackendCode() {
-  const gasCode = `function doGet(e) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Spots') || ss.getSheets()[0];
-  const values = sheet.getDataRange().getValues();
-  if (values.length <= 1) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: [] })).setMimeType(ContentService.MimeType.JSON);
+  const gasCode = `const SHEET_POIS = '景點資料庫';
+const SHEET_ITINERARY = '每日行程排程';
+
+const POI_HEADERS = [
+  'id', 'name', 'category', 'area', 'description',
+  'must_buy', 'business_hours', 'estimated_duration',
+  'parking_info', 'source_url', 'photo_url', 'starred',
+  'lat', 'lng', 'updated_at'
+];
+
+const ITINERARY_HEADERS = [
+  'uid', 'day', 'day_start_time', 'sort_order', 'card_id',
+  'is_checkout', 'transit_mode', 'transit_min',
+  'custom_transit_note', 'custom_note', 'updated_at'
+];
+
+function doGet(e) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    ensureDualSheetsAndMigrate_(ss);
+    const pois = readSheetObjects_(ss.getSheetByName(SHEET_POIS), POI_HEADERS);
+    const itinerary = readSheetObjects_(ss.getSheetByName(SHEET_ITINERARY), ITINERARY_HEADERS);
+    itinerary.sort((a, b) => (Number(a.day || 0) - Number(b.day || 0)) || (Number(a.sort_order || 0) - Number(b.sort_order || 0)));
+    return jsonResponse_({ status: 'ok', schemaVersion: '2.0', pois: pois, itinerary: itinerary });
+  } catch (err) {
+    return jsonResponse_({ status: 'error', message: String(err) });
   }
-  const headers = values[0].map(h => String(h).trim());
-  const rows = values.slice(1).filter(r => r[0] || r[1]).map(r => {
-    const obj = {};
-    headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
-    return obj;
-  });
-  return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: rows })).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
   try {
+    lock.waitLock(15000);
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Spots') || ss.getSheets()[0];
-    const body = JSON.parse(e.postData.contents);
-    const headers = ['id','name','category','area','description','must_buy','business_hours','estimated_duration','parking_info','source_url','photo_url','status','assigned_day','sort_order','lat','lng'];
+    ensureDualSheetsAndMigrate_(ss);
+    const poiSheet = ss.getSheetByName(SHEET_POIS);
+    const itinSheet = ss.getSheetByName(SHEET_ITINERARY);
+    const nowStr = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
 
     if (body.action === 'deleteSpot' && body.id) {
-      const data = sheet.getDataRange().getValues();
-      for (let i = data.length - 1; i >= 1; i--) {
-        if (String(data[i][0]) === String(body.id)) {
-          sheet.deleteRow(i + 1);
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+      deleteRowsByColumnValue_(poiSheet, 1, String(body.id));
+      deleteRowsByColumnValue_(itinSheet, 5, String(body.id));
+      return jsonResponse_({ status: 'ok' });
     }
 
-    const list = body.data || body.spots || body.cards || [];
-    sheet.clearContents();
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    if (list.length > 0) {
-      const matrix = list.map(item => headers.map(h => item[h] !== undefined ? item[h] : ''));
-      const dataRange = sheet.getRange(2, 1, matrix.length, headers.length);
-      sheet.getRange(2, 13, matrix.length, 1).setNumberFormat('@');
-      dataRange.setValues(matrix);
+    const poiList = body.pois || body.data || body.spots || body.cards;
+    if (Array.isArray(poiList)) {
+      const poiMatrix = poiList.map(item => [
+        String(item.id || ''), String(item.name || item.title || ''), String(item.category || '景點'),
+        String(item.area || ''), String(item.description || ''), String(item.must_buy || ''),
+        String(item.business_hours || ''), Number(item.estimated_duration) || 60, String(item.parking_info || ''),
+        String(item.source_url || ''), String(item.photo_url || ''),
+        item.starred === true || String(item.starred).toUpperCase() === 'TRUE' ? 'TRUE' : 'FALSE',
+        item.lat !== '' && item.lat !== null && item.lat !== undefined ? Number(item.lat) : '',
+        item.lng !== '' && item.lng !== null && item.lng !== undefined ? Number(item.lng) : '',
+        nowStr
+      ]);
+      overwriteSheetData_(poiSheet, POI_HEADERS, poiMatrix);
     }
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', count: list.length })).setMimeType(ContentService.MimeType.JSON);
+
+    if (Array.isArray(body.itineraryRows)) {
+      const itinMatrix = body.itineraryRows.map((row, idx) => [
+        String(row.uid || \`it_\${row.day}_\${idx + 1}\`), Number(row.day) || 1, String(row.day_start_time || '09:00'),
+        Number(row.sort_order !== undefined ? row.sort_order : idx + 1), String(row.card_id || ''),
+        row.is_checkout === true || String(row.is_checkout).toUpperCase() === 'TRUE' ? 'TRUE' : 'FALSE',
+        String(row.transit_mode || 'auto'), Number(row.transit_min) || 0,
+        String(row.custom_transit_note || ''), String(row.custom_note || ''), nowStr
+      ]);
+      overwriteSheetData_(itinSheet, ITINERARY_HEADERS, itinMatrix, [3]);
+    }
+
+    return jsonResponse_({ status: 'ok', schemaVersion: '2.0', savedAt: nowStr });
+  } catch (err) {
+    return jsonResponse_({ status: 'error', message: String(err) });
   } finally {
-    lock.releaseLock();
+    try { lock.releaseLock(); } catch (e) {}
   }
+}
+
+function ensureDualSheetsAndMigrate_(ss) {
+  let poiSheet = ss.getSheetByName(SHEET_POIS);
+  let itinSheet = ss.getSheetByName(SHEET_ITINERARY);
+  const isFirstInit = !poiSheet && !itinSheet;
+  if (!poiSheet) { poiSheet = ss.insertSheet(SHEET_POIS); formatHeaderRow_(poiSheet, POI_HEADERS, '#1e40af'); }
+  if (!itinSheet) { itinSheet = ss.insertSheet(SHEET_ITINERARY); formatHeaderRow_(itinSheet, ITINERARY_HEADERS, '#0f766e'); }
+  if (isFirstInit) {
+    const legacySheet = ss.getSheets().find(s => s.getName() !== SHEET_POIS && s.getName() !== SHEET_ITINERARY && s.getLastRow() >= 2);
+    if (legacySheet) migrateLegacySheet_(legacySheet, poiSheet, itinSheet);
+  }
+}
+
+function migrateLegacySheet_(legacySheet, poiSheet, itinSheet) {
+  const values = legacySheet.getDataRange().getValues();
+  if (values.length < 2) return;
+  const headers = values[0].map(h => String(h || '').trim());
+  const idxOf = (names) => { for (const n of names) { const i = headers.findIndex(h => h.toLowerCase() === n.toLowerCase()); if (i >= 0) return i; } return -1; };
+  const cId = idxOf(['id']), cName = idxOf(['name', 'title']), cCat = idxOf(['category']), cArea = idxOf(['area', 'district']);
+  const cDesc = idxOf(['description', 'notes']), cMust = idxOf(['must_buy', 'mustBuy']), cHours = idxOf(['business_hours', 'businessHours']);
+  const cDur = idxOf(['estimated_duration', 'duration']), cPark = idxOf(['parking_info', 'parkingInfo']), cUrl = idxOf(['source_url', 'mapUrl']);
+  const cPhoto = idxOf(['photo_url', 'image']), cStar = idxOf(['starred']), cDay = idxOf(['assigned_day', 'day']), cOrder = idxOf(['sort_order', 'order']);
+  const cLat = idxOf(['lat']), cLng = idxOf(['lng']);
+  const nowStr = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+  const seenIds = new Set(), poiMatrix = [], rawItinItems = [];
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const name = cName >= 0 ? String(row[cName] || '').trim() : '';
+    if (!name) continue;
+    const id = cId >= 0 && String(row[cId]).trim() ? String(row[cId]).trim() : \`spot_mig_\${r}\`;
+    const cat = cCat >= 0 ? String(row[cCat] || '景點').trim() : '景點';
+    const sortOrder = cOrder >= 0 ? (parseInt(row[cOrder], 10) || r) : r;
+    if (!seenIds.has(id)) {
+      seenIds.add(id);
+      poiMatrix.push([id, name, cat, cArea >= 0 ? String(row[cArea] || '').trim() : '', cDesc >= 0 ? String(row[cDesc] || '').trim() : '',
+        cMust >= 0 ? String(row[cMust] || '').trim() : '', cHours >= 0 ? String(row[cHours] || '').trim() : '',
+        cDur >= 0 ? (parseInt(row[cDur], 10) || 60) : 60, cPark >= 0 ? String(row[cPark] || '').trim() : '',
+        cUrl >= 0 ? String(row[cUrl] || '').trim() : '', cPhoto >= 0 ? String(row[cPhoto] || '').trim() : '',
+        cStar >= 0 && String(row[cStar]).toUpperCase() === 'TRUE' ? 'TRUE' : 'FALSE',
+        cLat >= 0 && row[cLat] !== '' ? Number(row[cLat]) : '', cLng >= 0 && row[cLng] !== '' ? Number(row[cLng]) : '', nowStr]);
+    }
+    const assignedRaw = cDay >= 0 ? String(row[cDay] || '').trim() : '';
+    if (assignedRaw && assignedRaw !== 'pocket' && assignedRaw !== 'unscheduled') {
+      const dayMatches = [...assignedRaw.matchAll(/(?:day|d)\\s*(\\d+)/gi)];
+      const days = dayMatches.length > 0 ? dayMatches.map(m => parseInt(m[1], 10)).filter(n => n > 0) : assignedRaw.split(/[,，\\s]+/).map(s => parseInt(s, 10)).filter(n => n > 0 && n <= 30);
+      days.forEach((d, dIdx) => rawItinItems.push({ uid: \`mig_\${id}_d\${d}_\${dIdx}\`, day: d, sort_order: sortOrder, card_id: id, is_checkout: cat === '住宿' && dIdx > 0 ? 'TRUE' : 'FALSE' }));
+    }
+  }
+  if (poiMatrix.length > 0) overwriteSheetData_(poiSheet, POI_HEADERS, poiMatrix);
+  if (rawItinItems.length > 0) {
+    rawItinItems.sort((a, b) => a.day - b.day || a.sort_order - b.sort_order);
+    const itinMatrix = rawItinItems.map((it, idx) => [it.uid, it.day, '09:00', idx + 1, it.card_id, it.is_checkout, 'auto', 0, '', '', nowStr]);
+    overwriteSheetData_(itinSheet, ITINERARY_HEADERS, itinMatrix, [3]);
+  }
+}
+
+function overwriteSheetData_(sheet, headers, matrix, textColIndices = []) {
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (matrix.length > 0) {
+    textColIndices.forEach(colIdx => sheet.getRange(2, colIdx, matrix.length, 1).setNumberFormat('@'));
+    sheet.getRange(2, 1, matrix.length, headers.length).setValues(matrix);
+  }
+}
+
+function deleteRowsByColumnValue_(sheet, colIndex1Based, targetVal) {
+  if (!sheet || sheet.getLastRow() < 2) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) if (String(data[i][colIndex1Based - 1]).trim() === targetVal) sheet.deleteRow(i + 1);
+}
+
+function readSheetObjects_(sheet, headers) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const values = sheet.getDataRange().getValues();
+  const sheetHeaders = values[0].map(h => String(h || '').trim());
+  const result = [];
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    if (row.every(c => c === '' || c === null)) continue;
+    const obj = {};
+    headers.forEach(h => { const idx = sheetHeaders.indexOf(h); obj[h] = idx >= 0 ? row[idx] : ''; });
+    result.push(obj);
+  }
+  return result;
+}
+
+function formatHeaderRow_(sheet, headers, bgHex) {
+  const range = sheet.getRange(1, 1, 1, headers.length);
+  range.setValues([headers]); range.setBackground(bgHex); range.setFontColor('#ffffff'); range.setFontWeight('bold'); sheet.setFrozenRows(1);
+}
+
+function jsonResponse_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }`;
   navigator.clipboard.writeText(gasCode).then(() => {
-    showToast('已複製標準 GAS 完整程式碼！請貼入 Apps Script 並部署新版本', 'emerald');
+    showToast('已複製最新雙工作表 GAS 完整程式碼！請貼入 Apps Script 並部署新版本', 'emerald');
   });
 }
 
