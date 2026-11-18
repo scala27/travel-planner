@@ -1,25 +1,31 @@
-import { STORAGE_KEY, DEFAULT_SETTINGS } from './config.js';
-import { normalizeAdministrativeDistrict } from './geo.js';
+import { DEFAULT_SETTINGS, STORAGE_KEY } from './config.js';
 
 export const state = {
-  mode: 'collect',
-  pocketCollapsed: false,
-  miniCardView: false,
-  boardMultiDayMode: false,
-  mapDrawerOpenCollect: true,
-  mapDrawerOpenPlan: false,
-  // 規劃模式預設開啟「疊加口袋」，讓地圖直接顯示周邊可安排的未排入點位
-  overlayPocketOnPlan: true,
-  mapOverviewAllDays: false,
+  mode: 'plan', // 'plan'（我的行程） | 'collect'（口袋清單）
+  tripViewStep: 'list', // 'list'（行程專案總覽牆） | 'detail'（單一行程每日排程）
+  trips: [],
+  activeTripId: 'trip_default',
+  settings: { ...DEFAULT_SETTINGS },
+  cards: [],
+  itinerary: {},
   selectedMapDay: 1,
-  highlightedCardId: null,
-  expandedCards: {},
-  deletedIds: [],
+  mapOverviewAllDays: false,
+  overlayPocketOnPlan: true,
+  boardMultiDayMode: false,
+  pocketCollapsed: false,
+  miniCardMode: false,
+  mapDrawerOpenCollect: false,
+  mapDrawerOpenPlan: false,
+  filters: {
+    scope: 'all',
+    country: 'all',
+    city: 'all',
+    category: 'all',
+    status: 'all'
+  },
   planQuickFilter: 'unscheduled',
-  planSortByProximity: true,
-  hasUnsavedCloudChanges: false,
-  routeMetricsCache: {},
-  mapVisibleCategories: {
+  planProximitySort: false,
+  visibleMapLayers: {
     '景點': true,
     '美食': true,
     '購物': true,
@@ -27,152 +33,183 @@ export const state = {
     '機場': true,
     '交通': true,
     '體驗': true
-  },
-  filters: {
-    scope: 'all',
-    category: 'all',
-    status: 'all'
-  },
-  settings: { ...DEFAULT_SETTINGS },
-  cards: [],
-  itinerary: {}
+  }
 };
 
 export const hooks = {
-  pushAllToGoogleSheets: async () => {},
-  renderAll: () => {},
-  renderDatabaseCards: () => {},
-  renderKanbanBoard: () => {},
-  renderMapMarkers: () => {},
-  renderMapCategoryToggles: () => {},
-  populateRegionDropdowns: () => {},
-  focusCardOnMap: () => {},
-  openCardModal: () => {},
-  addCardToDay: () => {}
+  pushAllToGoogleSheets: null,
+  renderAll: null,
+  renderDatabaseCards: null,
+  renderKanbanBoard: null,
+  renderMapMarkers: null,
+  renderMapCategoryToggles: null,
+  populateRegionDropdowns: null,
+  focusCardOnMap: null,
+  openCardModal: null,
+  addCardToDay: null,
+  invalidateMapSize: null
 };
 
-let autoSyncTimer = null;
-
-export function discoverSavedGasUrl() {
-  if (state.settings.gasUrl) return state.settings.gasUrl;
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    const val = localStorage.getItem(k) || '';
-    const match = val.match(/https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec/);
-    if (match) return match[0];
+export function createTripObject(partial = {}) {
+  const id = partial.id || `trip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const totalDays = Math.max(1, Math.min(15, Number(partial.totalDays) || 5));
+  const itinerary = partial.itinerary ? JSON.parse(JSON.stringify(partial.itinerary)) : {};
+  for (let d = 1; d <= totalDays; d++) {
+    if (!itinerary[d]) {
+      itinerary[d] = { startTime: '09:00', items: [] };
+    }
   }
-  return '';
+  return {
+    id,
+    title: partial.title || '新旅遊計畫',
+    destination: partial.destination || '',
+    startDate: partial.startDate || new Date().toISOString().slice(0, 10),
+    totalDays,
+    itinerary
+  };
+}
+
+export function getActiveTrip() {
+  if (!Array.isArray(state.trips) || state.trips.length === 0) {
+    const fallback = createTripObject({
+      id: 'trip_default',
+      title: state.settings.tripTitle || DEFAULT_SETTINGS.tripTitle,
+      destination: '日本・沖繩',
+      startDate: state.settings.startDate || DEFAULT_SETTINGS.startDate,
+      totalDays: state.settings.totalDays || DEFAULT_SETTINGS.totalDays,
+      itinerary: state.itinerary
+    });
+    state.trips = [fallback];
+    state.activeTripId = fallback.id;
+  }
+  let found = state.trips.find(t => t.id === state.activeTripId);
+  if (!found) {
+    found = state.trips[0];
+    state.activeTripId = found.id;
+  }
+  return found;
+}
+
+export function syncActiveTripToLegacyState() {
+  const active = getActiveTrip();
+  state.settings.tripTitle = active.title;
+  state.settings.startDate = active.startDate;
+  state.settings.totalDays = active.totalDays;
+  state.itinerary = active.itinerary;
+  ensureItineraryDays();
+}
+
+export function syncLegacyStateBackToActiveTrip() {
+  const active = getActiveTrip();
+  active.title = state.settings.tripTitle;
+  active.startDate = state.settings.startDate;
+  active.totalDays = state.settings.totalDays;
+  active.itinerary = state.itinerary;
 }
 
 export function loadLocalState() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved);
-      state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
-      state.cards = Array.isArray(parsed.cards)
-        ? parsed.cards.map(c => ({
-            ...c,
-            district: normalizeAdministrativeDistrict(c.district, c.country)
-          }))
-        : [];
-      state.itinerary = parsed.itinerary || {};
-      state.deletedIds = Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [];
-    } catch (e) {}
-  }
-
-  if (!state.settings.gasUrl) {
-    const discovered = discoverSavedGasUrl();
-    if (discovered) {
-      state.settings.gasUrl = discovered;
-      persistState(false);
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.settings) {
+        state.settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
+      }
+      if (Array.isArray(parsed.cards)) {
+        state.cards = parsed.cards;
+      }
+      if (parsed.itinerary && typeof parsed.itinerary === 'object') {
+        state.itinerary = parsed.itinerary;
+      }
+      if (Array.isArray(parsed.trips) && parsed.trips.length > 0) {
+        state.trips = parsed.trips.map(t => createTripObject(t));
+        state.activeTripId = parsed.activeTripId || state.trips[0].id;
+      } else {
+        const initialTrip = createTripObject({
+          id: 'trip_default',
+          title: state.settings.tripTitle || DEFAULT_SETTINGS.tripTitle,
+          destination: '日本・沖繩',
+          startDate: state.settings.startDate || DEFAULT_SETTINGS.startDate,
+          totalDays: state.settings.totalDays || DEFAULT_SETTINGS.totalDays,
+          itinerary: state.itinerary
+        });
+        state.trips = [initialTrip];
+        state.activeTripId = initialTrip.id;
+      }
+      syncActiveTripToLegacyState();
+      return;
     }
+  } catch (e) {
+    console.warn('讀取本機快取失敗:', e);
   }
-}
-
-export function persistState(triggerAutoPush = true) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    settings: state.settings,
-    cards: state.cards,
-    itinerary: state.itinerary,
-    deletedIds: state.deletedIds
-  }));
-
-  if (triggerAutoPush) {
-    state.hasUnsavedCloudChanges = true;
-    if (state.settings.gasUrl) {
-      setSyncPillStatus('syncing', '正在自動同步至試算表...');
-      clearTimeout(autoSyncTimer);
-      autoSyncTimer = setTimeout(() => {
-        hooks.pushAllToGoogleSheets(true);
-      }, 500);
-    } else {
-      setSyncPillStatus('warning', '已存本機（尚未設定試算表網址）');
-    }
-  }
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', (e) => {
-    if (state.hasUnsavedCloudChanges && state.settings.gasUrl) {
-      e.preventDefault();
-      e.returnValue = '尚有行程變更正在寫入 Google 試算表，確定要離開嗎？';
-    }
+  const defaultTrip = createTripObject({
+    id: 'trip_default',
+    title: DEFAULT_SETTINGS.tripTitle,
+    destination: '日本・沖繩',
+    startDate: DEFAULT_SETTINGS.startDate,
+    totalDays: DEFAULT_SETTINGS.totalDays
   });
+  state.trips = [defaultTrip];
+  state.activeTripId = defaultTrip.id;
+  syncActiveTripToLegacyState();
+}
+
+export function persistState(autoPushCloud = false) {
+  syncLegacyStateBackToActiveTrip();
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        settings: state.settings,
+        trips: state.trips,
+        activeTripId: state.activeTripId,
+        cards: state.cards,
+        itinerary: state.itinerary
+      })
+    );
+  } catch (e) {
+    console.warn('寫入本機快取失敗:', e);
+  }
+
+  if (autoPushCloud && state.settings.gasUrl && typeof hooks.pushAllToGoogleSheets === 'function') {
+    hooks.pushAllToGoogleSheets(true);
+  }
 }
 
 export function ensureItineraryDays() {
-  const total = Number(state.settings.totalDays) || 6;
+  const total = Math.max(1, Math.min(15, Number(state.settings.totalDays) || 6));
   for (let d = 1; d <= total; d++) {
     if (!state.itinerary[d]) {
       state.itinerary[d] = { startTime: '09:00', items: [] };
+    } else if (!Array.isArray(state.itinerary[d].items)) {
+      state.itinerary[d].items = [];
     }
   }
-}
-
-export function getCardScheduledDays(cardId) {
-  const days = [];
-  const total = Number(state.settings.totalDays) || 6;
-  for (let d = 1; d <= total; d++) {
-    const items = state.itinerary[d]?.items || [];
-    if (items.some(it => it.cardId === cardId)) {
-      days.push(d);
-    }
-  }
-  return days;
-}
-
-export function setSyncPillStatus(type, text) {
-  const pill = document.getElementById('syncStatusPill');
-  const dot = document.getElementById('syncStatusDot');
-  const label = document.getElementById('syncStatusText');
-  if (!pill || !dot || !label) return;
-
-  label.textContent = text;
-  if (type === 'syncing') {
-    pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200';
-    dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-ping';
-  } else if (type === 'warning') {
-    pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200';
-    dot.className = 'w-2 h-2 rounded-full bg-amber-500';
-  } else {
-    pill.className = 'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200';
-    dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+  if (state.selectedMapDay > total) {
+    state.selectedMapDay = 1;
   }
 }
 
-export function showToast(msg, color = 'slate') {
+export function showToast(message, color = 'slate') {
   const container = document.getElementById('toastContainer');
   if (!container) return;
+
   const colorMap = {
+    slate: 'bg-slate-800 text-white',
     emerald: 'bg-emerald-600 text-white',
-    blue: 'bg-blue-600 text-white',
-    amber: 'bg-amber-500 text-white',
-    slate: 'bg-slate-800 text-white'
+    amber: 'bg-amber-600 text-white',
+    rose: 'bg-rose-600 text-white',
+    blue: 'bg-[#2C4D6E] text-white'
   };
+
   const el = document.createElement('div');
-  el.className = `px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-2 transition-all ${colorMap[color] || colorMap.slate}`;
-  el.innerHTML = `<i class="fa-solid fa-circle-check"></i><span>${msg}</span>`;
+  el.className = `${colorMap[color] || colorMap.slate} px-3.5 py-2 rounded-xl shadow-lg text-xs font-bold flex items-center gap-2 transition-all duration-200`;
+  el.textContent = message;
   container.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(6px)';
+    setTimeout(() => el.remove(), 220);
+  }, 2400);
 }
