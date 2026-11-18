@@ -1,4 +1,4 @@
-import { CATEGORY_META, isTransportOrAirport } from './config.js';
+import { CATEGORY_META, DAY_ROUTE_COLORS, isTransportOrAirport } from './config.js';
 import {
   state,
   hooks,
@@ -47,6 +47,102 @@ function extractClockTimes(text) {
   return matches ? matches.map(t => t.padStart(5, '0')) : [];
 }
 
+/**
+ * 推算指定天數的「當晚過夜飯店 ID」
+ * - 若當日行程中段或結尾（idx > 0）有住宿卡片，則取最後一筆作為當晚過夜飯店
+ * - 若當日僅在第一站（idx === 0）有早上出發的住宿卡片，且非最後一天回國日，則檢查隔日是否仍從同一間飯店出發
+ */
+export function resolveOvernightHotelIdForDay(dayNum) {
+  const totalDays = Number(state.settings.totalDays) || 6;
+  const items = state.itinerary[dayNum]?.items || [];
+  if (items.length === 0) return null;
+
+  const hotelEntries = items
+    .map((it, idx) => ({ it, idx, card: state.cards.find(c => c.id === it.cardId) }))
+    .filter(e => e.card && e.card.category === '住宿');
+
+  if (hotelEntries.length === 0) return null;
+
+  // 1. 優先取非第一站（晚間入住或返回）的最後一間飯店
+  const eveningHotels = hotelEntries.filter(e => e.idx > 0);
+  if (eveningHotels.length > 0) {
+    return eveningHotels[eveningHotels.length - 1].card.id;
+  }
+
+  // 2. 只有第一站（idx === 0）有飯店時：若為旅程最後一天則直接退房回國
+  if (dayNum >= totalDays) return null;
+
+  const morningHotelId = hotelEntries[0].card.id;
+  const nextItems = state.itinerary[dayNum + 1]?.items || [];
+  const nextFirstCard = nextItems.length > 0 ? state.cards.find(c => c.id === nextItems[0].cardId) : null;
+
+  // 若隔日早上仍從同一間飯店出發，代表今晚仍連住該飯店
+  if (nextFirstCard && nextFirstCard.category === '住宿' && nextFirstCard.id === morningHotelId) {
+    return morningHotelId;
+  }
+
+  return null;
+}
+
+/**
+ * 住宿三態自動判定（住 / 續 / 退）：
+ * - 'checkin'  => 徽章「住」（入住 / 返回住宿）
+ * - 'stayover' => 徽章「續」（連住出發：昨晚與今晚住同一間飯店）
+ * - 'checkout' => 徽章「退」（退房出發：換宿日或旅程最後一天離開飯店）
+ */
+export function getLodgingStatusForItem(dayNum, idx) {
+  const items = state.itinerary[dayNum]?.items || [];
+  const item = items[idx];
+  if (!item) return null;
+  const card = state.cards.find(c => c.id === item.cardId);
+  if (!card || card.category !== '住宿') return null;
+
+  // 行程中段或結尾到達飯店（idx > 0），一律視為當晚入住或返回住宿
+  if (idx > 0) {
+    return {
+      state: 'checkin',
+      char: '住',
+      label: '入住 / 返回',
+      pinColor: '#9333ea',
+      badgeClass: 'bg-purple-100 text-purple-800 border-purple-200'
+    };
+  }
+
+  // idx === 0（早上從飯店出發）：比對「今晚過夜飯店」是否仍為同一間
+  const tonightHotelId = resolveOvernightHotelIdForDay(dayNum);
+  if (tonightHotelId && tonightHotelId === card.id) {
+    return {
+      state: 'stayover',
+      char: '續',
+      label: '連住出發',
+      pinColor: '#0d9488',
+      badgeClass: 'bg-teal-100 text-teal-800 border-teal-200'
+    };
+  }
+
+  return {
+    state: 'checkout',
+    char: '退',
+    label: '退房出發',
+    pinColor: '#6b21a8',
+    badgeClass: 'bg-amber-100 text-amber-800 border-amber-300'
+  };
+}
+
+/**
+ * 取得某飯店實際過夜的天數陣列（排除僅在早上「退房出發」的那一天）
+ */
+export function getHotelActualStayNights(cardId) {
+  const totalDays = Number(state.settings.totalDays) || 6;
+  const nights = [];
+  for (let d = 1; d <= totalDays; d++) {
+    if (resolveOvernightHotelIdForDay(d) === cardId) {
+      nights.push(d);
+    }
+  }
+  return nights;
+}
+
 export function toggleBoardMultiDayMode() {
   state.boardMultiDayMode = !state.boardMultiDayMode;
   const label = document.getElementById('boardModeLabel');
@@ -77,11 +173,14 @@ export function renderKanbanBoard() {
     const info = getFormattedDateInfo(d);
     const count = (state.itinerary[d]?.items || []).length;
     const active = state.selectedMapDay === d;
+    const dayColor = DAY_ROUTE_COLORS[(d - 1) % DAY_ROUTE_COLORS.length];
     return `
       <button onclick="selectDayFocus(${d})"
-        class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 transition ${active ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}">
+        style="${active ? `background-color:${dayColor};border-color:${dayColor};` : ''}"
+        class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 transition border ${active ? 'text-white shadow-2xs' : 'bg-slate-100 hover:bg-slate-200 border-transparent text-slate-700'}">
+        <span class="w-2 h-2 rounded-full shrink-0" style="background-color:${active ? '#ffffff' : dayColor}"></span>
         <span>Day ${d}</span>
-        <span class="font-normal opacity-80">${info.md}</span>
+        <span class="font-normal opacity-85">${info.md}</span>
         <span class="px-1.5 rounded-full text-[10px] ${active ? 'bg-white/25 text-white' : 'bg-white text-slate-600'}">${count}</span>
       </button>`;
   }).join('');
@@ -92,6 +191,7 @@ export function renderKanbanBoard() {
 
   board.innerHTML = daysToRender.map(d => {
     const info = getFormattedDateInfo(d);
+    const dayColor = DAY_ROUTE_COLORS[(d - 1) % DAY_ROUTE_COLORS.length];
     const dayData = state.itinerary[d] || { startTime: '09:00', items: [] };
     const items = dayData.items || [];
 
@@ -117,6 +217,7 @@ export function renderKanbanBoard() {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
       const dur = Number(card.duration) || 60;
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
+      const lodgingInfo = card.category === '住宿' ? getLodgingStatusForItem(d, idx) : null;
 
       const depTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.departTime) : [];
       if (depTimes.length > 0 && idx === 0) {
@@ -176,8 +277,10 @@ export function renderKanbanBoard() {
       }
 
       if (card.category !== '住宿' && !isTransportOrAirport(card.category)) pinCounter++;
-      const badgeNum = card.category === '住宿' ? (item.isCheckout ? '退' : '宿') : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : pinCounter));
-      const pinBgColor = (card.category === '住宿' && item.isCheckout) ? '#6b21a8' : meta.color;
+      const badgeNum = lodgingInfo
+        ? lodgingInfo.char
+        : (card.category === '機場' ? '機' : (card.category === '交通' ? '行' : pinCounter));
+      const pinBgColor = lodgingInfo ? lodgingInfo.pinColor : meta.color;
 
       let timePillText = `${startStr} ~ ${endStr}`;
       if (isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)) {
@@ -201,7 +304,11 @@ export function renderKanbanBoard() {
               ? 'bg-amber-50 border-amber-300 text-amber-800'
               : 'bg-white border-slate-200 text-slate-700')));
 
-      const showExtendHotelBtn = card.category === '住宿' && !item.isCheckout && d < totalDays;
+      // 只要是住宿卡片且隔天尚未排入此飯店（不論是第1晚入住或第2晚連住），皆可一鍵延續至隔日
+      const nextDayItems = d < totalDays ? (state.itinerary[d + 1]?.items || []) : [];
+      const alreadyOnNextDay = nextDayItems.some(it => it.cardId === card.id);
+      const showExtendHotelBtn = card.category === '住宿' && d < totalDays && !alreadyOnNextDay &&
+        (!lodgingInfo || lodgingInfo.state !== 'checkout' || idx > 0);
 
       return `
         <div draggable="true"
@@ -212,7 +319,7 @@ export function renderKanbanBoard() {
               ${timePillText}
             </span>
             <div class="flex items-center gap-0.5">
-              ${item.isCheckout ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 mr-0.5">退房出發</span>` : ''}
+              ${lodgingInfo ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 ${lodgingInfo.badgeClass}">${lodgingInfo.label}</span>` : ''}
               <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-1 ${meta.badgeBg}">${card.category}</span>
               <button onclick="moveItineraryItem(${d}, ${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="往上移動"
                 class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
@@ -279,10 +386,10 @@ export function renderKanbanBoard() {
         ondrop="onDropOnDay(event, ${d})"
         class="${colWidthClass} bg-slate-50/95 rounded-2xl border border-slate-200 flex flex-col max-h-full overflow-hidden">
         
-        <div class="p-3 bg-white border-b border-slate-200 space-y-1 shrink-0">
+        <div class="p-3 bg-white border-b border-slate-200 space-y-1 shrink-0" style="border-top: 3px solid ${dayColor};">
           <div class="flex items-center justify-between">
             <div class="flex items-baseline gap-1.5">
-              <span class="font-extrabold text-sm text-blue-700">Day ${d}</span>
+              <span class="font-extrabold text-sm" style="color:${dayColor}">Day ${d}</span>
               <span class="text-xs font-semibold text-slate-500">${info.md} (${info.week})</span>
             </div>
             <div class="flex items-center gap-1.5">
@@ -291,7 +398,7 @@ export function renderKanbanBoard() {
                 <input type="time" value="${initialStart}" onchange="updateDayStartTime(${d}, this.value)"
                   class="bg-transparent font-bold text-slate-700 focus:outline-none w-14" />
               </label>
-              <button onclick="addReturnToHotel(${d})" title="將當日新入住（或最新）飯店加入行程最後作為回程"
+              <button onclick="addReturnToHotel(${d})" title="將當晚住宿飯店加入行程最後作為回程"
                 class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold">
                 ↩ 回住宿
               </button>
@@ -450,7 +557,7 @@ export function editLegCustomTime(dayNum, idx) {
   item.customTransitNote = noteInput.trim();
   persistState(true);
   hooks.renderAll();
-  showToast(`已鎖定此段移動時間為 ${parsedMin} 分`, 'emerald');
+  showToast(`已鎖定此段移動時間為 ${parsedMin} 分並同步寫入試算表`, 'emerald');
 }
 
 export function extendHotelToNextDay(dayNum, cardId) {
@@ -466,8 +573,8 @@ export function extendHotelToNextDay(dayNum, cardId) {
   state.itinerary[nextDay].items.unshift({
     uid: 'hotel_' + Date.now(),
     cardId,
-    customNote: '連住出發 / 退房',
-    isCheckout: true,
+    customNote: '連住 / 退房出發',
+    isCheckout: false,
     transitMode: 'auto',
     transitMin: 0,
     customTransitNote: ''
@@ -489,11 +596,8 @@ export function addReturnToHotel(dayNum) {
     return;
   }
 
-  const nonCheckoutHotels = hotelItems.filter(it => !it.isCheckout);
-  const targetHotel = nonCheckoutHotels.length > 0
-    ? nonCheckoutHotels[nonCheckoutHotels.length - 1]
-    : hotelItems[hotelItems.length - 1];
-
+  // 若當日同時有早上退房飯店與晚間新入住飯店，優先回「最後排入的那一間新飯店」
+  const targetHotel = hotelItems[hotelItems.length - 1];
   addCardToDay(targetHotel.cardId, dayNum);
 }
 
@@ -522,12 +626,13 @@ export function recalculateAllDayTimes() {
   Object.values(state.itinerary).forEach(day => {
     (day.items || []).forEach(it => {
       it.transitMode = 'auto';
-      // 若該段有手動鎖定 🔒 的時間則保留，其餘重設為自動計算
-      if (!it.customTransitNote) {
+      // 保留所有手動鎖定 🔒 的移動時間（即使備註欄留空也不歸零）
+      if (!(Number(it.transitMin) > 0)) {
         it.transitMin = 0;
       }
     });
   });
+  persistState(true);
   renderKanbanBoard();
   hooks.renderMapMarkers();
 }
