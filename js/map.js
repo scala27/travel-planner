@@ -8,7 +8,6 @@ let routesLayerGroup = null;
 const markerByCardId = {};
 const osrmRouteCache = {};
 
-// 沖繩都市單軌電車（Yui Rail）全線 19 站座標，供 Turf.js 軌道貼合切片使用
 const YUI_RAIL_STATIONS = [
   { name: '那霸機場', lat: 26.2065, lng: 127.6523 },
   { name: '赤嶺', lat: 26.1932, lng: 127.6605 },
@@ -31,6 +30,93 @@ const YUI_RAIL_STATIONS = [
   { name: '日子浦西', lat: 26.2419, lng: 127.7418 }
 ];
 
+// 精準貼合沖繩都市單軌（Yui Rail）高架轉彎與跨河軌道之高密度幾何座標 [lng, lat]
+const YUI_RAIL_DENSE_COORDS = [
+  [127.6523, 26.2065], [127.6524, 26.2045], [127.6528, 26.2022], [127.6536, 26.1998],
+  [127.6551, 26.1972], [127.6572, 26.1948], [127.6591, 26.1936], [127.6605, 26.1932],
+  [127.6626, 26.1939], [127.6649, 26.1951], [127.6670, 26.1964], [127.6695, 26.1977],
+  [127.6724, 26.1991], [127.6752, 26.2007], [127.6774, 26.2024], [127.6786, 26.2041],
+  [127.6787, 26.2059], [127.6776, 26.2078], [127.6761, 26.2098], [127.6755, 26.2121],
+  [127.6766, 26.2134], [127.6781, 26.2140], [127.6793, 26.2145], [127.6808, 26.2158],
+  [127.6825, 26.2175], [127.6844, 26.2192], [127.6866, 26.2194], [127.6894, 26.2185],
+  [127.6924, 26.2173], [127.6943, 26.2168], [127.6958, 26.2167], [127.6968, 26.2188],
+  [127.6976, 26.2209], [127.6983, 26.2229], [127.6998, 26.2261], [127.7016, 26.2289],
+  [127.7031, 26.2308], [127.7056, 26.2301], [127.7081, 26.2288], [127.7101, 26.2275],
+  [127.7134, 26.2263], [127.7165, 26.2254], [127.7191, 26.2246], [127.7215, 26.2226],
+  [127.7236, 26.2207], [127.7255, 26.2191], [127.7271, 26.2224], [127.7284, 26.2248],
+  [127.7294, 26.2266], [127.7290, 26.2312], [127.7281, 26.2356], [127.7296, 26.2401],
+  [127.7317, 26.2442], [127.7365, 26.2433], [127.7418, 26.2419]
+];
+
+const YUI_TRACK_CACHE_KEY = 'echi_yui_rail_osm_geometry_v1';
+let yuiRailTrackLine = null;
+let yuiTrackLoadingPromise = null;
+
+function buildFallbackTrackLine() {
+  if (typeof turf === 'undefined') return null;
+  return turf.lineString(YUI_RAIL_DENSE_COORDS);
+}
+
+// 從 OpenStreetMap Overpass API 取得真實單軌高架軌道幾何並快取於本機
+async function getYuiRailTrackLine() {
+  if (yuiRailTrackLine) return yuiRailTrackLine;
+  if (typeof turf === 'undefined') return null;
+
+  try {
+    const cached = localStorage.getItem(YUI_TRACK_CACHE_KEY);
+    if (cached) {
+      const coords = JSON.parse(cached);
+      if (Array.isArray(coords) && coords.length > 40) {
+        yuiRailTrackLine = turf.lineString(coords);
+        return yuiRailTrackLine;
+      }
+    }
+  } catch (e) {}
+
+  if (!yuiTrackLoadingPromise) {
+    yuiTrackLoadingPromise = (async () => {
+      try {
+        const query = `[out:json][timeout:12];way["railway"="monorail"](26.185,127.645,26.252,127.752);out geom;`;
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query
+        });
+        const data = await res.json();
+        const ways = (data.elements || []).filter(el => el.type === 'way' && Array.isArray(el.geometry));
+        if (ways.length > 0) {
+          // 依東向順序串接所有單軌軌道節點
+          const segments = ways.map(w => w.geometry.map(pt => [pt.lon, pt.lat]));
+          segments.sort((a, b) => Math.min(a[0][0], a[a.length - 1][0]) - Math.min(b[0][0], b[b.length - 1][0]));
+          const stitched = [];
+          segments.forEach(seg => {
+            const ordered = seg[0][0] <= seg[seg.length - 1][0] ? seg : [...seg].reverse();
+            ordered.forEach(pt => {
+              if (stitched.length === 0) {
+                stitched.push(pt);
+              } else {
+                const prev = stitched[stitched.length - 1];
+                const dist = Math.hypot(pt[0] - prev[0], pt[1] - prev[1]);
+                if (dist > 0.00003 && dist < 0.015) {
+                  stitched.push(pt);
+                }
+              }
+            });
+          });
+          if (stitched.length > 40) {
+            localStorage.setItem(YUI_TRACK_CACHE_KEY, JSON.stringify(stitched));
+            yuiRailTrackLine = turf.lineString(stitched);
+            return yuiRailTrackLine;
+          }
+        }
+      } catch (e) {}
+      yuiRailTrackLine = buildFallbackTrackLine();
+      return yuiRailTrackLine;
+    })();
+  }
+
+  return yuiTrackLoadingPromise;
+}
+
 export function initLeafletMap() {
   const container = document.getElementById('mapContainer');
   if (!container || typeof L === 'undefined') return;
@@ -52,6 +138,7 @@ export function initLeafletMap() {
 
   routesLayerGroup = L.layerGroup().addTo(mapInstance);
   markersLayerGroup = L.layerGroup().addTo(mapInstance);
+  getYuiRailTrackLine();
 }
 
 export function invalidateMapSize() {
@@ -152,7 +239,6 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
-// 建立滑鼠懸停（Hover Tooltip）與點擊（Popup）的景點簡介卡片
 function attachSpotTooltipAndPopup(marker, card, prefixTag = '') {
   const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
   const descRaw = (card.notes || '').trim();
@@ -194,7 +280,6 @@ function attachSpotTooltipAndPopup(marker, card, prefixTag = '') {
   marker.bindPopup(popupHtml);
 }
 
-// 計算跨海航班弧線座標
 function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
   const points = [];
   const steps = 32;
@@ -204,14 +289,11 @@ function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const arch = Math.sin(Math.PI * t) * offsetScale;
-    const lat = lat1 + dLat * t - dLng * arch;
-    const lng = lng1 + dLng * t + dLat * arch;
-    points.push([lat, lng]);
+    points.push([lat1 + dLat * t - dLng * arch, lng1 + dLng * t + dLat * arch]);
   }
   return points;
 }
 
-// 尋找距離座標最近的單軌站點（公里）
 function findNearestStation(lat, lng) {
   let best = null;
   let minKm = Infinity;
@@ -230,14 +312,13 @@ function findNearestStation(lat, lng) {
   return best;
 }
 
-// 透過 OSRM 取得實際道路貼合幾何座標（含快取與單軌幾何切片）
 async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGroup) {
   const lat1 = Number(cardA.lat);
   const lng1 = Number(cardA.lng);
   const lat2 = Number(cardB.lat);
   const lng2 = Number(cardB.lng);
 
-  // 1. 跨海飛航（>250 km）：繪製虛線弧線
+  // 1. 跨海飛航（>250 km）
   if (legInfo.km > 250) {
     const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
     L.polyline(arcCoords, {
@@ -249,43 +330,42 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     return;
   }
 
-  // 2. 若為大眾運輸／單軌模式且起迄點鄰近沖繩單軌站（1.2km 內），使用 Turf.js 切出單軌幾何線段＋步行接駁
+  // 2. 沖繩單軌電車精準貼軌切片（使用真實 OSM 高架軌道幾何）
   const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
   if ((profile === 'transit' || profile === 'smart') && typeof turf !== 'undefined') {
     const stA = findNearestStation(lat1, lng1);
     const stB = findNearestStation(lat2, lng2);
     if (stA && stB && stA.idx !== stB.idx && stA.km <= 1.2 && stB.km <= 1.2) {
-      const fullLine = turf.lineString(YUI_RAIL_STATIONS.map(s => [s.lng, s.lat]));
-      const sliced = turf.lineSlice(turf.point([stA.lng, stA.lat]), turf.point([stB.lng, stB.lat]), fullLine);
-      const railLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
+      const trackLine = (await getYuiRailTrackLine()) || buildFallbackTrackLine();
+      if (trackLine) {
+        const sliced = turf.lineSlice(turf.point([stA.lng, stA.lat]), turf.point([stB.lng, stB.lat]), trackLine);
+        const railLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
 
-      // 起點步行至單軌站（虛線）
-      L.polyline([[lat1, lng1], [stA.lat, stA.lng]], {
-        color: dayColor,
-        weight: 3,
-        opacity: 0.75,
-        dashArray: '4, 6'
-      }).addTo(targetLayerGroup);
+        L.polyline([[lat1, lng1], [stA.lat, stA.lng]], {
+          color: dayColor,
+          weight: 3,
+          opacity: 0.78,
+          dashArray: '4, 6'
+        }).addTo(targetLayerGroup);
 
-      // 單軌主線（粗實線）
-      L.polyline(railLatLngs, {
-        color: dayColor,
-        weight: 5,
-        opacity: 0.92
-      }).addTo(targetLayerGroup);
+        L.polyline(railLatLngs, {
+          color: dayColor,
+          weight: 5,
+          opacity: 0.94
+        }).addTo(targetLayerGroup);
 
-      // 單軌站步行至終點（虛線）
-      L.polyline([[stB.lat, stB.lng], [lat2, lng2]], {
-        color: dayColor,
-        weight: 3,
-        opacity: 0.75,
-        dashArray: '4, 6'
-      }).addTo(targetLayerGroup);
-      return;
+        L.polyline([[stB.lat, stB.lng], [lat2, lng2]], {
+          color: dayColor,
+          weight: 3,
+          opacity: 0.78,
+          dashArray: '4, 6'
+        }).addTo(targetLayerGroup);
+        return;
+      }
     }
   }
 
-  // 3. 一般陸地移動：呼叫 OSRM 實際道路路徑（driving / foot）
+  // 3. 一般陸地移動：OSRM 實際道路貼齊路徑
   const osrmMode = profile === 'walk' || legInfo.km <= 0.8 ? 'foot' : 'driving';
   const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
 
@@ -299,7 +379,6 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     return;
   }
 
-  // 先畫一條淡色預覽直線，待 OSRM 回傳道路座標後立即替換為貼齊道路之路線
   const tempLine = L.polyline(
     [
       [lat1, lng1],
@@ -331,9 +410,7 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
         }).addTo(targetLayerGroup);
       }
     }
-  } catch (e) {
-    // 若網路無法連線 OSRM，保留直線顯示
-  }
+  } catch (e) {}
 }
 
 export function renderMapMarkers(getFilteredCardsFn = null) {
@@ -390,7 +467,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
         const lng = Number(card.lng);
         if (isNaN(lat) || isNaN(lng)) return;
 
-        // 檢查是否為跨海起點（例如台灣機場），若未勾選「視野含跨海航線」則不拉遠沖繩地圖視野
         let isCrossSeaPoint = false;
         if (idx < items.length - 1) {
           const nextCard = state.cards.find(c => c.id === items[idx + 1].cardId);
@@ -413,7 +489,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
         marker.addTo(markersLayerGroup);
         markerByCardId[card.id] = marker;
 
-        // 繪製與下一站之道路貼合路線並累計交通時間
         if (idx > 0) {
           const prevCard = state.cards.find(c => c.id === items[idx - 1].cardId);
           if (prevCard && prevCard.lat != null && prevCard.lng != null) {
@@ -433,7 +508,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       });
     });
 
-    // 更新上方移動時間／距離徽章與抽屜分段明細
     const badgeEl = document.getElementById('dailyTransitBadge');
     if (badgeEl) {
       badgeEl.textContent = `${totalMinSum} 分 (${totalKmSum.toFixed(1)} km)`;
@@ -459,7 +533,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
           : '<div class="text-slate-400 py-1">當日尚無兩點以上移動路線</div>';
     }
 
-    // 多日分色圖例
     const legendBox = document.getElementById('multiDayLegendBox');
     if (legendBox) {
       if (state.mapOverviewAllDays) {
@@ -480,7 +553,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       }
     }
 
-    // 疊加未排入之口袋景點（含滑鼠懸停簡介）
     if (state.overlayPocketOnPlan) {
       state.cards.forEach(card => {
         if (scheduledIds.has(card.id)) return;
