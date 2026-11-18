@@ -21,7 +21,6 @@ const CATEGORY_SHORT_CHAR = {
   '體驗': '體'
 };
 
-// 自動從 ./data/okinawa_transit.json 或 ./okinawa_transit.json 載入 GTFS 路線資料
 export async function loadOkinawaTransitJson() {
   if (transitJsonCache) return transitJsonCache;
   if (!transitLoadPromise) {
@@ -29,7 +28,7 @@ export async function loadOkinawaTransitJson() {
       const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
       for (const path of candidatePaths) {
         try {
-          const res = await fetch(`${path}?v=20261118i`);
+          const res = await fetch(`${path}?v=20261118j`);
           if (res.ok) {
             const data = await res.json();
             if (data && data.yui_rail) {
@@ -68,7 +67,6 @@ export function initLeafletMap() {
   routesLayerGroup = L.layerGroup().addTo(mapInstance);
   markersLayerGroup = L.layerGroup().addTo(mapInstance);
 
-  // 啟動時預先載入 okinawa_transit.json 並在載入後重繪精準路線
   loadOkinawaTransitJson().then(data => {
     if (data && state.mode === 'plan') {
       renderMapMarkers();
@@ -160,7 +158,7 @@ function createPinIcon(hexColor, labelText = '', isScheduled = false) {
         display:flex;
         align-items:center;
         justify-content:center;
-        font-size:${isScheduled ? '11px' : '11px'};
+        font-size:11px;
         font-weight:800;
         line-height:1;
       ">${labelText}</div>
@@ -181,7 +179,6 @@ function attachSpotTooltipAndPopup(marker, card) {
     card.mapUrl ||
     `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${card.title} ${card.lat || ''},${card.lng || ''}`)}`;
 
-  // 1. 懸浮提示僅顯示地點名稱（不含口袋等其他標籤）
   marker.bindTooltip(
     `<span style="font-size:12px;font-weight:700;color:#0f172a;">${cleanTitle}</span>`,
     {
@@ -191,7 +188,6 @@ function attachSpotTooltipAndPopup(marker, card) {
     }
   );
 
-  // 2. 點擊彈窗僅顯示地點名稱 + 編輯卡片與 Google Maps 純圖示按鈕
   const popupHtml = `
     <div style="min-width:150px;max-width:230px;padding:2px 0;">
       <div style="font-weight:800;font-size:13px;color:#0f172a;line-height:1.35;margin-bottom:8px;">
@@ -264,8 +260,28 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
-function drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
-  if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 2) return false;
+// 取得 OSRM 實際街道貼合座標（帶記憶體快取）
+async function fetchOsrmRoadCoords(lat1, lng1, lat2, lng2, osrmMode = 'driving') {
+  const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
+  if (osrmRouteCache[cacheKey]) return osrmRouteCache[cacheKey];
+
+  try {
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/${osrmMode}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
+    );
+    const data = await res.json();
+    if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
+      const roadLatLngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      osrmRouteCache[cacheKey] = roadLatLngs;
+      return roadLatLngs;
+    }
+  } catch (e) {}
+  return null;
+}
+
+// 單軌電車專用：使用 okinawa_transit.json 的高密度高架軌道 shape 切片
+function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
+  if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 10) return false;
 
   const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
   const fullLine = turf.lineString(lineCoords);
@@ -311,12 +327,13 @@ function drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs,
   return true;
 }
 
-async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGroup) {
+async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, targetLayerGroup) {
   const lat1 = Number(cardA.lat);
   const lng1 = Number(cardA.lng);
   const lat2 = Number(cardB.lat);
   const lng2 = Number(cardB.lng);
 
+  // 1. 跨海飛航（>250 km）
   if (legInfo.km > 250) {
     const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
     L.polyline(arcCoords, {
@@ -328,20 +345,23 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
     return;
   }
 
-  const profile = document.getElementById('transitProfileSelect')?.value || 'smart';
+  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
+  const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
   const transitData = await loadOkinawaTransitJson();
 
+  // 2. 沖繩單軌電車 (Yui Rail)：使用高密度高架軌道幾何精準切片
   if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
     const yui = transitData.yui_rail;
     if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
       const stA = findNearestStop(yui.stations, lat1, lng1);
       const stB = findNearestStop(yui.stations, lat2, lng2);
       if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
-        const ok = drawGtfsSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
+        const ok = drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
         if (ok) return;
       }
     }
 
+    // 3. 沖繩幹線公車：兩端站牌間使用 OSRM 實際道路（國道58號等）貼齊繪製，兩端補步行虛線
     if (Array.isArray(transitData.buses)) {
       let bestBus = null;
       let bestWalkSum = Infinity;
@@ -355,68 +375,57 @@ async function drawRoadSnappedLeg(cardA, cardB, legInfo, dayColor, targetLayerGr
           }
         }
       });
+
       if (bestBus) {
-        const ok = drawGtfsSlicedRoute(
-          lat1,
-          lng1,
-          lat2,
-          lng2,
-          bestBus.bA,
-          bestBus.bB,
-          bestBus.bus.shape,
-          dayColor,
-          targetLayerGroup
-        );
-        if (ok) return;
+        const { bA, bB } = bestBus;
+        if (bA.km > 0.04) {
+          L.polyline(
+            [
+              [lat1, lng1],
+              [bA.lat, bA.lng]
+            ],
+            { color: dayColor, weight: 3, opacity: 0.75, dashArray: '4, 6' }
+          ).addTo(targetLayerGroup);
+        }
+
+        const busRoadCoords = await fetchOsrmRoadCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'driving');
+        L.polyline(
+          busRoadCoords || [
+            [bA.lat, bA.lng],
+            [bB.lat, bB.lng]
+          ],
+          { color: dayColor, weight: 4.5, opacity: 0.92 }
+        ).addTo(targetLayerGroup);
+
+        if (bB.km > 0.04) {
+          L.polyline(
+            [
+              [bB.lat, bB.lng],
+              [lat2, lng2]
+            ],
+            { color: dayColor, weight: 3, opacity: 0.75, dashArray: '4, 6' }
+          ).addTo(targetLayerGroup);
+        }
+        return;
       }
     }
   }
 
-  const osrmMode = profile === 'walk' || legInfo.km <= 0.8 ? 'foot' : 'driving';
-  const cacheKey = `${osrmMode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
-
-  if (osrmRouteCache[cacheKey]) {
-    L.polyline(osrmRouteCache[cacheKey], {
-      color: dayColor,
-      weight: 4.5,
-      opacity: 0.88,
-      dashArray: osrmMode === 'foot' ? '5, 6' : null
-    }).addTo(targetLayerGroup);
-    return;
-  }
-
-  const tempLine = L.polyline(
-    [
+  // 4. 一般陸地步行 / 自駕 / 無公車覆蓋路段：全程使用 OSRM 實際街道貼合
+  const osrmMode = profile === 'walk' || (legInfo.km <= 0.6 && !itemMode) ? 'foot' : 'driving';
+  const roadLatLngs = await fetchOsrmRoadCoords(lat1, lng1, lat2, lng2, osrmMode);
+  L.polyline(
+    roadLatLngs || [
       [lat1, lng1],
       [lat2, lng2]
     ],
     {
       color: dayColor,
-      weight: 3,
-      opacity: 0.35,
-      dashArray: '4, 4'
+      weight: 4.5,
+      opacity: 0.9,
+      dashArray: osrmMode === 'foot' ? '5, 6' : null
     }
   ).addTo(targetLayerGroup);
-
-  try {
-    const res = await fetch(
-      `https://router.project-osrm.org/route/v1/${osrmMode}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
-    );
-    const data = await res.json();
-    if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
-      const roadLatLngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      osrmRouteCache[cacheKey] = roadLatLngs;
-      if (targetLayerGroup.hasLayer(tempLine)) {
-        targetLayerGroup.removeLayer(tempLine);
-        L.polyline(roadLatLngs, {
-          color: dayColor,
-          weight: 4.5,
-          opacity: 0.88,
-          dashArray: osrmMode === 'foot' ? '5, 6' : null
-        }).addTo(targetLayerGroup);
-      }
-    }
-  } catch (e) {}
 }
 
 export function renderMapMarkers(getFilteredCardsFn = null) {
@@ -509,7 +518,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
               leg,
               gmapsUrl: buildGoogleMapsLegUrl(prevCard, card, it)
             });
-            drawRoadSnappedLeg(prevCard, card, leg, dayColor, routesLayerGroup);
+            drawRoadSnappedLeg(prevCard, card, it, leg, dayColor, routesLayerGroup);
           }
         }
       });
@@ -520,7 +529,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       badgeEl.textContent = `${totalMinSum} 分 (${totalKmSum.toFixed(1)} km)`;
     }
 
-    // 4. 當日路線分段明細：加入可連結 Google Maps 路線與即時公車資訊的圖示按鈕
     const legsListEl = document.getElementById('dailyTransitLegsList');
     if (legsListEl) {
       legsListEl.innerHTML =
@@ -568,7 +576,6 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
       }
     }
 
-    // 3. 疊加口袋標示中央顯示分類單字（景/美/購/宿/機/交/體）
     if (state.overlayPocketOnPlan) {
       state.cards.forEach(card => {
         if (scheduledIds.has(card.id)) return;
