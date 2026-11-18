@@ -48,10 +48,42 @@ function extractClockTimes(text) {
 }
 
 /**
- * 推算指定天數的「當晚過夜飯店 ID」
- * - 若當日行程中段或結尾（idx > 0）有住宿卡片，則取最後一筆作為當晚過夜飯店
- * - 若當日僅在第一站（idx === 0）有早上出發的住宿卡片，且非最後一天回國日，則檢查隔日是否仍從同一間飯店出發
+ * 解析單筆排程項目的獨立航班／交通時刻（格式：flight|報到起飛|抵達|班次）
+ * 讓同一張機場卡片（如那霸空港）在 Day 1 入境與 Day 6 回程出境可各自設定不同時刻，互不覆蓋
  */
+function parseItemFlightSchedule(item) {
+  const raw = String(item?.customNote || '').trim();
+  if (!raw.startsWith('flight|')) return null;
+  const parts = raw.split('|');
+  return {
+    depart: (parts[1] || '').trim(),
+    arrive: (parts[2] || '').trim(),
+    flightNo: (parts[3] || '').trim()
+  };
+}
+
+/**
+ * 判斷某排程項目的機場／交通角色：
+ * - 'arrival'   ：入境／抵達機場（前一站為跨海飛航段，如 Day 1 臺中機場 → 那霸空港）
+ * - 'departure' ：出境／搭機出發機場（位於行程第 1 站，或從飯店／市區前往機場準備搭機，如 Day 6）
+ */
+function getAirportRoleInDay(items, idx) {
+  const item = items[idx];
+  const card = state.cards.find(c => c.id === item?.cardId);
+  if (!card || !isTransportOrAirport(card.category)) return null;
+
+  if (idx === 0) return 'departure';
+
+  const prevCard = state.cards.find(c => c.id === items[idx - 1]?.cardId);
+  if (prevCard) {
+    const km = haversineKm(prevCard.lat, prevCard.lng, card.lat, card.lng);
+    if (isFlightLeg(prevCard, card, km)) {
+      return 'arrival';
+    }
+  }
+  return 'departure';
+}
+
 export function resolveOvernightHotelIdForDay(dayNum) {
   const totalDays = Number(state.settings.totalDays) || 6;
   const items = state.itinerary[dayNum]?.items || [];
@@ -63,20 +95,17 @@ export function resolveOvernightHotelIdForDay(dayNum) {
 
   if (hotelEntries.length === 0) return null;
 
-  // 1. 優先取非第一站（晚間入住或返回）的最後一間飯店
   const eveningHotels = hotelEntries.filter(e => e.idx > 0);
   if (eveningHotels.length > 0) {
     return eveningHotels[eveningHotels.length - 1].card.id;
   }
 
-  // 2. 只有第一站（idx === 0）有飯店時：若為旅程最後一天則直接退房回國
   if (dayNum >= totalDays) return null;
 
   const morningHotelId = hotelEntries[0].card.id;
   const nextItems = state.itinerary[dayNum + 1]?.items || [];
   const nextFirstCard = nextItems.length > 0 ? state.cards.find(c => c.id === nextItems[0].cardId) : null;
 
-  // 若隔日早上仍從同一間飯店出發，代表今晚仍連住該飯店
   if (nextFirstCard && nextFirstCard.category === '住宿' && nextFirstCard.id === morningHotelId) {
     return morningHotelId;
   }
@@ -84,12 +113,6 @@ export function resolveOvernightHotelIdForDay(dayNum) {
   return null;
 }
 
-/**
- * 住宿三態自動判定（住 / 續 / 退）：
- * - 'checkin'  => 徽章「住」（入住 / 返回住宿）
- * - 'stayover' => 徽章「續」（連住出發：昨晚與今晚住同一間飯店）
- * - 'checkout' => 徽章「退」（退房出發：換宿日或旅程最後一天離開飯店）
- */
 export function getLodgingStatusForItem(dayNum, idx) {
   const items = state.itinerary[dayNum]?.items || [];
   const item = items[idx];
@@ -97,7 +120,6 @@ export function getLodgingStatusForItem(dayNum, idx) {
   const card = state.cards.find(c => c.id === item.cardId);
   if (!card || card.category !== '住宿') return null;
 
-  // 行程中段或結尾到達飯店（idx > 0），一律視為當晚入住或返回住宿
   if (idx > 0) {
     return {
       state: 'checkin',
@@ -108,7 +130,6 @@ export function getLodgingStatusForItem(dayNum, idx) {
     };
   }
 
-  // idx === 0（早上從飯店出發）：比對「今晚過夜飯店」是否仍為同一間
   const tonightHotelId = resolveOvernightHotelIdForDay(dayNum);
   if (tonightHotelId && tonightHotelId === card.id) {
     return {
@@ -129,9 +150,6 @@ export function getLodgingStatusForItem(dayNum, idx) {
   };
 }
 
-/**
- * 取得某飯店實際過夜的天數陣列（排除僅在早上「退房出發」的那一天）
- */
 export function getHotelActualStayNights(cardId) {
   const totalDays = Number(state.settings.totalDays) || 6;
   const nights = [];
@@ -198,10 +216,14 @@ export function renderKanbanBoard() {
     let initialStart = dayData.startTime;
     if (items.length > 0) {
       const firstCard = state.cards.find(c => c.id === items[0].cardId);
-      if (firstCard && isTransportOrAirport(firstCard.category) && firstCard.departTime) {
-        const depTimes = extractClockTimes(firstCard.departTime);
-        if (depTimes.length > 0 && dayData.startTime === '09:00') {
-          initialStart = depTimes[0];
+      const firstCustomFlight = parseItemFlightSchedule(items[0]);
+      if (firstCard && isTransportOrAirport(firstCard.category)) {
+        const rawFirstDep = firstCustomFlight?.depart || firstCard.departTime || '';
+        if (rawFirstDep && !rawFirstDep.includes('抵達')) {
+          const depTimes = extractClockTimes(rawFirstDep);
+          if (depTimes.length > 0 && dayData.startTime === '09:00') {
+            initialStart = depTimes[0];
+          }
         }
       }
     }
@@ -218,15 +240,46 @@ export function renderKanbanBoard() {
       const dur = Number(card.duration) || 60;
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
       const lodgingInfo = card.category === '住宿' ? getLodgingStatusForItem(d, idx) : null;
+      const airportRole = isTransportOrAirport(card.category) ? getAirportRoleInDay(items, idx) : null;
+      const itemFlight = parseItemFlightSchedule(item);
 
-      const depTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.departTime) : [];
+      // 解析本筆航班時刻：優先採用本天專屬設定，否則依「入境抵達」或「出境搭機」角色自動過濾共用欄位
+      let effectiveDepartText = '';
+      let effectiveArriveText = '';
+      let effectiveFlightNo = itemFlight?.flightNo || card.flightNo || '';
+
+      if (isTransportOrAirport(card.category)) {
+        if (itemFlight && (itemFlight.depart || itemFlight.arrive)) {
+          effectiveDepartText = itemFlight.depart;
+          effectiveArriveText = itemFlight.arrive;
+        } else if (airportRole === 'arrival') {
+          // 入境機場（如 Day 1 那霸空港）：採用抵達時間，若誤填在 departTime（含「抵達」字樣）亦自動識別
+          effectiveArriveText = card.arriveTime || (String(card.departTime || '').includes('抵達') ? card.departTime : '');
+        } else {
+          // 出境搭機機場（如 Day 1 臺中機場、Day 6 那霸空港）：忽略含「抵達」的入境時間
+          effectiveDepartText = String(card.departTime || '').includes('抵達') ? '' : (card.departTime || '');
+          effectiveArriveText = card.arriveTime || '';
+        }
+      }
+
+      const depTimes = extractClockTimes(effectiveDepartText);
+      const arrTimes = extractClockTimes(effectiveArriveText);
+
       if (depTimes.length > 0 && idx === 0) {
         cursorMin = timeToMinutes(depTimes[0]);
+      } else if (airportRole === 'arrival' && arrTimes.length > 0) {
+        cursorMin = timeToMinutes(arrTimes[arrTimes.length - 1]);
       }
 
       const startStr = minutesToTime(cursorMin);
       const endStr = minutesToTime(cursorMin + dur);
-      cursorMin += dur;
+
+      if (airportRole === 'departure' && depTimes.length >= 2) {
+        cursorMin = timeToMinutes(depTimes[depTimes.length - 1]);
+      } else {
+        cursorMin += dur;
+      }
+
       if (card.category !== '住宿' && !isTransportOrAirport(card.category)) totalActMin += dur;
 
       const nextItem = items[idx + 1];
@@ -251,13 +304,8 @@ export function renderKanbanBoard() {
           ? Number(item.transitMin)
           : (est.mode === 'flight' ? est.min : (cached ? cached.min : est.min));
 
-        const arrTimes = isTransportOrAirport(card.category) ? extractClockTimes(card.arriveTime) : [];
         totalTransitMin += transitMin;
-        if (arrTimes.length > 0) {
-          cursorMin = timeToMinutes(arrTimes[arrTimes.length - 1]);
-        } else {
-          cursorMin += transitMin;
-        }
+        cursorMin += transitMin;
 
         const transferPrefix = isHotelTransfer ? '🧳 換宿移動・' : '';
         const baseModeLabel = item.customTransitNote
@@ -283,14 +331,23 @@ export function renderKanbanBoard() {
       const pinBgColor = lodgingInfo ? lodgingInfo.pinColor : meta.color;
 
       let timePillText = `${startStr} ~ ${endStr}`;
-      if (isTransportOrAirport(card.category) && (card.departTime || card.arriveTime)) {
-        const arrTimes = extractClockTimes(card.arriveTime);
-        if (depTimes.length >= 2) {
-          timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
-        } else if (card.departTime) {
-          timePillText = card.departTime.replace(/：/g, ':');
-        } else if (arrTimes.length > 0) {
-          timePillText = `${arrTimes[0]} 抵達 ~ ${minutesToTime(timeToMinutes(arrTimes[0]) + dur)}`;
+      let roleBadgeHtml = '';
+
+      if (isTransportOrAirport(card.category)) {
+        if (airportRole === 'arrival') {
+          roleBadgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 bg-sky-100 text-sky-800 border-sky-200">入境抵達</span>`;
+          if (arrTimes.length > 0) {
+            timePillText = `${arrTimes[0]} 抵達 ~ ${minutesToTime(timeToMinutes(arrTimes[0]) + dur)}`;
+          }
+        } else {
+          roleBadgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 bg-indigo-50 text-indigo-700 border-indigo-200">出境搭機</span>`;
+          if (depTimes.length >= 2) {
+            timePillText = `${depTimes[0]} 報到 ~ ${depTimes[1]} 起飛`;
+          } else if (effectiveDepartText) {
+            timePillText = effectiveDepartText.replace(/：/g, ':');
+          } else {
+            timePillText = `${startStr} 抵達機場 ~ ${endStr} 候機`;
+          }
         }
       }
 
@@ -304,7 +361,6 @@ export function renderKanbanBoard() {
               ? 'bg-amber-50 border-amber-300 text-amber-800'
               : 'bg-white border-slate-200 text-slate-700')));
 
-      // 只要是住宿卡片且隔天尚未排入此飯店（不論是第1晚入住或第2晚連住），皆可一鍵延續至隔日
       const nextDayItems = d < totalDays ? (state.itinerary[d + 1]?.items || []) : [];
       const alreadyOnNextDay = nextDayItems.some(it => it.cardId === card.id);
       const showExtendHotelBtn = card.category === '住宿' && d < totalDays && !alreadyOnNextDay &&
@@ -320,6 +376,7 @@ export function renderKanbanBoard() {
             </span>
             <div class="flex items-center gap-0.5">
               ${lodgingInfo ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-0.5 ${lodgingInfo.badgeClass}">${lodgingInfo.label}</span>` : ''}
+              ${roleBadgeHtml}
               <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border mr-1 ${meta.badgeBg}">${card.category}</span>
               <button onclick="moveItineraryItem(${d}, ${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="往上移動"
                 class="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-25 text-[10px] flex items-center justify-center">
@@ -346,10 +403,19 @@ export function renderKanbanBoard() {
             <div class="min-w-0 flex-1">
               <h5 class="font-bold text-xs text-slate-800 break-words">${card.title}</h5>
               <p class="text-[11px] text-slate-500 mt-0.5">
-                ${cleanDist}・停留 ${dur} 分${card.flightNo ? '・' + card.flightNo : ''}
+                ${cleanDist}・停留 ${dur} 分${effectiveFlightNo ? '・' + effectiveFlightNo : ''}
               </p>
             </div>
           </div>
+
+          ${isTransportOrAirport(card.category) ? `
+            <div class="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center gap-1.5">
+              <button onclick="editItemFlightSchedule(${d}, ${idx})"
+                class="px-2 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[10px] font-bold">
+                ✈️ 設定 Day ${d} 專屬航班時刻
+              </button>
+            </div>
+          ` : ''}
 
           ${showExtendHotelBtn ? `
             <div class="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center gap-1.5">
@@ -367,7 +433,7 @@ export function renderKanbanBoard() {
               class="px-2.5 py-0.5 rounded-full ${pillColorClass} border hover:border-blue-400 text-[10px] font-semibold shadow-2xs flex items-center gap-1 transition">
               <span>↓ ${legPillText}</span>
             </button>
-            <button onclick="editLegCustomTime(${d}, ${idx})" title="校準此段精確分鐘數與路線備註（如：38 分・346號公車）"
+            <button onclick="editLegCustomTime(${d}, ${idx})" title="校準此段精確分鐘數與路線備註"
               class="w-5 h-5 rounded-full bg-white border border-slate-200 hover:border-blue-400 text-slate-400 hover:text-blue-600 text-[9px] flex items-center justify-center shadow-2xs transition">
               <i class="fa-solid fa-pen"></i>
             </button>
@@ -421,6 +487,46 @@ export function renderKanbanBoard() {
       </div>
     `;
   }).join('');
+}
+
+export function editItemFlightSchedule(dayNum, idx) {
+  const item = state.itinerary[dayNum]?.items[idx];
+  if (!item) return;
+  const card = state.cards.find(c => c.id === item.cardId);
+  if (!card) return;
+
+  const existing = parseItemFlightSchedule(item) || { depart: '', arrive: '', flightNo: card.flightNo || '' };
+  const role = getAirportRoleInDay(state.itinerary[dayNum].items, idx);
+
+  if (role === 'arrival') {
+    const arrInput = prompt(
+      `設定 Day ${dayNum}「${card.title}」的入境抵達時間（例如：19:30，輸入空白可清除）：`,
+      existing.arrive || (String(card.departTime || '').includes('抵達') ? card.departTime.replace(/抵達/g, '').trim() : '')
+    );
+    if (arrInput === null) return;
+    const fltInput = prompt('航班代號／航廈備註（選填，例如：星宇 JX870）：', existing.flightNo || '');
+    if (fltInput === null) return;
+
+    item.customNote = arrInput.trim() || fltInput.trim()
+      ? `flight||${arrInput.trim()}|${fltInput.trim()}`
+      : '';
+  } else {
+    const depInput = prompt(
+      `設定 Day ${dayNum}「${card.title}」的出境報到／起飛時間（例如：18:30 報到 / 20:30 起飛，輸入空白可清除）：`,
+      existing.depart || ''
+    );
+    if (depInput === null) return;
+    const fltInput = prompt('航班代號／航廈備註（選填，例如：星宇 JX871 國際航廈）：', existing.flightNo || '');
+    if (fltInput === null) return;
+
+    item.customNote = depInput.trim() || fltInput.trim()
+      ? `flight|${depInput.trim()}||${fltInput.trim()}`
+      : '';
+  }
+
+  persistState(true);
+  renderKanbanBoard();
+  showToast(`已更新 Day ${dayNum}「${card.title}」專屬航班時刻並同步至試算表`, 'emerald');
 }
 
 export function onDragStartCard(e, cardId) {
@@ -596,7 +702,6 @@ export function addReturnToHotel(dayNum) {
     return;
   }
 
-  // 若當日同時有早上退房飯店與晚間新入住飯店，優先回「最後排入的那一間新飯店」
   const targetHotel = hotelItems[hotelItems.length - 1];
   addCardToDay(targetHotel.cardId, dayNum);
 }
@@ -626,7 +731,6 @@ export function recalculateAllDayTimes() {
   Object.values(state.itinerary).forEach(day => {
     (day.items || []).forEach(it => {
       it.transitMode = 'auto';
-      // 保留所有手動鎖定 🔒 的移動時間（即使備註欄留空也不歸零）
       if (!(Number(it.transitMin) > 0)) {
         it.transitMin = 0;
       }
