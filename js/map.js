@@ -1,11 +1,6 @@
-import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
+import { CATEGORY_STYLES } from './config.js';
 import { state, showToast } from './state.js';
-import { estimateLegTransit, setOkinawaTransitData } from './ui-board.js';
-
-// 將 Day 3 顏色調整為高對比緋紅色，避免與 OpenStreetMap 橘黃色道路混淆
-if (Array.isArray(DAY_COLORS) && DAY_COLORS.length > 2) {
-  DAY_COLORS[2] = '#dc2626';
-}
+import { estimateLegTransit, setOkinawaTransitData, getDayColor } from './ui-board.js';
 
 let mapInstance = null;
 let markersLayerGroup = null;
@@ -33,7 +28,7 @@ export async function loadOkinawaTransitJson() {
       const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
       for (const path of candidatePaths) {
         try {
-          const res = await fetch(`${path}?v=20261118l`);
+          const res = await fetch(`${path}?v=20261118m`);
           if (res.ok) {
             const data = await res.json();
             if (data && data.yui_rail) {
@@ -490,7 +485,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
     const legSummaryRows = [];
 
     daysToDraw.forEach(dayNum => {
-      const dayColor = DAY_COLORS[(dayNum - 1) % DAY_COLORS.length];
+      const dayColor = getDayColor(dayNum);
       const items = state.itinerary[dayNum]?.items || [];
 
       items.forEach((it, idx) => {
@@ -582,7 +577,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
         legendBox.classList.add('flex');
         legendBox.innerHTML = Array.from({ length: totalDays }, (_, i) => {
           const d = i + 1;
-          const color = DAY_COLORS[i % DAY_COLORS.length];
+          const color = getDayColor(d);
           return `
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style="background:${color}">
               Day ${d}
