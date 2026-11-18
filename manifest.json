@@ -2,7 +2,7 @@
   "id": "./index.html",
   "name": "e-chi Go｜一起去旅行",
   "short_name": "e-chi Go",
-  "description": "一起去旅行 GO・卡片式自由行排程與路線地圖規劃系統",
+  "description": "一起去旅行 GO",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
