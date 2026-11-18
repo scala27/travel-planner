@@ -70,35 +70,42 @@ export function estimateLegTransit(cardA, cardB, itemB) {
   return { modeLabel, icon, km: Number(km.toFixed(1)), min };
 }
 
+function normalizeTimeStr(hhmm) {
+  return String(hhmm || '09:00').replace(/：/g, ':').replace(/\s+/g, '').trim();
+}
+
 function parseMinutes(hhmm) {
-  const [h, m] = (hhmm || '09:00').split(':').map(n => parseInt(n, 10) || 0);
-  return h * 60 + m;
+  const clean = normalizeTimeStr(hhmm);
+  const parts = clean.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h)) return 9 * 60;
+  return h * 60 + (isNaN(m) ? 0 : m);
 }
 
 function formatMinutes(totalMin) {
+  if (isNaN(totalMin)) return '09:00';
   const wrapped = ((totalMin % 1440) + 1440) % 1440;
   const h = String(Math.floor(wrapped / 60)).padStart(2, '0');
   const m = String(wrapped % 60).padStart(2, '0');
   return `${h}:${m}`;
 }
 
-// 解析航班備註字串，例如 "flight|15:00/17:00|星宇" 或 "flight||19:00|星宇"
 function parseFlightNote(customNote) {
   const str = String(customNote || '').trim();
   if (!str.startsWith('flight|')) return null;
   const parts = str.split('|');
   if (parts.length >= 4) {
-    // 支援舊格式 flight||19:00|星宇
     return {
-      depTime: parts[1] || '',
-      arrTime: parts[2] || '',
-      airline: parts[3] || ''
+      depTime: normalizeTimeStr(parts[1] || ''),
+      arrTime: normalizeTimeStr(parts[2] || ''),
+      airline: (parts[3] || '').trim()
     };
   }
   const timePair = (parts[1] || '').split('/');
   return {
-    depTime: (timePair[0] || '').trim(),
-    arrTime: (timePair[1] || '').trim(),
+    depTime: timePair[0] ? normalizeTimeStr(timePair[0]) : '',
+    arrTime: timePair[1] ? normalizeTimeStr(timePair[1]) : '',
     airline: (parts[2] || '').trim()
   };
 }
@@ -223,10 +230,11 @@ export function renderKanbanBoard() {
               roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">出境搭機</span>';
               cursorMin = parseMinutes(flightInfo.arrTime);
             } else if (flightInfo?.arrTime) {
-              timeLineTop = `${flightInfo.arrTime} 抵達 ~`;
-              timeLineBottom = formatMinutes(parseMinutes(flightInfo.arrTime) + stayMin);
+              const arrMin = parseMinutes(flightInfo.arrTime);
+              timeLineTop = `${formatMinutes(arrMin)} 抵達 ~`;
+              timeLineBottom = formatMinutes(arrMin + stayMin);
               roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">入境抵達</span>';
-              cursorMin = parseMinutes(flightInfo.arrTime) + stayMin;
+              cursorMin = arrMin + stayMin;
             } else {
               cursorMin += stayMin;
             }
