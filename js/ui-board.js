@@ -2,6 +2,11 @@ import { CATEGORY_STYLES } from './config.js';
 import { state, hooks, persistState, showToast } from './state.js';
 
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+let okinawaTransitData = null;
+
+export function setOkinawaTransitData(data) {
+  okinawaTransitData = data;
+}
 
 export function getFormattedDateInfo(dayNum) {
   const base = new Date((state.settings.startDate || '2027-02-17') + 'T00:00:00');
@@ -30,6 +35,19 @@ function calcDistanceKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function findNearestTransitStop(stops, lat, lng) {
+  let best = null;
+  let minKm = Infinity;
+  (stops || []).forEach(st => {
+    const km = calcDistanceKm(lat, lng, st.lat, st.lng);
+    if (km < minKm) {
+      minKm = km;
+      best = { ...st, km };
+    }
+  });
+  return best;
+}
+
 export function estimateLegTransit(cardA, cardB, itemB) {
   if (!cardA || !cardB) return { modeLabel: '移動', icon: 'fa-arrow-down', km: 0, min: 0 };
   const km = calcDistanceKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
@@ -45,8 +63,8 @@ export function estimateLegTransit(cardA, cardB, itemB) {
   let modeLabel = '市區移動';
   let icon = 'fa-bus';
 
-  if (km <= 0.8 && !itemMode) {
-    min = Math.max(5, Math.round(km * 14));
+  if (km <= 0.6 && !itemMode) {
+    min = Math.max(4, Math.round(km * 14));
     modeLabel = '步行前往';
     icon = 'fa-person-walking';
   } else if (profile === 'walk') {
@@ -58,9 +76,50 @@ export function estimateLegTransit(cardA, cardB, itemB) {
     modeLabel = profile === 'taxi' ? '計程車' : '自駕道路';
     icon = 'fa-car';
   } else {
-    min = Math.max(10, Math.round(km * 2.5 + 8));
-    modeLabel = '大眾運輸 / 單軌';
-    icon = 'fa-train-subway';
+    // 優先查詢 okinawa_transit.json 的單軌與公車站間 cumMin
+    let matchedGtfs = false;
+    if (okinawaTransitData && cardA.lat != null && cardB.lat != null) {
+      const yui = okinawaTransitData.yui_rail;
+      if (yui && Array.isArray(yui.stations)) {
+        const stA = findNearestTransitStop(yui.stations, cardA.lat, cardA.lng);
+        const stB = findNearestTransitStop(yui.stations, cardB.lat, cardB.lng);
+        if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
+          const rideMin = Math.abs((stB.cumMin || 0) - (stA.cumMin || 0));
+          const walkMin = Math.round((stA.km + stB.km) * 14);
+          min = rideMin + (yui.waitMin || 3) + walkMin;
+          modeLabel = `單軌電車（${stA.name.replace('站', '')}→${stB.name.replace('站', '')}）`;
+          icon = 'fa-train-subway';
+          matchedGtfs = true;
+        }
+      }
+
+      if (!matchedGtfs && Array.isArray(okinawaTransitData.buses)) {
+        let bestBus = null;
+        let bestWalk = Infinity;
+        okinawaTransitData.buses.forEach(bus => {
+          const bA = findNearestTransitStop(bus.stops, cardA.lat, cardA.lng);
+          const bB = findNearestTransitStop(bus.stops, cardB.lat, cardB.lng);
+          if (bA && bB && bA.id !== bB.id && bA.km <= 1.5 && bB.km <= 1.5 && bA.km + bB.km < bestWalk) {
+            bestWalk = bA.km + bB.km;
+            bestBus = { bus, bA, bB };
+          }
+        });
+        if (bestBus) {
+          const rideMin = Math.abs((bestBus.bB.cumMin || 0) - (bestBus.bA.cumMin || 0));
+          const walkMin = Math.round(bestWalk * 14);
+          min = rideMin + (bestBus.bus.waitMin || 7) + walkMin;
+          modeLabel = `${bestBus.bus.routeNo}`;
+          icon = 'fa-bus';
+          matchedGtfs = true;
+        }
+      }
+    }
+
+    if (!matchedGtfs) {
+      min = Math.max(10, Math.round(km * 2.5 + 8));
+      modeLabel = '大眾運輸 / 接駁';
+      icon = 'fa-bus';
+    }
   }
 
   if (itemB && itemB.customTransitMin !== null && itemB.customTransitMin !== undefined && !isNaN(Number(itemB.customTransitMin))) {
@@ -71,11 +130,12 @@ export function estimateLegTransit(cardA, cardB, itemB) {
 }
 
 function normalizeTimeStr(hhmm) {
-  return String(hhmm || '09:00').replace(/：/g, ':').replace(/\s+/g, '').trim();
+  if (hhmm === null || hhmm === undefined) return '';
+  return String(hhmm).replace(/：/g, ':').replace(/\s+/g, '').trim();
 }
 
 function parseMinutes(hhmm) {
-  const clean = normalizeTimeStr(hhmm);
+  const clean = normalizeTimeStr(hhmm || '09:00');
   const parts = clean.split(':');
   const h = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10);
@@ -91,22 +151,34 @@ function formatMinutes(totalMin) {
   return `${h}:${m}`;
 }
 
+// 完整支援 "flight|15:00/17:00|星宇"、"flight|15:00/17:00||星宇" 以及 "flight||19：00|星宇"
 function parseFlightNote(customNote) {
   const str = String(customNote || '').trim();
   if (!str.startsWith('flight|')) return null;
   const parts = str.split('|');
-  if (parts.length >= 4) {
+  const p1 = normalizeTimeStr(parts[1] || '');
+  const p2 = normalizeTimeStr(parts[2] || '');
+  const p3 = (parts[3] || '').trim();
+
+  if (p1.includes('/')) {
+    const [dep, arr] = p1.split('/');
     return {
-      depTime: normalizeTimeStr(parts[1] || ''),
-      arrTime: normalizeTimeStr(parts[2] || ''),
-      airline: (parts[3] || '').trim()
+      depTime: normalizeTimeStr(dep),
+      arrTime: normalizeTimeStr(arr),
+      airline: p3 || p2
     };
   }
-  const timePair = (parts[1] || '').split('/');
+  if (parts.length >= 4) {
+    return {
+      depTime: p1,
+      arrTime: p2,
+      airline: p3
+    };
+  }
   return {
-    depTime: timePair[0] ? normalizeTimeStr(timePair[0]) : '',
-    arrTime: timePair[1] ? normalizeTimeStr(timePair[1]) : '',
-    airline: (parts[2] || '').trim()
+    depTime: p1,
+    arrTime: '',
+    airline: p2
   };
 }
 
@@ -235,6 +307,12 @@ export function renderKanbanBoard() {
               timeLineBottom = formatMinutes(arrMin + stayMin);
               roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">入境抵達</span>';
               cursorMin = arrMin + stayMin;
+            } else if (flightInfo?.depTime) {
+              const depMin = parseMinutes(flightInfo.depTime);
+              timeLineTop = `${formatMinutes(depMin)} 報到 ~`;
+              timeLineBottom = formatMinutes(depMin + stayMin);
+              roleBadge = '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">出境搭機</span>';
+              cursorMin = depMin + stayMin;
             } else {
               cursorMin += stayMin;
             }
