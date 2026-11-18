@@ -5,6 +5,7 @@ body {
   background-color: #f3f6fa;
   color: #1e293b;
   overflow: hidden;
+  height: 100dvh;
 }
 
 ::-webkit-scrollbar {
@@ -99,4 +100,70 @@ body {
 .split-resizer:hover::after,
 .split-resizer.is-dragging::after {
   background-color: #ffffff;
+}
+
+/* ==================== 手機端響應式單頁籤視圖（≤ 768px） ==================== */
+@media (max-width: 768px) {
+  .split-resizer,
+  #btnCollapsePocket,
+  #btnExpandPocket {
+    display: none !important;
+  }
+
+  /* 預設全部隱藏，由 body[data-mobile-tab] 控制單一焦點區塊全寬顯示 */
+  #databasePanel,
+  #itineraryBoardSection,
+  #mapPanel {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  body[data-mobile-tab="pocket"] #databasePanel {
+    display: flex !important;
+  }
+  body[data-mobile-tab="pocket"] #itineraryBoardSection,
+  body[data-mobile-tab="pocket"] #mapPanel {
+    display: none !important;
+  }
+
+  body[data-mobile-tab="board"] #itineraryBoardSection {
+    display: flex !important;
+  }
+  body[data-mobile-tab="board"] #databasePanel,
+  body[data-mobile-tab="board"] #mapPanel {
+    display: none !important;
+  }
+
+  body[data-mobile-tab="map"] #mapPanel {
+    display: flex !important;
+  }
+  body[data-mobile-tab="map"] #databasePanel,
+  body[data-mobile-tab="map"] #itineraryBoardSection {
+    display: none !important;
+  }
+
+  /* 手機無 hover，強制顯示卡片上的操作按鈕 */
+  #itineraryBoardSection .opacity-0 {
+    opacity: 1 !important;
+  }
+
+  /* 避免 iOS Safari 點擊輸入框時自動放大畫面 */
+  input[type="text"],
+  input[type="number"],
+  input[type="url"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  header select,
+  #dbToolbarContainer select,
+  #mapHeaderPlanMode select,
+  #daySwapInlineBar select {
+    font-size: 12px !important;
+  }
 }
