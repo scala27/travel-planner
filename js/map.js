@@ -20,8 +20,8 @@ export function initLeafletMap() {
     zoomControl: true
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
   }).addTo(mapInstance);
 
@@ -196,7 +196,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
         L.polyline(dayCoords, {
           color: dayColor,
           weight: 4,
-          opacity: 0.82
+          opacity: 0.85
         }).addTo(routesLayerGroup);
       }
     });
