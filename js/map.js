@@ -2,6 +2,11 @@ import { CATEGORY_STYLES, DAY_COLORS } from './config.js';
 import { state, showToast } from './state.js';
 import { estimateLegTransit, setOkinawaTransitData } from './ui-board.js';
 
+// 將 Day 3 顏色調整為高對比緋紅色，避免與 OpenStreetMap 橘黃色道路混淆
+if (Array.isArray(DAY_COLORS) && DAY_COLORS.length > 2) {
+  DAY_COLORS[2] = '#dc2626';
+}
+
 let mapInstance = null;
 let markersLayerGroup = null;
 let routesLayerGroup = null;
@@ -28,7 +33,7 @@ export async function loadOkinawaTransitJson() {
       const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
       for (const path of candidatePaths) {
         try {
-          const res = await fetch(`${path}?v=20261118k`);
+          const res = await fetch(`${path}?v=20261118l`);
           if (res.ok) {
             const data = await res.json();
             if (data && data.yui_rail) {
@@ -260,7 +265,6 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
-// 取得真實街道貼合座標（使用 OpenStreetMap 獨立行人 routed-foot 與車行 routed-car 伺服器）
 async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
   const cacheKey = `${mode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
   if (routeGeometryCache[cacheKey]) return routeGeometryCache[cacheKey];
@@ -280,7 +284,6 @@ async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
     }
   } catch (e) {}
 
-  // 備援：若主路由暫時無回應，改用 project-osrm.org
   try {
     const fallbackRes = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
@@ -296,7 +299,6 @@ async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
   return null;
 }
 
-// 單軌電車專用：高架軌道精準切片 + 兩端實際行人街道接駁
 async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
   if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 10) return false;
 
@@ -305,7 +307,6 @@ async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shap
   const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
   const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
 
-  // 1. 起點 → 單軌站（沿實際人行道繪製虛線）
   if (stopA.km > 0.03) {
     const walkStart = await fetchStreetAlignedCoords(lat1, lng1, stopA.lat, stopA.lng, 'foot');
     L.polyline(
@@ -322,14 +323,12 @@ async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shap
     ).addTo(targetLayerGroup);
   }
 
-  // 2. 高架單軌軌道（粗實線）
   L.polyline(slicedLatLngs, {
     color: lineColor,
     weight: 5,
     opacity: 0.94
   }).addTo(targetLayerGroup);
 
-  // 3. 單軌站 → 終點（沿實際人行道繪製虛線）
   if (stopB.km > 0.03) {
     const walkEnd = await fetchStreetAlignedCoords(stopB.lat, stopB.lng, lat2, lng2, 'foot');
     L.polyline(
@@ -355,7 +354,6 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
   const lat2 = Number(cardB.lat);
   const lng2 = Number(cardB.lng);
 
-  // 1. 跨海飛航（>250 km）
   if (legInfo.km > 250) {
     const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
     L.polyline(arcCoords, {
@@ -372,7 +370,6 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
   const transitData = await loadOkinawaTransitJson();
 
   if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
-    // 2. 沖繩單軌電車 (Yui Rail)
     const yui = transitData.yui_rail;
     if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
       const stA = findNearestStop(yui.stations, lat1, lng1);
@@ -383,7 +380,6 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
       }
     }
 
-    // 3. 沖繩幹線公車：兩端接駁改用實際行人街道（繞過建築與美軍基地），公車主幹線沿實際公路繪製
     if (Array.isArray(transitData.buses)) {
       let bestBus = null;
       let bestWalkSum = Infinity;
@@ -435,7 +431,6 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
     }
   }
 
-  // 4. 一般陸地步行 / 自駕 / 無幹線公車覆蓋路段：依行人或車行路網貼齊繪製
   const isWalk = profile === 'walk' || (legInfo.km <= 0.6 && !itemMode);
   const roadLatLngs = await fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, isWalk ? 'foot' : 'car');
   L.polyline(
