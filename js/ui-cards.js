@@ -19,6 +19,7 @@ import {
   extractTitleFromInputLine
 } from './geo.js';
 import { pushAllToGoogleSheets } from './api.js';
+import { getHotelActualStayNights } from './ui-board.js';
 
 export function updateMiniCardButtonUi() {
   const btn = document.getElementById('btnMiniCardToggle');
@@ -205,6 +206,14 @@ function renderCategorySummaryHtml(card) {
   return blocks.join('');
 }
 
+function getDisplayDaysForCard(card) {
+  if (card.category === '住宿') {
+    const nights = getHotelActualStayNights(card.id);
+    if (nights.length > 0) return nights;
+  }
+  return getCardScheduledDays(card.id);
+}
+
 export function renderDatabaseCards() {
   const container = document.getElementById('databaseCardsContainer');
   const cards = getFilteredAndSortedCards();
@@ -225,10 +234,13 @@ export function renderDatabaseCards() {
   if (state.mode === 'plan') {
     container.innerHTML = cards.map(card => {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
-      const scheduledDays = getCardScheduledDays(card.id);
-      const isScheduled = scheduledDays.length > 0;
+      const displayDays = getDisplayDaysForCard(card);
+      const isScheduled = getCardScheduledDays(card.id).length > 0;
+      const chipText = card.category === '住宿' && displayDays.length > 0
+        ? `D${displayDays.join(',')} (${displayDays.length}晚)`
+        : `D${displayDays.join(',')}`;
       const statusChip = isScheduled
-        ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">D${scheduledDays.join(',')}</span>`
+        ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shrink-0">${chipText}</span>`
         : '';
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
 
@@ -263,8 +275,8 @@ export function renderDatabaseCards() {
   if (state.miniCardView) {
     container.innerHTML = cards.map(card => {
       const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
-      const scheduledDays = getCardScheduledDays(card.id);
-      const isScheduled = scheduledDays.length > 0;
+      const displayDays = getDisplayDaysForCard(card);
+      const isScheduled = getCardScheduledDays(card.id).length > 0;
       const isHighlighted = state.highlightedCardId === card.id;
       const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
       const cleanDist = normalizeAdministrativeDistrict(card.district, card.country).replace(/^沖繩縣・/, '');
@@ -287,7 +299,7 @@ export function renderDatabaseCards() {
             <div class="flex items-center gap-1 min-w-0">
               ${!hasCoords ? `<span class="text-rose-600 font-bold" title="待補座標">⚠</span>` : ''}
               <span class="text-slate-500 truncate">${cleanDist}</span>
-              ${isScheduled ? `<span class="px-1 rounded bg-emerald-600 text-white font-bold shrink-0">D${scheduledDays.join(',')}</span>` : ''}
+              ${isScheduled ? `<span class="px-1 rounded bg-emerald-600 text-white font-bold shrink-0">D${displayDays.join(',')}</span>` : ''}
             </div>
             <div class="flex items-center gap-0.5 shrink-0">
               <button onclick="openCardModal('${card.id}')" title="編輯"
@@ -308,14 +320,17 @@ export function renderDatabaseCards() {
 
   container.innerHTML = cards.map(card => {
     const meta = CATEGORY_META[card.category] || CATEGORY_META['景點'];
-    const scheduledDays = getCardScheduledDays(card.id);
+    const displayDays = getDisplayDaysForCard(card);
+    const isScheduled = getCardScheduledDays(card.id).length > 0;
     const hasCoords = Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) && Number(card.lat) !== 0;
     const cleanDist = normalizeAdministrativeDistrict(card.district, card.country);
     const gmapsUrl = card.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.title + ' ' + cleanDist)}`;
 
     let statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 shrink-0">未排入</span>`;
-    if (scheduledDays.length > 0) {
-      const dayLabel = scheduledDays.map(d => `Day ${d}`).join(', ');
+    if (isScheduled) {
+      const dayLabel = card.category === '住宿' && displayDays.length > 0
+        ? `Day ${displayDays.join(',')} (住${displayDays.length}晚)`
+        : displayDays.map(d => `Day ${d}`).join(', ');
       statusBadge = `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-600 text-white shadow-2xs shrink-0"><i class="fa-solid fa-check mr-0.5"></i>${dayLabel}</span>`;
     }
 
