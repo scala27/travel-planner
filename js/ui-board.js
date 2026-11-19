@@ -3,6 +3,27 @@ import { state, hooks, persistState, showToast } from './state.js';
 
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 let okinawaTransitData = null;
+const expandedNoteKeys = new Set();
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function toggleItineraryNoteExpand(event, noteKey) {
+  if (event) event.stopPropagation();
+  if (expandedNoteKeys.has(noteKey)) {
+    expandedNoteKeys.delete(noteKey);
+  } else {
+    expandedNoteKeys.add(noteKey);
+  }
+  renderKanbanBoard();
+}
+
+window.toggleItineraryNoteExpand = toggleItineraryNoteExpand;
 
 export function setOkinawaTransitData(data) {
   okinawaTransitData = data;
@@ -279,7 +300,6 @@ function initBoardTouchGestures(boardContainer) {
       swipeStartY = touch.clientY;
       swipeStartTime = Date.now();
 
-      // 若按在按鈕或下拉選單上，不觸發長按拖曳
       const interactiveEl = e.target.closest('button, select, input, label, a');
       const cardEl = e.target.closest('.itinerary-item-card');
 
@@ -313,7 +333,6 @@ function initBoardTouchGestures(boardContainer) {
       const dx = touch.clientX - swipeStartX;
       const dy = touch.clientY - swipeStartY;
 
-      // 尚未進入長按拖曳前，只要手指移動超過 10px 就取消長按計時，避免影響正常上下捲動或左右滑動
       if (!touchDragState) {
         if (Math.hypot(dx, dy) > 10 && longPressTimer) {
           clearTimeout(longPressTimer);
@@ -322,7 +341,6 @@ function initBoardTouchGestures(boardContainer) {
         return;
       }
 
-      // 已進入長按拖曳排序模式：阻止畫面跟著捲動並顯示插入線
       e.preventDefault();
       const { dayNum, sourceEl } = touchDragState;
       const dayColor = getDayColor(dayNum);
@@ -344,7 +362,6 @@ function initBoardTouchGestures(boardContainer) {
         }
       }
 
-      // 靠近螢幕上下邊緣時自動微幅捲動列表
       const scrollBox = sourceEl?.closest('.day-items-scroll-area');
       if (scrollBox) {
         const boxRect = scrollBox.getBoundingClientRect();
@@ -364,7 +381,6 @@ function initBoardTouchGestures(boardContainer) {
       longPressTimer = null;
     }
 
-    // 1. 若處於長按拖曳排序狀態，放開時寫入新順序
     if (touchDragState) {
       const { dayNum, fromIdx, insertIndex } = touchDragState;
       touchDragState = null;
@@ -384,7 +400,6 @@ function initBoardTouchGestures(boardContainer) {
       return;
     }
 
-    // 2. 手機版單日模式下，偵測左右滑動切換天數
     if (window.innerWidth > 768 || state.boardMultiDayMode) return;
     const changedTouch = e.changedTouches && e.changedTouches[0];
     if (!changedTouch) return;
@@ -484,7 +499,6 @@ export function renderKanbanBoard() {
   }
   pillsBox.innerHTML = pillsHtml.join('');
 
-  // 自動將目前選中的 Day 標籤捲動到視野中央
   const activePillEl = pillsBox.querySelector('[data-day-pill="' + activeDay + '"]');
   if (activePillEl && typeof activePillEl.scrollIntoView === 'function') {
     activePillEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
@@ -574,6 +588,43 @@ export function renderKanbanBoard() {
           const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
           const airlineTag = flightInfo?.airline ? '・' + flightInfo.airline : '';
           const menuKey = dayNum + '_' + idx;
+          const noteKey = item.uid || menuKey;
+
+          // 卡片重點亮點（must_buy）與詳細介紹（notes）
+          const highlightText = String(card.must_buy || card.meta?.must_buy || '').trim();
+          const detailText = String(card.notes || card.description || '').trim();
+          let spotInfoBlockHtml = '';
+
+          if (highlightText || detailText) {
+            const isLongNote = detailText.length > 90;
+            const isExpanded = expandedNoteKeys.has(noteKey);
+            const clampCls = isLongNote && !isExpanded ? 'line-clamp-3' : '';
+
+            const highlightHtml = highlightText
+              ? '<div class="flex items-start gap-1 text-[11px] font-bold text-amber-600 leading-snug">' +
+                '<i class="fa-solid fa-star text-[10px] mt-0.5 shrink-0"></i>' +
+                '<span>亮點推薦：' + escapeHtml(highlightText) + '</span>' +
+                '</div>'
+              : '';
+
+            const detailHtml = detailText
+              ? '<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-line break-words ' + clampCls + '">' +
+                escapeHtml(detailText) +
+                '</div>' +
+                (isLongNote
+                  ? '<button type="button" onclick="toggleItineraryNoteExpand(event, \'' + escapeHtml(noteKey) + '\')" ' +
+                    'class="text-[11px] font-bold text-[#2C4D6E] hover:underline inline-flex items-center gap-0.5 pt-0.5">' +
+                    '<span>' + (isExpanded ? '收合介紹 ▲' : '展開全文 ▾') + '</span>' +
+                    '</button>'
+                  : '')
+              : '';
+
+            spotInfoBlockHtml =
+              '<div class="mt-2 pt-2 border-t border-slate-100 space-y-1">' +
+              highlightHtml +
+              detailHtml +
+              '</div>';
+          }
 
           const extraActionBtn =
             card.category === '機場'
@@ -640,10 +691,11 @@ export function renderKanbanBoard() {
             (idx + 1) +
             '</span>' +
             '<div class="min-w-0 flex-1">' +
-            '<h4 class="font-bold text-sm text-slate-800 leading-snug break-words">' + card.title + '</h4>' +
+            '<h4 class="font-bold text-sm text-slate-800 leading-snug break-words">' + escapeHtml(card.title) + '</h4>' +
             '<p class="text-[11px] text-slate-500 mt-0.5">' +
-            (card.district ? card.district + '・' : '') + '停留 ' + stayMin + ' 分' + airlineTag +
+            (card.district ? escapeHtml(card.district) + '・' : '') + '停留 ' + stayMin + ' 分' + escapeHtml(airlineTag) +
             '</p>' +
+            spotInfoBlockHtml +
             extraActionBtn +
             '</div>' +
             '</div>' +
