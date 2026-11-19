@@ -1,6 +1,7 @@
 import {
   state,
   hooks,
+  generateRandomShareToken,
   createTripObject,
   getActiveTrip,
   syncActiveTripToLegacyState,
@@ -11,6 +12,7 @@ import {
 } from './state.js';
 import {
   pullFromGoogleSheets,
+  pullSharedTripFromGoogleSheets,
   pushAllToGoogleSheets,
   copyGasBackendCode,
   exportJsonBackup
@@ -52,8 +54,155 @@ function syncTripStepAttributes() {
   document.body.setAttribute('data-trip-step', state.tripViewStep);
 }
 
+// ==================== 分享行程管理（開關、複製連結、重設 Token） ====================
+function buildShareTripUrl(trip) {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('share', trip.shareToken);
+  const gasUrl = (state.settings.gasUrl || '').trim();
+  if (gasUrl) {
+    url.searchParams.set('api', btoa(encodeURIComponent(gasUrl)));
+  }
+  return url.toString();
+}
+
+function syncShareModalUi() {
+  const trip = getActiveTrip();
+  if (!trip.shareToken) trip.shareToken = generateRandomShareToken();
+  const chk = document.getElementById('chkTripShareEnabled');
+  const input = document.getElementById('shareUrlInput');
+  const activeBox = document.getElementById('shareLinkActiveBox');
+  if (chk) chk.checked = Boolean(trip.shareEnabled);
+  if (input) input.value = buildShareTripUrl(trip);
+  if (activeBox) {
+    if (trip.shareEnabled) {
+      activeBox.classList.remove('opacity-50', 'pointer-events-none');
+    } else {
+      activeBox.classList.add('opacity-50', 'pointer-events-none');
+    }
+  }
+}
+
+function openShareTripModal() {
+  if (state.isReadOnly) return;
+  if (!state.settings.gasUrl) {
+    showToast('請先於右上角「系統設定」填入 Google Apps Script 網址', 'amber');
+    return;
+  }
+  syncShareModalUi();
+  document.getElementById('shareTripModal')?.classList.remove('hidden');
+}
+
+function closeShareTripModal() {
+  document.getElementById('shareTripModal')?.classList.add('hidden');
+}
+
+function onToggleTripShareEnabled(enabled) {
+  if (state.isReadOnly) return;
+  const trip = getActiveTrip();
+  trip.shareEnabled = Boolean(enabled);
+  if (!trip.shareToken) trip.shareToken = generateRandomShareToken();
+  syncShareModalUi();
+  persistState(true);
+  showToast(
+    enabled ? '已開啟行程分享並同步至試算表' : '已暫停分享，舊連結已無法檢視',
+    enabled ? 'emerald' : 'slate'
+  );
+}
+
+function regenerateTripShareToken() {
+  if (state.isReadOnly) return;
+  if (!confirm('確定要重新產生分享連結嗎？原本傳出去的舊連結將會立刻失效。')) return;
+  const trip = getActiveTrip();
+  trip.shareToken = generateRandomShareToken();
+  trip.shareEnabled = true;
+  syncShareModalUi();
+  persistState(true);
+  showToast('已產生全新分享連結，舊連結已失效', 'emerald');
+}
+
+async function copyShareTripUrl() {
+  const input = document.getElementById('shareUrlInput');
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    showToast('已複製專屬分享網址，可直接貼給旅伴！', 'emerald');
+  } catch (err) {
+    input.select();
+    document.execCommand('copy');
+    showToast('已複製專屬分享網址', 'emerald');
+  }
+}
+
+// ==================== 訪客唯讀模式介面套用 ====================
+function applyGuestReadOnlyLayout() {
+  document.body.setAttribute('data-readonly', 'true');
+
+  document.getElementById('guestReadOnlyBadge')?.classList.remove('hidden');
+  document.getElementById('desktopModeSwitcher')?.classList.add('hidden');
+  document.getElementById('desktopModeSwitcher')?.classList.remove('md:flex');
+  document.getElementById('btnOpenSettings')?.classList.add('hidden');
+  document.getElementById('btnPushSync')?.classList.add('hidden');
+  document.getElementById('btnBackToAllTrips')?.classList.add('hidden');
+  document.getElementById('btnShareTrip')?.classList.add('hidden');
+  document.getElementById('btnBoardSaveSchedule')?.classList.add('hidden');
+  document.getElementById('btnOverlayPocket')?.classList.add('hidden');
+
+  const guestBanner = document.getElementById('guestBoardBannerText');
+  if (guestBanner) {
+    guestBanner.classList.remove('hidden');
+    guestBanner.classList.add('flex');
+  }
+
+  const logoBtn = document.getElementById('btnLogoOverview');
+  if (logoBtn) {
+    logoBtn.onclick = null;
+    logoBtn.title = 'e-chi Go 唯讀分享行程';
+    logoBtn.classList.remove('cursor-pointer');
+  }
+
+  // 手機底部導覽改為「每日行程 / 路線地圖」雙分頁
+  const mobileNav = document.getElementById('mobileBottomNav');
+  if (mobileNav) {
+    mobileNav.classList.remove('grid-cols-3');
+    mobileNav.classList.add('grid-cols-2');
+  }
+  document.getElementById('mobileTabPocketBtn')?.classList.add('hidden');
+  const mobileTripsLabel = document.getElementById('mobileTabTripsLabel');
+  if (mobileTripsLabel) mobileTripsLabel.textContent = '每日行程';
+  document.getElementById('mobileBadgeTrips')?.classList.add('hidden');
+}
+
+function showSharedTripError(message) {
+  document.getElementById('workspaceMain')?.classList.add('hidden');
+  document.getElementById('mobileBottomNav')?.classList.add('hidden');
+  const errSec = document.getElementById('sharedErrorSection');
+  const errDesc = document.getElementById('sharedErrorDesc');
+  if (errDesc && message) errDesc.textContent = message;
+  if (errSec) {
+    errSec.classList.remove('hidden');
+    errSec.classList.add('flex');
+  }
+}
+
+async function refreshCurrentData() {
+  if (state.isReadOnly) {
+    const res = await pullSharedTripFromGoogleSheets(state.settings.gasUrl, state.shareToken, true);
+    if (res.ok) {
+      updateHeaderInfo();
+      renderAll();
+    } else {
+      showSharedTripError(res.message);
+    }
+    return;
+  }
+  await pullFromGoogleSheets(true);
+}
+
 // ==================== 多旅程專案總覽牆（建立 / 切換 / 刪除） ====================
 function renderTripProjectsGrid() {
+  if (state.isReadOnly) return;
   const grid = document.getElementById('tripProjectsGrid');
   if (!grid) return;
 
@@ -93,7 +242,10 @@ function renderTripProjectsGrid() {
                   <h3 class="font-bold text-base text-slate-800 leading-snug">${trip.title}</h3>
                 </div>
               </div>
-              ${isCurrent ? '<span class="px-2 py-0.5 rounded-full bg-[#2C4D6E] text-white text-[10px] font-bold shrink-0">使用中</span>' : ''}
+              <div class="flex items-center gap-1 shrink-0">
+                ${trip.shareEnabled ? '<span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">分享中</span>' : ''}
+                ${isCurrent ? '<span class="px-2 py-0.5 rounded-full bg-[#2C4D6E] text-white text-[10px] font-bold">使用中</span>' : ''}
+              </div>
             </div>
 
             <div class="text-xs text-slate-500 space-y-1 pt-1">
@@ -137,6 +289,7 @@ function renderTripProjectsGrid() {
 }
 
 function openTripListOverview() {
+  if (state.isReadOnly) return;
   state.tripViewStep = 'list';
   syncTripStepAttributes();
   if (isMobileViewport()) {
@@ -162,6 +315,7 @@ function selectAndOpenTrip(tripId) {
 }
 
 function openCreateTripModal(editId = null) {
+  if (state.isReadOnly) return;
   const modal = document.getElementById('createTripModal');
   if (!modal) return;
   if (editId) {
@@ -191,6 +345,7 @@ function closeCreateTripModal() {
 }
 
 function saveTripProject() {
+  if (state.isReadOnly) return;
   const title = document.getElementById('newTripTitle').value.trim();
   if (!title) {
     showToast('請輸入行程名稱', 'amber');
@@ -229,7 +384,7 @@ function saveTripProject() {
 }
 
 function deleteTripProject(tripId) {
-  if (state.trips.length <= 1) return;
+  if (state.isReadOnly || state.trips.length <= 1) return;
   if (!confirm('確定要刪除此旅程專案嗎？（口袋清單中的景點仍會保留）')) return;
   state.trips = state.trips.filter(t => t.id !== tripId);
   if (state.activeTripId === tripId) {
@@ -242,8 +397,9 @@ function deleteTripProject(tripId) {
   showToast('已刪除旅程專案', 'slate');
 }
 
-// ==================== 手機端三頁籤切換 ====================
+// ==================== 手機端頁籤切換 ====================
 function switchMobileTab(tabName) {
+  if (state.isReadOnly && tabName === 'pocket') tabName = 'trips';
   currentMobileTab = tabName;
   document.body.setAttribute('data-mobile-tab', tabName);
   syncTripStepAttributes();
@@ -258,7 +414,7 @@ function switchMobileTab(tabName) {
   if (tabName === 'trips') {
     state.mode = 'plan';
     state.boardMultiDayMode = false;
-    if (state.tripViewStep === 'list') {
+    if (state.tripViewStep === 'list' && !state.isReadOnly) {
       renderTripProjectsGrid();
     } else {
       boardMod.renderKanbanBoard();
@@ -269,7 +425,7 @@ function switchMobileTab(tabName) {
     const mapHeaderPlan = document.getElementById('mapHeaderPlanMode');
     if (mapHeaderCollect) mapHeaderCollect.classList.add('hidden');
     if (mapHeaderPlan) mapHeaderPlan.classList.remove('hidden');
-    state.overlayPocketOnPlan = true;
+    state.overlayPocketOnPlan = !state.isReadOnly;
     updateOverlayPocketButtonUi();
     populateMapDaySelector();
     syncMapDrawerUi();
@@ -324,7 +480,7 @@ function initSplitResizers() {
       const clampedPx = Math.max(220, Math.min(totalW - 280, rawPx));
       dbPanel.style.width = `${(clampedPx / totalW) * 100}%`;
     } else if (activeResizer === 'right') {
-      const dbW = state.pocketCollapsed ? 0 : dbPanel.getBoundingClientRect().width;
+      const dbW = (state.pocketCollapsed || state.isReadOnly) ? 0 : dbPanel.getBoundingClientRect().width;
       const rawBoardPx = e.clientX - rect.left - dbW;
       const maxBoardPx = totalW - dbW - 260;
       const clampedBoardPx = Math.max(280, Math.min(maxBoardPx, rawBoardPx));
@@ -398,8 +554,9 @@ function toggleMapDrawer() {
   setTimeout(() => mapMod.invalidateMapSize(), 80);
 }
 
-// ==================== 電腦端工作區模式切換（我的行程 / 口袋清單） ====================
+// ==================== 電腦端工作區模式切換（我的行程 / 口袋清單 / 訪客唯讀雙欄） ====================
 function switchWorkspaceMode(targetMode) {
+  if (state.isReadOnly) targetMode = 'plan';
   state.mode = targetMode;
   syncTripStepAttributes();
 
@@ -459,7 +616,7 @@ function switchWorkspaceMode(targetMode) {
     tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs';
     tabCollect.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900';
 
-    if (state.tripViewStep === 'list') {
+    if (state.tripViewStep === 'list' && !state.isReadOnly) {
       tripsSection.classList.remove('hidden');
       dbPanel.classList.add('hidden');
       dbPanel.classList.remove('flex');
@@ -472,17 +629,6 @@ function switchWorkspaceMode(targetMode) {
       btnExpand.classList.add('hidden');
     } else {
       tripsSection.classList.add('hidden');
-      dbTitle.textContent = '口袋待排清單';
-      if (btnAddCollect) btnAddCollect.classList.add('hidden');
-      if (btnMini) btnMini.classList.add('hidden');
-      btnCollapse.classList.remove('hidden');
-      btnCollapse.classList.add('flex');
-      sortWrap.classList.add('hidden');
-      advFilter.classList.add('hidden');
-      planQuickFilter.classList.remove('hidden');
-      planQuickFilter.classList.add('flex');
-
-      dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5 bg-slate-50/60';
       boardSection.classList.remove('hidden');
       boardSection.classList.add('flex');
       resizerRight.classList.remove('hidden');
@@ -491,23 +637,43 @@ function switchWorkspaceMode(targetMode) {
       mapHeaderCollect.classList.add('hidden');
       mapHeaderPlan.classList.remove('hidden');
 
-      if (state.pocketCollapsed) {
+      if (state.isReadOnly) {
         dbPanel.classList.add('hidden');
         dbPanel.classList.remove('flex');
         resizerLeft.classList.add('hidden');
-        btnExpand.classList.remove('hidden');
-        btnExpand.classList.add('flex');
-        boardSection.style.width = '48%';
-      } else {
-        dbPanel.classList.remove('hidden');
-        dbPanel.classList.add('flex');
-        dbPanel.style.width = '20%';
-        resizerLeft.classList.remove('hidden');
         btnExpand.classList.add('hidden');
-        boardSection.style.width = '36%';
+        boardSection.style.width = '44%';
+        state.overlayPocketOnPlan = false;
+      } else {
+        dbTitle.textContent = '口袋待排清單';
+        if (btnAddCollect) btnAddCollect.classList.add('hidden');
+        if (btnMini) btnMini.classList.add('hidden');
+        btnCollapse.classList.remove('hidden');
+        btnCollapse.classList.add('flex');
+        sortWrap.classList.add('hidden');
+        advFilter.classList.add('hidden');
+        planQuickFilter.classList.remove('hidden');
+        planQuickFilter.classList.add('flex');
+        dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5 bg-slate-50/60';
+
+        if (state.pocketCollapsed) {
+          dbPanel.classList.add('hidden');
+          dbPanel.classList.remove('flex');
+          resizerLeft.classList.add('hidden');
+          btnExpand.classList.remove('hidden');
+          btnExpand.classList.add('flex');
+          boardSection.style.width = '48%';
+        } else {
+          dbPanel.classList.remove('hidden');
+          dbPanel.classList.add('flex');
+          dbPanel.style.width = '20%';
+          resizerLeft.classList.remove('hidden');
+          btnExpand.classList.add('hidden');
+          boardSection.style.width = '36%';
+        }
+        state.overlayPocketOnPlan = true;
       }
 
-      state.overlayPocketOnPlan = true;
       updateOverlayPocketButtonUi();
       populateMapDaySelector();
     }
@@ -519,6 +685,7 @@ function switchWorkspaceMode(targetMode) {
 }
 
 function togglePocketCollapse() {
+  if (state.isReadOnly) return;
   state.pocketCollapsed = !state.pocketCollapsed;
   switchWorkspaceMode('plan');
 }
@@ -549,6 +716,7 @@ function updateHeaderInfo() {
 }
 
 function openSettingsModal() {
+  if (state.isReadOnly) return;
   document.getElementById('setTripTitle').value = state.settings.tripTitle || '';
   document.getElementById('setStartDate').value = state.settings.startDate || '2027-02-17';
   document.getElementById('setTotalDays').value = state.settings.totalDays || 6;
@@ -561,6 +729,7 @@ function closeSettingsModal() {
 }
 
 function saveSettings() {
+  if (state.isReadOnly) return;
   state.settings.tripTitle = document.getElementById('setTripTitle').value.trim() || 'e-chi Go';
   state.settings.startDate = document.getElementById('setStartDate').value || '2027-02-17';
   state.settings.totalDays = Math.max(1, Math.min(15, parseInt(document.getElementById('setTotalDays').value, 10) || 6));
@@ -580,17 +749,18 @@ function saveSettings() {
 }
 
 export function renderAll() {
-  renderTripProjectsGrid();
-  cardsMod.renderDatabaseCards();
-  syncMobileNavBadges();
-  if (state.mode === 'plan' && state.tripViewStep === 'detail') {
+  if (!state.isReadOnly) {
+    renderTripProjectsGrid();
+    cardsMod.renderDatabaseCards();
+    syncMobileNavBadges();
+  }
+  if (state.mode === 'plan' && (state.tripViewStep === 'detail' || state.isReadOnly)) {
     populateMapDaySelector();
     boardMod.renderKanbanBoard();
   }
   hooks.renderMapMarkers();
 }
 
-// 立即將所有按鈕事件掛載至 window
 Object.assign(window, {
   openTripListOverview,
   selectAndOpenTrip,
@@ -598,6 +768,12 @@ Object.assign(window, {
   closeCreateTripModal,
   saveTripProject,
   deleteTripProject,
+  openShareTripModal,
+  closeShareTripModal,
+  onToggleTripShareEnabled,
+  regenerateTripShareToken,
+  copyShareTripUrl,
+  refreshCurrentData,
   switchWorkspaceMode,
   switchMobileTab,
   togglePocketCollapse,
@@ -662,6 +838,45 @@ Object.assign(window, {
 
 window.addEventListener('DOMContentLoaded', async () => {
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareParam = (urlParams.get('share') || '').trim();
+
+    if (shareParam) {
+      // ==================== 訪客唯讀分享模式啟動流程 ====================
+      state.isReadOnly = true;
+      state.shareToken = shareParam;
+      state.tripViewStep = 'detail';
+      state.mode = 'plan';
+
+      const encodedApi = (urlParams.get('api') || '').trim();
+      if (encodedApi) {
+        try {
+          state.settings.gasUrl = decodeURIComponent(atob(encodedApi));
+        } catch (err) {}
+      }
+
+      applyGuestReadOnlyLayout();
+      mapMod.initLeafletMap();
+      initSplitResizers();
+      mapMod.renderMapCategoryToggles();
+      syncMapDrawerUi();
+
+      const res = await pullSharedTripFromGoogleSheets(state.settings.gasUrl, shareParam, false);
+      if (!res.ok) {
+        showSharedTripError(res.message);
+        return;
+      }
+
+      updateHeaderInfo();
+      if (isMobileViewport()) {
+        switchMobileTab('trips');
+      } else {
+        switchWorkspaceMode('plan');
+      }
+      return;
+    }
+
+    // ==================== 一般擁有者規劃模式啟動流程 ====================
     loadLocalState();
     ensureItineraryDays();
     updateHeaderInfo();
