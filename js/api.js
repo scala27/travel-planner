@@ -43,6 +43,32 @@ function normalizeStartTime(val) {
   return '09:00';
 }
 
+function mapRawSpotsToCards(rawSpots) {
+  return (rawSpots || []).map((row, idx) => {
+    const areaStr = String(row.district || row.area || '').trim();
+    const inferredCountry = String(row.country || '').trim() ||
+      (areaStr.startsWith('台灣') ? '台灣' : '日本');
+    return {
+      id: String(row.id || `spot_${Date.now()}_${idx}`).trim(),
+      title: String(row.title || row.name || '未命名地點').trim(),
+      category: String(row.category || '景點').trim(),
+      country: inferredCountry,
+      district: areaStr,
+      lat: row.lat !== '' && row.lat !== null && !isNaN(Number(row.lat)) ? Number(row.lat) : null,
+      lng: row.lng !== '' && row.lng !== null && !isNaN(Number(row.lng)) ? Number(row.lng) : null,
+      duration: Number(row.estimated_duration ?? row.duration) || 60,
+      notes: String(row.notes || row.description || '').trim(),
+      mapUrl: String(row.mapUrl || row.source_url || row.googleMapsUrl || '').trim(),
+      image: String(row.image || row.photo_url || row.imageUrl || '').trim(),
+      starred: row.starred === true || String(row.starred).toLowerCase() === 'true',
+      must_buy: String(row.must_buy || ''),
+      business_hours: String(row.business_hours || ''),
+      parking_info: String(row.parking_info || ''),
+      meta: typeof row.meta === 'object' && row.meta !== null ? row.meta : {}
+    };
+  });
+}
+
 function parseLegacyItinerary(rawItinerary, totalDays) {
   const rebuilt = {};
   for (let d = 1; d <= totalDays; d++) {
@@ -94,7 +120,56 @@ function parseLegacyItinerary(rawItinerary, totalDays) {
   return null;
 }
 
+// ==================== 訪客唯讀分享模式：即時讀取單一授權行程 ====================
+export async function pullSharedTripFromGoogleSheets(gasUrl, token, manual = false) {
+  const url = String(gasUrl || '').trim();
+  const cleanToken = String(token || '').trim();
+
+  if (!url || !cleanToken) {
+    return { ok: false, message: '分享連結缺少必要的連線參數或驗證代碼。' };
+  }
+
+  const syncIcon = document.getElementById('syncIcon');
+  if (syncIcon) syncIcon.classList.add('fa-spin');
+  setSyncStatus('syncing', '正在載入最新行程...');
+
+  try {
+    const endpoint = `${url}${url.includes('?') ? '&' : '?'}action=getSharedTrip&token=${encodeURIComponent(cleanToken)}&t=${Date.now()}`;
+    const res = await fetch(endpoint);
+    const data = await res.json();
+
+    if (data.status !== 'ok' || !data.trip) {
+      setSyncStatus('error', '分享未開放或已失效');
+      return {
+        ok: false,
+        message: data.message || '此行程目前未開放分享，或分享連結已重設失效。'
+      };
+    }
+
+    const sharedTrip = createTripObject(data.trip);
+    state.trips = [sharedTrip];
+    state.activeTripId = sharedTrip.id;
+    state.cards = mapRawSpotsToCards(data.spots || []);
+    syncActiveTripToLegacyState();
+    ensureItineraryDays();
+
+    setSyncStatus('connected', '已同步最新唯讀行程');
+    if (manual) showToast('已更新至最新同步行程', 'emerald');
+    return { ok: true, trip: sharedTrip };
+  } catch (err) {
+    console.error('讀取分享行程錯誤:', err);
+    setSyncStatus('error', '連線載入失敗');
+    return {
+      ok: false,
+      message: '無法連線至行程伺服器，請確認網路狀態或稍後再試。'
+    };
+  } finally {
+    if (syncIcon) syncIcon.classList.remove('fa-spin');
+  }
+}
+
 export async function pullFromGoogleSheets(manual = false) {
+  if (state.isReadOnly) return;
   const url = (state.settings.gasUrl || '').trim();
   if (!url) {
     setSyncStatus('error', '未設定試算表網址');
@@ -113,34 +188,10 @@ export async function pullFromGoogleSheets(manual = false) {
 
     const rawSpots = Array.isArray(data.spots) ? data.spots : (Array.isArray(data.cards) ? data.cards : []);
     if (rawSpots.length > 0) {
-      state.cards = rawSpots.map((row, idx) => {
-        const areaStr = String(row.district || row.area || '').trim();
-        const inferredCountry = String(row.country || '').trim() ||
-          (areaStr.startsWith('台灣') ? '台灣' : '日本');
-        return {
-          id: String(row.id || `spot_${Date.now()}_${idx}`).trim(),
-          title: String(row.title || row.name || '未命名地點').trim(),
-          category: String(row.category || '景點').trim(),
-          country: inferredCountry,
-          district: areaStr,
-          lat: row.lat !== '' && row.lat !== null && !isNaN(Number(row.lat)) ? Number(row.lat) : null,
-          lng: row.lng !== '' && row.lng !== null && !isNaN(Number(row.lng)) ? Number(row.lng) : null,
-          duration: Number(row.estimated_duration ?? row.duration) || 60,
-          notes: String(row.notes || row.description || '').trim(),
-          mapUrl: String(row.mapUrl || row.source_url || row.googleMapsUrl || '').trim(),
-          image: String(row.image || row.photo_url || row.imageUrl || '').trim(),
-          starred: row.starred === true || String(row.starred).toLowerCase() === 'true',
-          must_buy: String(row.must_buy || ''),
-          business_hours: String(row.business_hours || ''),
-          parking_info: String(row.parking_info || ''),
-          meta: typeof row.meta === 'object' && row.meta !== null ? row.meta : {}
-        };
-      });
+      state.cards = mapRawSpotsToCards(rawSpots);
     }
 
     const total = Number(state.settings.totalDays) || 6;
-
-    // 優先載入 Itinerary 工作表排程，並同步寫入目前啟用旅程
     const parsedItin = data.itinerary ? parseLegacyItinerary(data.itinerary, total) : null;
     const hasItinItems = parsedItin && Object.values(parsedItin).some(d => d.items.length > 0);
 
@@ -179,6 +230,7 @@ export async function pullFromGoogleSheets(manual = false) {
 }
 
 export async function pushAllToGoogleSheets(silent = false) {
+  if (state.isReadOnly) return;
   const url = (state.settings.gasUrl || '').trim();
   if (!url) {
     if (!silent) showToast('請先於設定中填入 Google Apps Script 網址', 'amber');
