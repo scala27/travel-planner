@@ -13,14 +13,21 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-export function toggleItineraryNoteExpand(event, noteKey) {
+export function toggleItineraryNoteExpand(event, noteKey, domId = null) {
   if (event) event.stopPropagation();
-  if (expandedNoteKeys.has(noteKey)) {
-    expandedNoteKeys.delete(noteKey);
-  } else {
+  const btn = event?.currentTarget;
+  const textEl = domId ? document.getElementById(domId) : btn?.previousElementSibling;
+  const willExpand = !expandedNoteKeys.has(noteKey);
+
+  if (willExpand) {
     expandedNoteKeys.add(noteKey);
+    if (textEl) textEl.classList.remove('line-clamp-3');
+    if (btn) btn.innerHTML = '<span>收合介紹 ▲</span>';
+  } else {
+    expandedNoteKeys.delete(noteKey);
+    if (textEl) textEl.classList.add('line-clamp-3');
+    if (btn) btn.innerHTML = '<span>展開全文 ▾</span>';
   }
-  renderKanbanBoard();
 }
 
 window.toggleItineraryNoteExpand = toggleItineraryNoteExpand;
@@ -600,6 +607,7 @@ export function renderKanbanBoard() {
           const airlineTag = flightInfo?.airline ? '・' + flightInfo.airline : '';
           const menuKey = dayNum + '_' + idx;
           const noteKey = item.uid || menuKey;
+          const safeNoteDomId = 'note-text-' + String(noteKey).replace(/[^a-zA-Z0-9_-]/g, '_');
 
           const highlightText = String(card.must_buy || card.meta?.must_buy || '').trim();
           const detailText = String(card.notes || card.description || '').trim();
@@ -618,11 +626,11 @@ export function renderKanbanBoard() {
               : '';
 
             const detailHtml = detailText
-              ? '<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-line break-words ' + clampCls + '">' +
+              ? '<div id="' + safeNoteDomId + '" class="text-xs text-slate-600 leading-relaxed whitespace-pre-line break-words ' + clampCls + '">' +
                 escapeHtml(detailText) +
                 '</div>' +
                 (isLongNote
-                  ? '<button type="button" onclick="toggleItineraryNoteExpand(event, \'' + escapeHtml(noteKey) + '\')" ' +
+                  ? '<button type="button" onclick="toggleItineraryNoteExpand(event, \'' + escapeHtml(noteKey) + '\', \'' + safeNoteDomId + '\')" ' +
                     'class="text-[11px] font-bold text-[#2C4D6E] hover:underline inline-flex items-center gap-0.5 pt-0.5">' +
                     '<span>' + (isExpanded ? '收合介紹 ▲' : '展開全文 ▾') + '</span>' +
                     '</button>'
@@ -685,7 +693,7 @@ export function renderKanbanBoard() {
               '</div>';
 
           const dragAttrs = isGuest
-            ? 'onclick="focusCardOnMap(\'' + card.id + '\', false)"'
+            ? ''
             : 'draggable="true" ' +
               'ondragstart="onDragStartItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
               'ondragend="onDragEndItineraryItem(event)" ' +
@@ -693,13 +701,13 @@ export function renderKanbanBoard() {
               'ondragleave="onDragLeaveItineraryItem(event)" ' +
               'ondrop="onDropOnItineraryItem(event, ' + dayNum + ', ' + idx + ')"';
 
-          const cardCursorCls = isGuest ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing';
+          const cardCursorCls = isGuest ? '' : 'select-none cursor-grab active:cursor-grabbing';
 
           return (
             legHtml +
             '<div ' + dragAttrs + ' ' +
             'data-day="' + dayNum + '" data-idx="' + idx + '" ' +
-            'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition select-none space-y-1.5 ' + cardCursorCls + '">' +
+            'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition space-y-1.5 ' + cardCursorCls + '">' +
             '<div class="flex items-start justify-between gap-1.5">' +
             '<div class="flex items-center gap-1.5 flex-wrap min-w-0">' +
             '<div class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0">' +
