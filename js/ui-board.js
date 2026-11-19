@@ -198,6 +198,223 @@ function parseFlightNote(customNote) {
   };
 }
 
+// ==================== 三點動作選單控制 ====================
+let openActionMenuKey = null;
+
+export function toggleCardActionMenu(event, menuKey) {
+  if (event) event.stopPropagation();
+  const prevKey = openActionMenuKey;
+  closeAllCardActionMenus();
+  if (prevKey !== menuKey) {
+    const menuEl = document.getElementById('card-menu-' + menuKey);
+    if (menuEl) {
+      menuEl.classList.remove('hidden');
+      openActionMenuKey = menuKey;
+    }
+  }
+}
+
+export function closeAllCardActionMenus() {
+  document.querySelectorAll('.itinerary-card-menu').forEach(el => el.classList.add('hidden'));
+  openActionMenuKey = null;
+}
+
+window.toggleCardActionMenu = toggleCardActionMenu;
+window.closeAllCardActionMenus = closeAllCardActionMenus;
+
+if (!window.__echiMenuListenerAttached) {
+  window.__echiMenuListenerAttached = true;
+  document.addEventListener('click', () => {
+    closeAllCardActionMenus();
+  });
+}
+
+// ==================== 手機版左右滑動切換天數 & 長按拖曳排序 ====================
+let boardGesturesInitialized = false;
+let touchDragState = null;
+
+function clearAllDropIndicators() {
+  document.querySelectorAll('.itinerary-item-card').forEach(el => {
+    el.style.borderTop = '';
+    el.style.borderBottom = '';
+    el.classList.remove('ring-2', 'ring-[#2C4D6E]', 'opacity-50', 'scale-[0.98]', 'shadow-lg');
+  });
+}
+
+function getTouchTargetSlot(clientX, clientY, dayNum) {
+  const cards = Array.from(
+    document.querySelectorAll('.itinerary-item-card[data-day="' + dayNum + '"]')
+  );
+  if (cards.length === 0) return { insertIndex: 0, targetEl: null, position: 'bottom' };
+
+  for (let i = 0; i < cards.length; i++) {
+    const rect = cards[i].getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (clientY < midY) {
+      return { insertIndex: i, targetEl: cards[i], position: 'top' };
+    }
+  }
+  return {
+    insertIndex: cards.length,
+    targetEl: cards[cards.length - 1],
+    position: 'bottom'
+  };
+}
+
+function initBoardTouchGestures(boardContainer) {
+  if (boardGesturesInitialized || !boardContainer) return;
+  boardGesturesInitialized = true;
+
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeStartTime = 0;
+  let longPressTimer = null;
+
+  boardContainer.addEventListener(
+    'touchstart',
+    e => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      swipeStartX = touch.clientX;
+      swipeStartY = touch.clientY;
+      swipeStartTime = Date.now();
+
+      // 若按在按鈕或下拉選單上，不觸發長按拖曳
+      const interactiveEl = e.target.closest('button, select, input, label, a');
+      const cardEl = e.target.closest('.itinerary-item-card');
+
+      if (cardEl && !interactiveEl) {
+        const dayNum = Number(cardEl.dataset.day);
+        const idx = Number(cardEl.dataset.idx);
+        longPressTimer = setTimeout(() => {
+          closeAllCardActionMenus();
+          if (navigator.vibrate) {
+            try { navigator.vibrate(25); } catch (err) {}
+          }
+          touchDragState = {
+            dayNum,
+            fromIdx: idx,
+            insertIndex: idx,
+            sourceEl: cardEl
+          };
+          cardEl.classList.add('ring-2', 'ring-[#2C4D6E]', 'opacity-50', 'scale-[0.98]', 'shadow-lg');
+          showToast('上下拖動調整順序，放開即完成', 'blue');
+        }, 350);
+      }
+    },
+    { passive: true }
+  );
+
+  boardContainer.addEventListener(
+    'touchmove',
+    e => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - swipeStartX;
+      const dy = touch.clientY - swipeStartY;
+
+      // 尚未進入長按拖曳前，只要手指移動超過 10px 就取消長按計時，避免影響正常上下捲動或左右滑動
+      if (!touchDragState) {
+        if (Math.hypot(dx, dy) > 10 && longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        return;
+      }
+
+      // 已進入長按拖曳排序模式：阻止畫面跟著捲動並顯示插入線
+      e.preventDefault();
+      const { dayNum, sourceEl } = touchDragState;
+      const dayColor = getDayColor(dayNum);
+
+      document.querySelectorAll('.itinerary-item-card').forEach(el => {
+        if (el !== sourceEl) {
+          el.style.borderTop = '';
+          el.style.borderBottom = '';
+        }
+      });
+
+      const slot = getTouchTargetSlot(touch.clientX, touch.clientY, dayNum);
+      touchDragState.insertIndex = slot.insertIndex;
+      if (slot.targetEl) {
+        if (slot.position === 'top') {
+          slot.targetEl.style.borderTop = '3px solid ' + dayColor;
+        } else {
+          slot.targetEl.style.borderBottom = '3px solid ' + dayColor;
+        }
+      }
+
+      // 靠近螢幕上下邊緣時自動微幅捲動列表
+      const scrollBox = sourceEl?.closest('.day-items-scroll-area');
+      if (scrollBox) {
+        const boxRect = scrollBox.getBoundingClientRect();
+        if (touch.clientY < boxRect.top + 45) {
+          scrollBox.scrollTop -= 8;
+        } else if (touch.clientY > boxRect.bottom - 45) {
+          scrollBox.scrollTop += 8;
+        }
+      }
+    },
+    { passive: false }
+  );
+
+  const finishTouch = e => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+
+    // 1. 若處於長按拖曳排序狀態，放開時寫入新順序
+    if (touchDragState) {
+      const { dayNum, fromIdx, insertIndex } = touchDragState;
+      touchDragState = null;
+      clearAllDropIndicators();
+
+      const list = state.itinerary[dayNum]?.items;
+      if (list && list[fromIdx]) {
+        const targetIdx = insertIndex > fromIdx ? insertIndex - 1 : insertIndex;
+        if (targetIdx !== fromIdx && targetIdx >= 0 && targetIdx < list.length) {
+          const [moved] = list.splice(fromIdx, 1);
+          list.splice(targetIdx, 0, moved);
+          persistState(true);
+          if (typeof hooks.renderAll === 'function') hooks.renderAll();
+          showToast('已調整行程順序', 'emerald');
+        }
+      }
+      return;
+    }
+
+    // 2. 手機版單日模式下，偵測左右滑動切換天數
+    if (window.innerWidth > 768 || state.boardMultiDayMode) return;
+    const changedTouch = e.changedTouches && e.changedTouches[0];
+    if (!changedTouch) return;
+
+    const dx = changedTouch.clientX - swipeStartX;
+    const dy = changedTouch.clientY - swipeStartY;
+    const elapsed = Date.now() - swipeStartTime;
+
+    if (elapsed < 600 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
+      const currentDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
+      if (dx < 0 && currentDay < totalDays) {
+        selectDayFocus(currentDay + 1);
+      } else if (dx > 0 && currentDay > 1) {
+        selectDayFocus(currentDay - 1);
+      }
+    }
+  };
+
+  boardContainer.addEventListener('touchend', finishTouch, { passive: true });
+  boardContainer.addEventListener('touchcancel', () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    touchDragState = null;
+    clearAllDropIndicators();
+  });
+}
+
 export function toggleBoardMultiDayMode() {
   state.boardMultiDayMode = !state.boardMultiDayMode;
   const label = document.getElementById('boardModeLabel');
@@ -236,6 +453,9 @@ export function renderKanbanBoard() {
   const boardContainer = document.getElementById('kanbanColumnsContainer');
   if (!pillsBox || !boardContainer) return;
 
+  initBoardTouchGestures(boardContainer);
+  openActionMenuKey = null;
+
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const activeDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
 
@@ -253,7 +473,7 @@ export function renderKanbanBoard() {
     const badgeCls = isSelected ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600';
 
     pillsHtml.push(
-      '<button type="button" onclick="selectDayFocus(' + d + ')" style="' + btnStyle + '" ' +
+      '<button type="button" data-day-pill="' + d + '" onclick="selectDayFocus(' + d + ')" style="' + btnStyle + '" ' +
       'class="px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition ' + btnCls + '">' +
       '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + dotBg + '"></span>' +
       '<span>Day ' + d + '</span>' +
@@ -263,6 +483,12 @@ export function renderKanbanBoard() {
     );
   }
   pillsBox.innerHTML = pillsHtml.join('');
+
+  // 自動將目前選中的 Day 標籤捲動到視野中央
+  const activePillEl = pillsBox.querySelector('[data-day-pill="' + activeDay + '"]');
+  if (activePillEl && typeof activePillEl.scrollIntoView === 'function') {
+    activePillEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
 
   const daysToRender = state.boardMultiDayMode
     ? Array.from({ length: totalDays }, (_, i) => i + 1)
@@ -347,6 +573,7 @@ export function renderKanbanBoard() {
 
           const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
           const airlineTag = flightInfo?.airline ? '・' + flightInfo.airline : '';
+          const menuKey = dayNum + '_' + idx;
 
           const extraActionBtn =
             card.category === '機場'
@@ -365,8 +592,14 @@ export function renderKanbanBoard() {
 
           return (
             legHtml +
-            '<div draggable="true" ondragstart="onDragStartItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
-            'class="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition space-y-1.5">' +
+            '<div draggable="true" ' +
+            'data-day="' + dayNum + '" data-idx="' + idx + '" ' +
+            'ondragstart="onDragStartItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
+            'ondragend="onDragEndItineraryItem(event)" ' +
+            'ondragover="onDragOverItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
+            'ondragleave="onDragLeaveItineraryItem(event)" ' +
+            'ondrop="onDropOnItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
+            'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition select-none space-y-1.5 cursor-grab active:cursor-grabbing">' +
             '<div class="flex items-start justify-between gap-1.5">' +
             '<div class="flex items-center gap-1.5 flex-wrap min-w-0">' +
             '<div class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0">' +
@@ -376,27 +609,30 @@ export function renderKanbanBoard() {
             roleBadge +
             '<span class="px-2 py-0.5 rounded-md text-[11px] font-bold ' + style.badge + ' shrink-0">' + card.category + '</span>' +
             '</div>' +
-            '<div class="flex items-center gap-0.5 shrink-0">' +
-            '<button type="button" onclick="focusCardOnMap(\'' + card.id + '\')" title="在地圖定位" style="color:' + dayColor + '" ' +
-            'class="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center text-xs">' +
-            '<i class="fa-solid fa-diamond-turn-right"></i>' +
+            '<div class="relative shrink-0">' +
+            '<button type="button" onclick="toggleCardActionMenu(event, \'' + menuKey + '\')" title="更多操作" ' +
+            'class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center text-sm transition">' +
+            '<i class="fa-solid fa-ellipsis-vertical"></i>' +
             '</button>' +
-            '<button type="button" onclick="moveItineraryItem(' + dayNum + ', ' + idx + ', -1)" title="上移" ' +
-            'class="w-6 h-6 rounded-md hover:bg-slate-100 text-slate-500 flex items-center justify-center text-xs">' +
-            '<i class="fa-solid fa-arrow-up"></i>' +
+            '<div id="card-menu-' + menuKey + '" onclick="event.stopPropagation()" ' +
+            'class="itinerary-card-menu hidden absolute right-0 top-8 w-36 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
+            '<button type="button" onclick="closeAllCardActionMenus(); focusCardOnMap(\'' + card.id + '\')" ' +
+            'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
+            '<i class="fa-solid fa-diamond-turn-right w-3.5 text-center" style="color:' + dayColor + '"></i>' +
+            '<span>在地圖定位</span>' +
             '</button>' +
-            '<button type="button" onclick="moveItineraryItem(' + dayNum + ', ' + idx + ', 1)" title="下移" ' +
-            'class="w-6 h-6 rounded-md hover:bg-slate-100 text-slate-500 flex items-center justify-center text-xs">' +
-            '<i class="fa-solid fa-arrow-down"></i>' +
+            '<button type="button" onclick="closeAllCardActionMenus(); openCardModal(\'' + card.id + '\')" ' +
+            'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
+            '<i class="fa-solid fa-pen w-3.5 text-center text-slate-500"></i>' +
+            '<span>編輯卡片</span>' +
             '</button>' +
-            '<button type="button" onclick="openCardModal(\'' + card.id + '\')" title="編輯卡片" ' +
-            'class="w-6 h-6 rounded-md hover:bg-slate-100 text-slate-500 flex items-center justify-center text-xs">' +
-            '<i class="fa-solid fa-pen"></i>' +
+            '<div class="my-0.5 border-t border-slate-100"></div>' +
+            '<button type="button" onclick="closeAllCardActionMenus(); removeItineraryItem(' + dayNum + ', ' + idx + ')" ' +
+            'class="w-full px-3 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2">' +
+            '<i class="fa-solid fa-trash-can w-3.5 text-center"></i>' +
+            '<span>移出此日行程</span>' +
             '</button>' +
-            '<button type="button" onclick="removeItineraryItem(' + dayNum + ', ' + idx + ')" title="移出此日行程" ' +
-            'class="w-6 h-6 rounded-md hover:bg-rose-50 text-rose-500 flex items-center justify-center text-xs">' +
-            '<i class="fa-solid fa-xmark"></i>' +
-            '</button>' +
+            '</div>' +
             '</div>' +
             '</div>' +
             '<div class="flex items-start gap-2 pt-0.5">' +
@@ -463,7 +699,7 @@ export function renderKanbanBoard() {
         '<span class="font-bold" style="color:' + dayColor + '">移動 ' + totalTransitMin + ' 分・約 ' + endDayStr + ' 結束</span>' +
         '</div>' +
         '</div>' +
-        '<div class="flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">' +
+        '<div class="day-items-scroll-area flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">' +
         (itemsHtml || emptyPlaceholder) +
         '</div>' +
         '</div>'
@@ -472,10 +708,10 @@ export function renderKanbanBoard() {
     .join('');
 }
 
-export function addCardToDay(cardId, dayNum) {
+export function addCardToDay(cardId, dayNum, insertIdx = null) {
   const d = Number(dayNum);
   if (!state.itinerary[d]) state.itinerary[d] = { startTime: '09:00', items: [] };
-  state.itinerary[d].items.push({
+  const newItem = {
     uid: 'it_' + cardId + '_' + d + '_' + Date.now(),
     cardId,
     order: state.itinerary[d].items.length + 1,
@@ -483,7 +719,12 @@ export function addCardToDay(cardId, dayNum) {
     transitMode: 'auto',
     customTransitMin: null,
     customNote: ''
-  });
+  };
+  if (insertIdx !== null && insertIdx >= 0 && insertIdx <= state.itinerary[d].items.length) {
+    state.itinerary[d].items.splice(insertIdx, 0, newItem);
+  } else {
+    state.itinerary[d].items.push(newItem);
+  }
   persistState(true);
   if (typeof hooks.renderAll === 'function') hooks.renderAll();
   showToast('已排入 Day ' + d, 'emerald');
@@ -592,14 +833,90 @@ export function addReturnToHotel(dayNum) {
   addCardToDay(hotelCard.id, dayNum);
 }
 
+// ==================== 電腦版拖曳精準插入排序 ====================
 let dragPayload = null;
 
 export function onDragStartCard(event, cardId) {
   dragPayload = { type: 'card', cardId };
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'copyMove';
+    event.dataTransfer.setData('text/plain', String(cardId));
+  }
 }
 
 export function onDragStartItineraryItem(event, fromDay, fromIdx) {
-  dragPayload = { type: 'item', fromDay, fromIdx };
+  closeAllCardActionMenus();
+  dragPayload = { type: 'item', fromDay: Number(fromDay), fromIdx: Number(fromIdx) };
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', fromDay + ':' + fromIdx);
+  }
+  if (event?.currentTarget) {
+    setTimeout(() => event.currentTarget?.classList.add('opacity-50'), 0);
+  }
+}
+
+export function onDragEndItineraryItem() {
+  dragPayload = null;
+  clearAllDropIndicators();
+}
+
+export function onDragOverItineraryItem(event, targetDay, targetIdx) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!dragPayload) return;
+
+  const el = event.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const isTopHalf = event.clientY < rect.top + rect.height / 2;
+  const dayColor = getDayColor(targetDay);
+
+  clearAllDropIndicators();
+  if (isTopHalf) {
+    el.style.borderTop = '3px solid ' + dayColor;
+    el.dataset.dropPos = 'top';
+  } else {
+    el.style.borderBottom = '3px solid ' + dayColor;
+    el.dataset.dropPos = 'bottom';
+  }
+}
+
+export function onDragLeaveItineraryItem(event) {
+  const el = event.currentTarget;
+  if (!el.contains(event.relatedTarget)) {
+    el.style.borderTop = '';
+    el.style.borderBottom = '';
+  }
+}
+
+export function onDropOnItineraryItem(event, targetDay, targetIdx) {
+  event.preventDefault();
+  event.stopPropagation();
+  const el = event.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const isTopHalf = event.clientY < rect.top + rect.height / 2;
+  const rawInsertIdx = isTopHalf ? Number(targetIdx) : Number(targetIdx) + 1;
+
+  clearAllDropIndicators();
+  if (!dragPayload) return;
+
+  const dTarget = Number(targetDay);
+  if (dragPayload.type === 'card') {
+    addCardToDay(dragPayload.cardId, dTarget, rawInsertIdx);
+  } else if (dragPayload.type === 'item') {
+    const { fromDay, fromIdx } = dragPayload;
+    const srcList = state.itinerary[fromDay]?.items;
+    if (srcList && srcList[fromIdx]) {
+      const [moved] = srcList.splice(fromIdx, 1);
+      if (!state.itinerary[dTarget]) state.itinerary[dTarget] = { startTime: '09:00', items: [] };
+      const finalIdx = fromDay === dTarget && rawInsertIdx > fromIdx ? rawInsertIdx - 1 : rawInsertIdx;
+      state.itinerary[dTarget].items.splice(Math.max(0, finalIdx), 0, moved);
+      persistState(true);
+      if (typeof hooks.renderAll === 'function') hooks.renderAll();
+      showToast('已更新行程順序', 'emerald');
+    }
+  }
+  dragPayload = null;
 }
 
 export function onDragOverColumn(event) {
@@ -610,19 +927,27 @@ export function onDragLeaveColumn() {}
 
 export function onDropOnDay(event, targetDay) {
   event.preventDefault();
+  clearAllDropIndicators();
   if (!dragPayload) return;
+
+  const dTarget = Number(targetDay);
   if (dragPayload.type === 'card') {
-    addCardToDay(dragPayload.cardId, targetDay);
+    addCardToDay(dragPayload.cardId, dTarget);
   } else if (dragPayload.type === 'item') {
     const { fromDay, fromIdx } = dragPayload;
     const srcList = state.itinerary[fromDay]?.items;
     if (srcList && srcList[fromIdx]) {
       const [moved] = srcList.splice(fromIdx, 1);
-      if (!state.itinerary[targetDay]) state.itinerary[targetDay] = { startTime: '09:00', items: [] };
-      state.itinerary[targetDay].items.push(moved);
+      if (!state.itinerary[dTarget]) state.itinerary[dTarget] = { startTime: '09:00', items: [] };
+      state.itinerary[dTarget].items.push(moved);
       persistState(true);
       if (typeof hooks.renderAll === 'function') hooks.renderAll();
     }
   }
   dragPayload = null;
 }
+
+window.onDragEndItineraryItem = onDragEndItineraryItem;
+window.onDragOverItineraryItem = onDragOverItineraryItem;
+window.onDragLeaveItineraryItem = onDragLeaveItineraryItem;
+window.onDropOnItineraryItem = onDropOnItineraryItem;
