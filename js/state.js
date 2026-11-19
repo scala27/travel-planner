@@ -1,6 +1,8 @@
 import { DEFAULT_SETTINGS, STORAGE_KEY } from './config.js';
 
 export const state = {
+  isReadOnly: false, // 訪客開啟 ?share= 連結時為 true
+  shareToken: '',
   mode: 'plan', // 'plan'（我的行程） | 'collect'（口袋清單）
   tripViewStep: 'list', // 'list'（行程專案總覽牆） | 'detail'（單一行程每日排程）
   trips: [],
@@ -50,6 +52,15 @@ export const hooks = {
   invalidateMapSize: null
 };
 
+export function generateRandomShareToken() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let token = 't_';
+  for (let i = 0; i < 8; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
+
 export function createTripObject(partial = {}) {
   const id = partial.id || `trip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const totalDays = Math.max(1, Math.min(15, Number(partial.totalDays) || 5));
@@ -69,6 +80,8 @@ export function createTripObject(partial = {}) {
     startDate: partial.startDate || new Date().toISOString().slice(0, 10),
     totalDays,
     dayColors,
+    shareToken: partial.shareToken ? String(partial.shareToken).trim() : generateRandomShareToken(),
+    shareEnabled: partial.shareEnabled === true,
     itinerary
   };
 }
@@ -108,17 +121,19 @@ export function syncActiveTripToLegacyState() {
 }
 
 export function syncLegacyStateBackToActiveTrip() {
+  if (state.isReadOnly) return;
   const active = getActiveTrip();
   active.title = state.settings.tripTitle;
   active.startDate = state.settings.startDate;
   active.totalDays = state.settings.totalDays;
-  active.dayColors = state.settings.dayColors && typeof state.settings.dayColors === 'object'
-    ? { ...state.settings.dayColors }
+  active.dayColors = state.settings.dayColors && typeof active.dayColors === 'object'
+    ? { ...active.dayColors }
     : {};
   active.itinerary = state.itinerary;
 }
 
 export function loadLocalState() {
+  if (state.isReadOnly) return;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -168,6 +183,7 @@ export function loadLocalState() {
 }
 
 export function persistState(autoPushCloud = false) {
+  if (state.isReadOnly) return;
   syncLegacyStateBackToActiveTrip();
   try {
     localStorage.setItem(
