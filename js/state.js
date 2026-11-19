@@ -59,12 +59,16 @@ export function createTripObject(partial = {}) {
       itinerary[d] = { startTime: '09:00', items: [] };
     }
   }
+  const dayColors = partial.dayColors && typeof partial.dayColors === 'object'
+    ? { ...partial.dayColors }
+    : {};
   return {
     id,
     title: partial.title || '新旅遊計畫',
     destination: partial.destination || '',
     startDate: partial.startDate || new Date().toISOString().slice(0, 10),
     totalDays,
+    dayColors,
     itinerary
   };
 }
@@ -77,6 +81,7 @@ export function getActiveTrip() {
       destination: '日本・沖繩',
       startDate: state.settings.startDate || DEFAULT_SETTINGS.startDate,
       totalDays: state.settings.totalDays || DEFAULT_SETTINGS.totalDays,
+      dayColors: state.settings.dayColors || {},
       itinerary: state.itinerary
     });
     state.trips = [fallback];
@@ -95,6 +100,9 @@ export function syncActiveTripToLegacyState() {
   state.settings.tripTitle = active.title;
   state.settings.startDate = active.startDate;
   state.settings.totalDays = active.totalDays;
+  state.settings.dayColors = active.dayColors && typeof active.dayColors === 'object'
+    ? { ...active.dayColors }
+    : {};
   state.itinerary = active.itinerary;
   ensureItineraryDays();
 }
@@ -104,6 +112,9 @@ export function syncLegacyStateBackToActiveTrip() {
   active.title = state.settings.tripTitle;
   active.startDate = state.settings.startDate;
   active.totalDays = state.settings.totalDays;
+  active.dayColors = state.settings.dayColors && typeof state.settings.dayColors === 'object'
+    ? { ...state.settings.dayColors }
+    : {};
   active.itinerary = state.itinerary;
 }
 
@@ -131,6 +142,7 @@ export function loadLocalState() {
           destination: '日本・沖繩',
           startDate: state.settings.startDate || DEFAULT_SETTINGS.startDate,
           totalDays: state.settings.totalDays || DEFAULT_SETTINGS.totalDays,
+          dayColors: state.settings.dayColors || {},
           itinerary: state.itinerary
         });
         state.trips = [initialTrip];
@@ -147,7 +159,8 @@ export function loadLocalState() {
     title: DEFAULT_SETTINGS.tripTitle,
     destination: '日本・沖繩',
     startDate: DEFAULT_SETTINGS.startDate,
-    totalDays: DEFAULT_SETTINGS.totalDays
+    totalDays: DEFAULT_SETTINGS.totalDays,
+    dayColors: {}
   });
   state.trips = [defaultTrip];
   state.activeTripId = defaultTrip.id;
