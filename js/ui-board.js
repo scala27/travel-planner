@@ -36,7 +36,7 @@ export function getDayColor(dayNum) {
 }
 
 export function updateDayColor(dayNum, hexColor) {
-  if (!hexColor) return;
+  if (state.isReadOnly || !hexColor) return;
   if (!state.settings.dayColors) state.settings.dayColors = {};
   state.settings.dayColors[dayNum] = hexColor;
   persistState(true);
@@ -219,7 +219,6 @@ function parseFlightNote(customNote) {
   };
 }
 
-// ==================== 三點動作選單控制 ====================
 let openActionMenuKey = null;
 
 export function toggleCardActionMenu(event, menuKey) {
@@ -250,7 +249,6 @@ if (!window.__echiMenuListenerAttached) {
   });
 }
 
-// ==================== 手機版左右滑動切換天數 & 長按拖曳排序 ====================
 let boardGesturesInitialized = false;
 let touchDragState = null;
 
@@ -299,6 +297,8 @@ function initBoardTouchGestures(boardContainer) {
       swipeStartX = touch.clientX;
       swipeStartY = touch.clientY;
       swipeStartTime = Date.now();
+
+      if (state.isReadOnly) return;
 
       const interactiveEl = e.target.closest('button, select, input, label, a');
       const cardEl = e.target.closest('.itinerary-item-card');
@@ -471,6 +471,7 @@ export function renderKanbanBoard() {
   initBoardTouchGestures(boardContainer);
   openActionMenuKey = null;
 
+  const isGuest = Boolean(state.isReadOnly);
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const activeDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
 
@@ -534,19 +535,29 @@ export function renderKanbanBoard() {
             const leg = estimateLegTransit(prevCard, card, item);
             cursorMin += leg.min;
             totalTransitMin += leg.min;
-            legHtml =
-              '<div class="my-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200/90 flex items-center justify-between gap-2 text-[11px] text-slate-600 shadow-2xs">' +
-              '<button type="button" onclick="cycleTransitMode(' + dayNum + ', ' + idx + ')" title="點擊切換交通方式（自動/單軌/開車/步行）" ' +
-              'class="flex items-center gap-1.5 truncate hover:opacity-80 text-left">' +
-              '<span class="text-slate-400">↓</span>' +
-              '<i class="fa-solid ' + leg.icon + '" style="color:' + dayColor + '"></i>' +
-              '<span class="truncate">' + leg.modeLabel + '｜約 ' + leg.km + ' 公里・<strong>' + leg.min + ' 分</strong></span>' +
-              '</button>' +
-              '<button type="button" onclick="editLegCustomTime(' + dayNum + ', ' + idx + ')" title="自訂此段交通時間" ' +
-              'class="w-5 h-5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center shrink-0">' +
-              '<i class="fa-solid fa-pen text-[10px]"></i>' +
-              '</button>' +
-              '</div>';
+
+            if (isGuest) {
+              legHtml =
+                '<div class="my-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200/90 flex items-center gap-1.5 text-[11px] text-slate-600 shadow-2xs">' +
+                '<span class="text-slate-400">↓</span>' +
+                '<i class="fa-solid ' + leg.icon + '" style="color:' + dayColor + '"></i>' +
+                '<span class="truncate">' + leg.modeLabel + '｜約 ' + leg.km + ' 公里・<strong>' + leg.min + ' 分</strong></span>' +
+                '</div>';
+            } else {
+              legHtml =
+                '<div class="my-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200/90 flex items-center justify-between gap-2 text-[11px] text-slate-600 shadow-2xs">' +
+                '<button type="button" onclick="cycleTransitMode(' + dayNum + ', ' + idx + ')" title="點擊切換交通方式（自動/單軌/開車/步行）" ' +
+                'class="flex items-center gap-1.5 truncate hover:opacity-80 text-left">' +
+                '<span class="text-slate-400">↓</span>' +
+                '<i class="fa-solid ' + leg.icon + '" style="color:' + dayColor + '"></i>' +
+                '<span class="truncate">' + leg.modeLabel + '｜約 ' + leg.km + ' 公里・<strong>' + leg.min + ' 分</strong></span>' +
+                '</button>' +
+                '<button type="button" onclick="editLegCustomTime(' + dayNum + ', ' + idx + ')" title="自訂此段交通時間" ' +
+                'class="w-5 h-5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center shrink-0">' +
+                '<i class="fa-solid fa-pen text-[10px]"></i>' +
+                '</button>' +
+                '</div>';
+            }
           }
 
           const flightInfo = parseFlightNote(item.customNote);
@@ -590,7 +601,6 @@ export function renderKanbanBoard() {
           const menuKey = dayNum + '_' + idx;
           const noteKey = item.uid || menuKey;
 
-          // 卡片重點亮點（must_buy）與詳細介紹（notes）
           const highlightText = String(card.must_buy || card.meta?.must_buy || '').trim();
           const detailText = String(card.notes || card.description || '').trim();
           let spotInfoBlockHtml = '';
@@ -626,31 +636,70 @@ export function renderKanbanBoard() {
               '</div>';
           }
 
-          const extraActionBtn =
-            card.category === '機場'
-              ? '<button type="button" onclick="editItemFlightSchedule(' + dayNum + ', ' + idx + ')" ' +
-                'class="mt-1.5 px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-bold inline-flex items-center gap-1">' +
-                '<i class="fa-solid fa-plane-departure"></i>' +
-                '<span>設定 Day ' + dayNum + ' 專屬航班時刻</span>' +
-                '</button>'
-              : card.category === '住宿' && dayNum < totalDays
-              ? '<button type="button" onclick="extendHotelToNextDay(' + dayNum + ', ' + idx + ')" ' +
-                'class="mt-1.5 px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[11px] font-bold inline-flex items-center gap-1">' +
-                '<i class="fa-solid fa-bed"></i>' +
-                '<span>延續為 Day ' + (dayNum + 1) + ' 退房起點</span>' +
-                '</button>'
-              : '';
+          const extraActionBtn = isGuest
+            ? ''
+            : card.category === '機場'
+            ? '<button type="button" onclick="editItemFlightSchedule(' + dayNum + ', ' + idx + ')" ' +
+              'class="mt-1.5 px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-bold inline-flex items-center gap-1">' +
+              '<i class="fa-solid fa-plane-departure"></i>' +
+              '<span>設定 Day ' + dayNum + ' 專屬航班時刻</span>' +
+              '</button>'
+            : card.category === '住宿' && dayNum < totalDays
+            ? '<button type="button" onclick="extendHotelToNextDay(' + dayNum + ', ' + idx + ')" ' +
+              'class="mt-1.5 px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[11px] font-bold inline-flex items-center gap-1">' +
+              '<i class="fa-solid fa-bed"></i>' +
+              '<span>延續為 Day ' + (dayNum + 1) + ' 退房起點</span>' +
+              '</button>'
+            : '';
+
+          const cardRightControl = isGuest
+            ? '<button type="button" onclick="focusCardOnMap(\'' + card.id + '\')" title="在地圖檢視位置" ' +
+              'class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 shrink-0 transition">' +
+              '<i class="fa-solid fa-location-dot" style="color:' + dayColor + '"></i>' +
+              '<span>定位</span>' +
+              '</button>'
+            : '<div class="relative shrink-0">' +
+              '<button type="button" onclick="toggleCardActionMenu(event, \'' + menuKey + '\')" title="更多操作" ' +
+              'class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center text-sm transition">' +
+              '<i class="fa-solid fa-ellipsis-vertical"></i>' +
+              '</button>' +
+              '<div id="card-menu-' + menuKey + '" onclick="event.stopPropagation()" ' +
+              'class="itinerary-card-menu hidden absolute right-0 top-8 w-36 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
+              '<button type="button" onclick="closeAllCardActionMenus(); focusCardOnMap(\'' + card.id + '\')" ' +
+              'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
+              '<i class="fa-solid fa-diamond-turn-right w-3.5 text-center" style="color:' + dayColor + '"></i>' +
+              '<span>在地圖定位</span>' +
+              '</button>' +
+              '<button type="button" onclick="closeAllCardActionMenus(); openCardModal(\'' + card.id + '\')" ' +
+              'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
+              '<i class="fa-solid fa-pen w-3.5 text-center text-slate-500"></i>' +
+              '<span>編輯卡片</span>' +
+              '</button>' +
+              '<div class="my-0.5 border-t border-slate-100"></div>' +
+              '<button type="button" onclick="closeAllCardActionMenus(); removeItineraryItem(' + dayNum + ', ' + idx + ')" ' +
+              'class="w-full px-3 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2">' +
+              '<i class="fa-solid fa-trash-can w-3.5 text-center"></i>' +
+              '<span>移出此日行程</span>' +
+              '</button>' +
+              '</div>' +
+              '</div>';
+
+          const dragAttrs = isGuest
+            ? 'onclick="focusCardOnMap(\'' + card.id + '\', false)"'
+            : 'draggable="true" ' +
+              'ondragstart="onDragStartItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
+              'ondragend="onDragEndItineraryItem(event)" ' +
+              'ondragover="onDragOverItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
+              'ondragleave="onDragLeaveItineraryItem(event)" ' +
+              'ondrop="onDropOnItineraryItem(event, ' + dayNum + ', ' + idx + ')"';
+
+          const cardCursorCls = isGuest ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing';
 
           return (
             legHtml +
-            '<div draggable="true" ' +
+            '<div ' + dragAttrs + ' ' +
             'data-day="' + dayNum + '" data-idx="' + idx + '" ' +
-            'ondragstart="onDragStartItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
-            'ondragend="onDragEndItineraryItem(event)" ' +
-            'ondragover="onDragOverItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
-            'ondragleave="onDragLeaveItineraryItem(event)" ' +
-            'ondrop="onDropOnItineraryItem(event, ' + dayNum + ', ' + idx + ')" ' +
-            'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition select-none space-y-1.5 cursor-grab active:cursor-grabbing">' +
+            'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition select-none space-y-1.5 ' + cardCursorCls + '">' +
             '<div class="flex items-start justify-between gap-1.5">' +
             '<div class="flex items-center gap-1.5 flex-wrap min-w-0">' +
             '<div class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] leading-tight shrink-0">' +
@@ -660,31 +709,7 @@ export function renderKanbanBoard() {
             roleBadge +
             '<span class="px-2 py-0.5 rounded-md text-[11px] font-bold ' + style.badge + ' shrink-0">' + card.category + '</span>' +
             '</div>' +
-            '<div class="relative shrink-0">' +
-            '<button type="button" onclick="toggleCardActionMenu(event, \'' + menuKey + '\')" title="更多操作" ' +
-            'class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center text-sm transition">' +
-            '<i class="fa-solid fa-ellipsis-vertical"></i>' +
-            '</button>' +
-            '<div id="card-menu-' + menuKey + '" onclick="event.stopPropagation()" ' +
-            'class="itinerary-card-menu hidden absolute right-0 top-8 w-36 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
-            '<button type="button" onclick="closeAllCardActionMenus(); focusCardOnMap(\'' + card.id + '\')" ' +
-            'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
-            '<i class="fa-solid fa-diamond-turn-right w-3.5 text-center" style="color:' + dayColor + '"></i>' +
-            '<span>在地圖定位</span>' +
-            '</button>' +
-            '<button type="button" onclick="closeAllCardActionMenus(); openCardModal(\'' + card.id + '\')" ' +
-            'class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2">' +
-            '<i class="fa-solid fa-pen w-3.5 text-center text-slate-500"></i>' +
-            '<span>編輯卡片</span>' +
-            '</button>' +
-            '<div class="my-0.5 border-t border-slate-100"></div>' +
-            '<button type="button" onclick="closeAllCardActionMenus(); removeItineraryItem(' + dayNum + ', ' + idx + ')" ' +
-            'class="w-full px-3 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2">' +
-            '<i class="fa-solid fa-trash-can w-3.5 text-center"></i>' +
-            '<span>移出此日行程</span>' +
-            '</button>' +
-            '</div>' +
-            '</div>' +
+            cardRightControl +
             '</div>' +
             '<div class="flex items-start gap-2 pt-0.5">' +
             '<span style="background:' + dayColor + '" class="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">' +
@@ -713,12 +738,43 @@ export function renderKanbanBoard() {
       const emptyPlaceholder =
         '<div class="h-44 flex flex-col items-center justify-center text-center text-slate-400 text-xs p-4 border-2 border-dashed border-slate-200 rounded-xl">' +
         '<i class="fa-regular fa-calendar-plus text-2xl mb-2 text-slate-300"></i>' +
-        '<p class="font-semibold text-slate-500">尚未排入任何景點</p>' +
-        '<p class="text-[11px] mt-1">請切換至「口袋清單」點擊「＋排入」加入行程</p>' +
+        '<p class="font-semibold text-slate-500">本日尚未排入行程</p>' +
+        (isGuest ? '' : '<p class="text-[11px] mt-1">請切換至「口袋清單」點擊「＋排入」加入行程</p>') +
         '</div>';
 
+      const colorPickerHtml = isGuest
+        ? ''
+        : '<label title="點擊自訂 Day ' + dayNum + ' 路線與看板顏色" ' +
+          'class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600 cursor-pointer relative overflow-hidden shadow-2xs transition">' +
+          '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + dayColor + '"></span>' +
+          '<i class="fa-solid fa-palette text-[10px] text-slate-500"></i>' +
+          '<span>路線色</span>' +
+          '<input type="color" value="' + dayColor + '" onchange="updateDayColor(' + dayNum + ', this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />' +
+          '</label>';
+
+      const startAndReturnHtml = isGuest
+        ? '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">' +
+          '<span class="text-slate-500 font-medium">出發</span>' +
+          '<span class="font-bold text-slate-800">' + escapeHtml(dayData.startTime || '09:00') + '</span>' +
+          '</div>'
+        : '<div class="flex items-center gap-1.5 shrink-0">' +
+          '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs">' +
+          '<span class="text-slate-500 font-medium shrink-0">出發</span>' +
+          '<select onchange="updateDayStartTime(' + dayNum + ', this.value)" class="font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer min-w-[54px]">' +
+          selectOpts +
+          '</select>' +
+          '</div>' +
+          '<button type="button" onclick="addReturnToHotel(' + dayNum + ')" class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 shrink-0">' +
+          '↩ 回住宿' +
+          '</button>' +
+          '</div>';
+
+      const colDropAttrs = isGuest
+        ? ''
+        : 'ondragover="onDragOverColumn(event)" ondragleave="onDragLeaveColumn(event)" ondrop="onDropOnDay(event, ' + dayNum + ')" ';
+
       return (
-        '<div ondragover="onDragOverColumn(event)" ondragleave="onDragLeaveColumn(event)" ondrop="onDropOnDay(event, ' + dayNum + ')" ' +
+        '<div ' + colDropAttrs +
         'style="border-top: 4px solid ' + dayColor + ';" ' +
         'class="' + colWidthCls + ' bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">' +
         '<div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">' +
@@ -726,25 +782,9 @@ export function renderKanbanBoard() {
         '<div class="flex items-center gap-2">' +
         '<span class="text-base font-extrabold" style="color:' + dayColor + '">Day ' + dayNum + '</span>' +
         '<span class="text-xs font-semibold text-slate-500">' + info.md + ' (' + info.week + ')</span>' +
-        '<label title="點擊自訂 Day ' + dayNum + ' 路線與看板顏色" ' +
-        'class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600 cursor-pointer relative overflow-hidden shadow-2xs transition">' +
-        '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + dayColor + '"></span>' +
-        '<i class="fa-solid fa-palette text-[10px] text-slate-500"></i>' +
-        '<span>路線色</span>' +
-        '<input type="color" value="' + dayColor + '" onchange="updateDayColor(' + dayNum + ', this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />' +
-        '</label>' +
+        colorPickerHtml +
         '</div>' +
-        '<div class="flex items-center gap-1.5 shrink-0">' +
-        '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs">' +
-        '<span class="text-slate-500 font-medium shrink-0">出發</span>' +
-        '<select onchange="updateDayStartTime(' + dayNum + ', this.value)" class="font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer min-w-[54px]">' +
-        selectOpts +
-        '</select>' +
-        '</div>' +
-        '<button type="button" onclick="addReturnToHotel(' + dayNum + ')" class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 shrink-0">' +
-        '↩ 回住宿' +
-        '</button>' +
-        '</div>' +
+        startAndReturnHtml +
         '</div>' +
         '<div class="flex items-center justify-between text-[11px] text-slate-500">' +
         '<span>共 ' + dayData.items.length + ' 個行程點</span>' +
@@ -761,6 +801,7 @@ export function renderKanbanBoard() {
 }
 
 export function addCardToDay(cardId, dayNum, insertIdx = null) {
+  if (state.isReadOnly) return;
   const d = Number(dayNum);
   if (!state.itinerary[d]) state.itinerary[d] = { startTime: '09:00', items: [] };
   const newItem = {
@@ -783,6 +824,7 @@ export function addCardToDay(cardId, dayNum, insertIdx = null) {
 }
 
 export function quickAssignCardToDay(cardId, selectEl) {
+  if (state.isReadOnly) return;
   const val = selectEl.value;
   if (!val) return;
   addCardToDay(cardId, Number(val));
@@ -790,6 +832,7 @@ export function quickAssignCardToDay(cardId, selectEl) {
 }
 
 export function removeItineraryItem(dayNum, idx) {
+  if (state.isReadOnly) return;
   const list = state.itinerary[dayNum]?.items;
   if (!list) return;
   list.splice(idx, 1);
@@ -799,6 +842,7 @@ export function removeItineraryItem(dayNum, idx) {
 }
 
 export function moveItineraryItem(dayNum, idx, delta) {
+  if (state.isReadOnly) return;
   const list = state.itinerary[dayNum]?.items;
   if (!list) return;
   const target = idx + delta;
@@ -810,6 +854,7 @@ export function moveItineraryItem(dayNum, idx, delta) {
 }
 
 export function updateDayStartTime(dayNum, newTime) {
+  if (state.isReadOnly) return;
   if (!state.itinerary[dayNum]) state.itinerary[dayNum] = { startTime: newTime, items: [] };
   state.itinerary[dayNum].startTime = newTime;
   persistState(true);
@@ -817,6 +862,7 @@ export function updateDayStartTime(dayNum, newTime) {
 }
 
 export function cycleTransitMode(dayNum, idx) {
+  if (state.isReadOnly) return;
   const item = state.itinerary[dayNum]?.items?.[idx];
   if (!item) return;
   const order = ['auto', 'transit', 'drive', 'walk'];
@@ -830,6 +876,7 @@ export function cycleTransitMode(dayNum, idx) {
 }
 
 export function editLegCustomTime(dayNum, idx) {
+  if (state.isReadOnly) return;
   const item = state.itinerary[dayNum]?.items?.[idx];
   if (!item) return;
   const current = item.customTransitMin ?? '';
@@ -843,6 +890,7 @@ export function editLegCustomTime(dayNum, idx) {
 }
 
 export function editItemFlightSchedule(dayNum, idx) {
+  if (state.isReadOnly) return;
   const item = state.itinerary[dayNum]?.items?.[idx];
   if (!item) return;
   const current = parseFlightNote(item.customNote) || { depTime: '15:00', arrTime: '17:00', airline: '星宇航空' };
@@ -859,6 +907,7 @@ export function editItemFlightSchedule(dayNum, idx) {
 }
 
 export function extendHotelToNextDay(dayNum, idx) {
+  if (state.isReadOnly) return;
   const item = state.itinerary[dayNum]?.items?.[idx];
   const nextDay = Number(dayNum) + 1;
   if (!item || !state.itinerary[nextDay]) return;
@@ -877,6 +926,7 @@ export function extendHotelToNextDay(dayNum, idx) {
 }
 
 export function addReturnToHotel(dayNum) {
+  if (state.isReadOnly) return;
   const hotelCard = state.cards.find(c => c.category === '住宿');
   if (!hotelCard) {
     showToast('口袋清單中尚無「住宿」類別卡片', 'amber');
@@ -885,10 +935,10 @@ export function addReturnToHotel(dayNum) {
   addCardToDay(hotelCard.id, dayNum);
 }
 
-// ==================== 電腦版拖曳精準插入排序 ====================
 let dragPayload = null;
 
 export function onDragStartCard(event, cardId) {
+  if (state.isReadOnly) return;
   dragPayload = { type: 'card', cardId };
   if (event?.dataTransfer) {
     event.dataTransfer.effectAllowed = 'copyMove';
@@ -897,6 +947,7 @@ export function onDragStartCard(event, cardId) {
 }
 
 export function onDragStartItineraryItem(event, fromDay, fromIdx) {
+  if (state.isReadOnly) return;
   closeAllCardActionMenus();
   dragPayload = { type: 'item', fromDay: Number(fromDay), fromIdx: Number(fromIdx) };
   if (event?.dataTransfer) {
@@ -914,6 +965,7 @@ export function onDragEndItineraryItem() {
 }
 
 export function onDragOverItineraryItem(event, targetDay, targetIdx) {
+  if (state.isReadOnly) return;
   event.preventDefault();
   event.stopPropagation();
   if (!dragPayload) return;
@@ -942,6 +994,7 @@ export function onDragLeaveItineraryItem(event) {
 }
 
 export function onDropOnItineraryItem(event, targetDay, targetIdx) {
+  if (state.isReadOnly) return;
   event.preventDefault();
   event.stopPropagation();
   const el = event.currentTarget;
@@ -972,12 +1025,14 @@ export function onDropOnItineraryItem(event, targetDay, targetIdx) {
 }
 
 export function onDragOverColumn(event) {
+  if (state.isReadOnly) return;
   event.preventDefault();
 }
 
 export function onDragLeaveColumn() {}
 
 export function onDropOnDay(event, targetDay) {
+  if (state.isReadOnly) return;
   event.preventDefault();
   clearAllDropIndicators();
   if (!dragPayload) return;
