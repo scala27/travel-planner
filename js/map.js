@@ -1,6 +1,6 @@
 import { CATEGORY_STYLES } from './config.js';
 import { state, showToast } from './state.js';
-import { estimateLegTransit, setOkinawaTransitData, getDayColor } from './ui-board.js';
+import { estimateLegTransit, setOkinawaTransitData, getDayColor, addCardToDay } from './ui-board.js';
 
 let mapInstance = null;
 let markersLayerGroup = null;
@@ -20,6 +20,24 @@ const CATEGORY_SHORT_CHAR = {
   '交通': '交',
   '體驗': '體'
 };
+
+export function addCardFromMapPopup(cardId, dayNum = null) {
+  const targetDay = Number(dayNum) || Number(state.selectedMapDay) || 1;
+  addCardToDay(cardId, targetDay);
+  if (mapInstance) {
+    mapInstance.closePopup();
+  }
+}
+
+export function toggleMapPopupDayPicker(event, pickerId) {
+  if (event) event.stopPropagation();
+  const el = document.getElementById(pickerId);
+  if (!el) return;
+  el.style.display = el.style.display === 'flex' ? 'none' : 'flex';
+}
+
+window.addCardFromMapPopup = addCardFromMapPopup;
+window.toggleMapPopupDayPicker = toggleMapPopupDayPicker;
 
 export async function loadOkinawaTransitJson() {
   if (transitJsonCache) return transitJsonCache;
@@ -170,11 +188,13 @@ function escapeHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function attachSpotTooltipAndPopup(marker, card) {
   const cleanTitle = escapeHtml(card.title);
+  const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
   const fallbackMapUrl =
     card.mapUrl ||
     `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${card.title} ${card.lat || ''},${card.lng || ''}`)}`;
@@ -188,24 +208,89 @@ function attachSpotTooltipAndPopup(marker, card) {
     }
   );
 
+  const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
+  const defaultDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
+  const btnColor = getDayColor(defaultDay);
+
+  const scheduledDays = [];
+  for (let d = 1; d <= totalDays; d++) {
+    if ((state.itinerary[d]?.items || []).some(it => it.cardId === card.id)) {
+      scheduledDays.push(`Day ${d}`);
+    }
+  }
+
+  const pickerId = `popup-day-pills-${String(card.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const dayPillsHtml = Array.from({ length: totalDays }, (_, i) => {
+    const d = i + 1;
+    const dColor = getDayColor(d);
+    const isCurrent = d === defaultDay;
+    return `
+      <button type="button" onclick="addCardFromMapPopup('${card.id}', ${d})"
+        style="padding:3px 7px;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;border:1px solid ${dColor};background:${isCurrent ? dColor : '#ffffff'};color:${isCurrent ? '#ffffff' : dColor};line-height:1.2;">
+        Day ${d}
+      </button>
+    `;
+  }).join('');
+
+  const subMeta = [card.district, `停留 ${Number(card.duration) || 60} 分`].filter(Boolean).join(' · ');
+
   const popupHtml = `
-    <div style="min-width:150px;max-width:230px;padding:2px 0;">
-      <div style="font-weight:800;font-size:13px;color:#0f172a;line-height:1.35;margin-bottom:8px;">
+    <div style="min-width:210px;max-width:255px;padding:2px 0;font-family:inherit;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;">
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:800;background:${style.hex}18;color:${style.hex};">
+          <span style="width:6px;height:6px;border-radius:9999px;background:${style.hex};"></span>
+          ${escapeHtml(card.category || '景點')}
+        </span>
+        ${
+          scheduledDays.length > 0
+            ? `<span style="padding:2px 6px;border-radius:9999px;font-size:10px;font-weight:700;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;">已排 ${scheduledDays.join(', ')}</span>`
+            : ''
+        }
+      </div>
+
+      <div style="font-weight:800;font-size:13.5px;color:#0f172a;line-height:1.35;margin-bottom:3px;">
         ${cleanTitle}
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="font-size:11px;color:#64748b;margin-bottom:9px;">
+        ${escapeHtml(subMeta)}
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div style="flex:1;display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,0.12);">
+          <button type="button" onclick="addCardFromMapPopup('${card.id}', ${defaultDay})"
+            title="直接排入 Day ${defaultDay}"
+            style="flex:1;height:30px;padding:0 10px;background:${btnColor};color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:700;white-space:nowrap;">
+            <i class="fa-solid fa-plus" style="font-size:10px;"></i>
+            <span>排入 Day ${defaultDay}</span>
+          </button>
+          ${
+            totalDays > 1
+              ? `<button type="button" onclick="toggleMapPopupDayPicker(event, '${pickerId}')"
+                  title="選擇其他天數"
+                  style="width:24px;height:30px;background:${btnColor};color:#ffffff;border:none;border-left:1px solid rgba(255,255,255,0.28);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">
+                  <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i>
+                </button>`
+              : ''
+          }
+        </div>
+
         <button type="button" onclick="openCardModal('${card.id}')" title="編輯卡片"
-          style="width:32px;height:32px;border-radius:8px;background:#2C4D6E;color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:13px;">
-          <i class="fa-solid fa-pen"></i>
+          style="width:30px;height:30px;border-radius:8px;background:#f8fafc;color:#475569;border:1px solid #e2e8f0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;shrink:0;">
+          <i class="fa-regular fa-pen-to-square" style="font-size:13px;"></i>
         </button>
-        <a href="${fallbackMapUrl}" target="_blank" rel="noopener" title="在 Google Maps 開啟"
-          style="width:32px;height:32px;border-radius:8px;background:#f8fafc;color:#1d4ed8;border:1px solid #cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-size:14px;text-decoration:none;">
-          <i class="fa-solid fa-map-location-dot"></i>
+
+        <a href="${fallbackMapUrl}" target="_blank" rel="noopener" title="在 Google 地圖開啟"
+          style="width:30px;height:30px;border-radius:8px;background:#eff6ff;color:#2563eb;border:1px solid #dbeafe;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;shrink:0;">
+          <i class="fa-solid fa-map-location-dot" style="font-size:13px;"></i>
         </a>
+      </div>
+
+      <div id="${pickerId}" style="display:none;flex-wrap:wrap;gap:4px;margin-top:7px;padding-top:7px;border-top:1px dashed #e2e8f0;">
+        ${dayPillsHtml}
       </div>
     </div>
   `;
-  marker.bindPopup(popupHtml);
+  marker.bindPopup(popupHtml, { maxWidth: 270 });
 }
 
 function buildGoogleMapsLegUrl(cardA, cardB, itemB) {
