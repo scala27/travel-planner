@@ -7,6 +7,7 @@ let markersLayerGroup = null;
 let routesLayerGroup = null;
 const markerByCardId = {};
 const routeGeometryCache = {};
+let renderGeneration = 0;
 
 let transitJsonCache = null;
 let transitLoadPromise = null;
@@ -332,6 +333,15 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function polylineLengthKm(latLngs) {
+  if (!Array.isArray(latLngs) || latLngs.length < 2) return 0;
+  let sum = 0;
+  for (let i = 1; i < latLngs.length; i++) {
+    sum += haversineKm(latLngs[i - 1][0], latLngs[i - 1][1], latLngs[i][0], latLngs[i][1]);
+  }
+  return sum;
+}
+
 function findNearestStop(stops, lat, lng) {
   let best = null;
   let minKm = Infinity;
@@ -345,41 +355,80 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
+async function queryOsrmSingle(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
+      return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
   const cacheKey = `${mode}:${lng1.toFixed(5)},${lat1.toFixed(5)};${lng2.toFixed(5)},${lat2.toFixed(5)}`;
   if (routeGeometryCache[cacheKey]) return routeGeometryCache[cacheKey];
 
-  const primaryUrl =
+  const directKm = haversineKm(lat1, lng1, lat2, lng2);
+  const coordsStr = `${lng1},${lat1};${lng2},${lat2}`;
+
+  const candidateUrls =
     mode === 'foot'
-      ? `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
-      : `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+      ? [
+          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordsStr}?overview=full&geometries=geojson`,
+          `https://router.project-osrm.org/route/v1/foot/${coordsStr}?overview=full&geometries=geojson`,
+          `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`
+        ]
+      : [
+          `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`,
+          `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`
+        ];
 
-  try {
-    const res = await fetch(primaryUrl);
-    const data = await res.json();
-    if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
-      const roadLatLngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      routeGeometryCache[cacheKey] = roadLatLngs;
-      return roadLatLngs;
+  let roadLatLngs = null;
+  for (const url of candidateUrls) {
+    const pts = await queryOsrmSingle(url);
+    if (pts && pts.length >= 2) {
+      // 偵測雙向分隔島車道造成的異常大迴轉繞路（例如國道58號對向車道繞進住宅區）
+      const pathKm = polylineLengthKm(pts);
+      if (mode === 'car' && directKm < 5 && pathKm > directKm * 2.2 + 0.35) {
+        const footFallback = await queryOsrmSingle(
+          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordsStr}?overview=full&geometries=geojson`
+        );
+        if (footFallback && polylineLengthKm(footFallback) < pathKm * 0.75) {
+          roadLatLngs = footFallback;
+          break;
+        }
+      }
+      roadLatLngs = pts;
+      break;
     }
-  } catch (e) {}
+  }
 
-  try {
-    const fallbackRes = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`
-    );
-    const fallbackData = await fallbackRes.json();
-    if (fallbackData.code === 'Ok' && fallbackData.routes && fallbackData.routes[0]?.geometry?.coordinates) {
-      const roadLatLngs = fallbackData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      routeGeometryCache[cacheKey] = roadLatLngs;
-      return roadLatLngs;
-    }
-  } catch (e) {}
-
+  if (roadLatLngs) {
+    routeGeometryCache[cacheKey] = roadLatLngs;
+    return roadLatLngs;
+  }
   return null;
 }
 
-async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup) {
+function drawSafeFallbackLine(lat1, lng1, lat2, lng2, dayColor, targetLayerGroup, isWalk = true) {
+  L.polyline(
+    [
+      [lat1, lng1],
+      [lat2, lng2]
+    ],
+    {
+      color: dayColor,
+      weight: isWalk ? 2.8 : 3.5,
+      opacity: 0.55,
+      dashArray: '4, 7'
+    }
+  ).addTo(targetLayerGroup);
+}
+
+async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup, seq) {
   if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 10) return false;
 
   const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
@@ -387,20 +436,23 @@ async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shap
   const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
   const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
 
+  let walkStart = null;
   if (stopA.km > 0.03) {
-    const walkStart = await fetchStreetAlignedCoords(lat1, lng1, stopA.lat, stopA.lng, 'foot');
-    L.polyline(
-      walkStart || [
-        [lat1, lng1],
-        [stopA.lat, stopA.lng]
-      ],
-      {
-        color: lineColor,
-        weight: 3.5,
-        opacity: 0.85,
-        dashArray: '5, 6'
-      }
-    ).addTo(targetLayerGroup);
+    walkStart = await fetchStreetAlignedCoords(lat1, lng1, stopA.lat, stopA.lng, 'foot');
+  }
+  let walkEnd = null;
+  if (stopB.km > 0.03) {
+    walkEnd = await fetchStreetAlignedCoords(stopB.lat, stopB.lng, lat2, lng2, 'foot');
+  }
+
+  if (seq !== renderGeneration) return true;
+
+  if (stopA.km > 0.03) {
+    if (walkStart) {
+      L.polyline(walkStart, { color: lineColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
+    } else {
+      drawSafeFallbackLine(lat1, lng1, stopA.lat, stopA.lng, lineColor, targetLayerGroup, true);
+    }
   }
 
   L.polyline(slicedLatLngs, {
@@ -410,31 +462,24 @@ async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shap
   }).addTo(targetLayerGroup);
 
   if (stopB.km > 0.03) {
-    const walkEnd = await fetchStreetAlignedCoords(stopB.lat, stopB.lng, lat2, lng2, 'foot');
-    L.polyline(
-      walkEnd || [
-        [stopB.lat, stopB.lng],
-        [lat2, lng2]
-      ],
-      {
-        color: lineColor,
-        weight: 3.5,
-        opacity: 0.85,
-        dashArray: '5, 6'
-      }
-    ).addTo(targetLayerGroup);
+    if (walkEnd) {
+      L.polyline(walkEnd, { color: lineColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
+    } else {
+      drawSafeFallbackLine(stopB.lat, stopB.lng, lat2, lng2, lineColor, targetLayerGroup, true);
+    }
   }
 
   return true;
 }
 
-async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, targetLayerGroup) {
+async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, targetLayerGroup, seq) {
   const lat1 = Number(cardA.lat);
   const lng1 = Number(cardA.lng);
   const lat2 = Number(cardB.lat);
   const lng2 = Number(cardB.lng);
+  const directKm = haversineKm(lat1, lng1, lat2, lng2);
 
-  if (legInfo.km > 250) {
+  if (legInfo.km > 250 || directKm > 250) {
     const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
     L.polyline(arcCoords, {
       color: dayColor,
@@ -448,27 +493,31 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
   const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
   const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
   const transitData = await loadOkinawaTransitJson();
+  if (seq !== renderGeneration) return;
 
-  if (transitData && (profile === 'transit' || profile === 'smart') && legInfo.km > 0.6) {
+  if (transitData && (profile === 'transit' || profile === 'smart') && directKm > 0.8) {
     const yui = transitData.yui_rail;
     if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
       const stA = findNearestStop(yui.stations, lat1, lng1);
       const stB = findNearestStop(yui.stations, lat2, lng2);
       if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
-        const ok = await drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup);
+        const ok = await drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup, seq);
         if (ok) return;
       }
     }
 
-    if (Array.isArray(transitData.buses)) {
+    if (Array.isArray(transitData.buses) && directKm >= 1.2) {
       let bestBus = null;
       let bestWalkSum = Infinity;
       transitData.buses.forEach(bus => {
         const bA = findNearestStop(bus.stops, lat1, lng1);
         const bB = findNearestStop(bus.stops, lat2, lng2);
-        if (bA && bB && bA.id !== bB.id && bA.km <= 1.5 && bB.km <= 1.5) {
-          if (bA.km + bB.km < bestWalkSum) {
-            bestWalkSum = bA.km + bB.km;
+        if (bA && bB && bA.id !== bB.id && bA.km <= 1.2 && bB.km <= 1.2) {
+          const walkSum = bA.km + bB.km;
+          const busSpanKm = haversineKm(bA.lat, bA.lng, bB.lat, bB.lng);
+          // 確保搭公車確實省去大幅步行，而非繞遠路去搭站
+          if (walkSum < directKm * 0.65 && busSpanKm >= 0.8 && walkSum < bestWalkSum) {
+            bestWalkSum = walkSum;
             bestBus = { bus, bA, bB };
           }
         }
@@ -476,60 +525,59 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
 
       if (bestBus) {
         const { bA, bB } = bestBus;
+        const [walkToBus, busRoadCoords, walkFromBus] = await Promise.all([
+          bA.km > 0.03 ? fetchStreetAlignedCoords(lat1, lng1, bA.lat, bA.lng, 'foot') : Promise.resolve(null),
+          fetchStreetAlignedCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'car'),
+          bB.km > 0.03 ? fetchStreetAlignedCoords(bB.lat, bB.lng, lat2, lng2, 'foot') : Promise.resolve(null)
+        ]);
+        if (seq !== renderGeneration) return;
+
         if (bA.km > 0.03) {
-          const walkToBus = await fetchStreetAlignedCoords(lat1, lng1, bA.lat, bA.lng, 'foot');
-          L.polyline(
-            walkToBus || [
-              [lat1, lng1],
-              [bA.lat, bA.lng]
-            ],
-            { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }
-          ).addTo(targetLayerGroup);
+          if (walkToBus) {
+            L.polyline(walkToBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
+          } else {
+            drawSafeFallbackLine(lat1, lng1, bA.lat, bA.lng, dayColor, targetLayerGroup, true);
+          }
         }
 
-        const busRoadCoords = await fetchStreetAlignedCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'car');
-        L.polyline(
-          busRoadCoords || [
-            [bA.lat, bA.lng],
-            [bB.lat, bB.lng]
-          ],
-          { color: dayColor, weight: 4.5, opacity: 0.92 }
-        ).addTo(targetLayerGroup);
+        if (busRoadCoords) {
+          L.polyline(busRoadCoords, { color: dayColor, weight: 4.5, opacity: 0.92 }).addTo(targetLayerGroup);
+        } else {
+          drawSafeFallbackLine(bA.lat, bA.lng, bB.lat, bB.lng, dayColor, targetLayerGroup, false);
+        }
 
         if (bB.km > 0.03) {
-          const walkFromBus = await fetchStreetAlignedCoords(bB.lat, bB.lng, lat2, lng2, 'foot');
-          L.polyline(
-            walkFromBus || [
-              [bB.lat, bB.lng],
-              [lat2, lng2]
-            ],
-            { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }
-          ).addTo(targetLayerGroup);
+          if (walkFromBus) {
+            L.polyline(walkFromBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
+          } else {
+            drawSafeFallbackLine(bB.lat, bB.lng, lat2, lng2, dayColor, targetLayerGroup, true);
+          }
         }
         return;
       }
     }
   }
 
-  const isWalk = profile === 'walk' || (legInfo.km <= 0.6 && !itemMode);
+  const isWalk = profile === 'walk' || (directKm <= 0.8 && !itemMode);
   const roadLatLngs = await fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, isWalk ? 'foot' : 'car');
-  L.polyline(
-    roadLatLngs || [
-      [lat1, lng1],
-      [lat2, lng2]
-    ],
-    {
+  if (seq !== renderGeneration) return;
+
+  if (roadLatLngs) {
+    L.polyline(roadLatLngs, {
       color: dayColor,
       weight: isWalk ? 3.8 : 4.5,
       opacity: 0.9,
       dashArray: isWalk ? '5, 6' : null
-    }
-  ).addTo(targetLayerGroup);
+    }).addTo(targetLayerGroup);
+  } else {
+    drawSafeFallbackLine(lat1, lng1, lat2, lng2, dayColor, targetLayerGroup, isWalk);
+  }
 }
 
 export function renderMapMarkers(getFilteredCardsFn = null) {
   if (!mapInstance || !markersLayerGroup || !routesLayerGroup) return;
 
+  const seq = ++renderGeneration;
   markersLayerGroup.clearLayers();
   routesLayerGroup.clearLayers();
   Object.keys(markerByCardId).forEach(k => delete markerByCardId[k]);
@@ -617,7 +665,7 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
               leg,
               gmapsUrl: buildGoogleMapsLegUrl(prevCard, card, it)
             });
-            drawRoadSnappedLeg(prevCard, card, it, leg, dayColor, routesLayerGroup);
+            drawRoadSnappedLeg(prevCard, card, it, leg, dayColor, routesLayerGroup, seq);
           }
         }
       });
