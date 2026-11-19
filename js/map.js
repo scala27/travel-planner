@@ -1,144 +1,165 @@
 import { CATEGORY_STYLES } from './config.js';
-import { state, showToast } from './state.js';
-import { estimateLegTransit, setOkinawaTransitData, getDayColor, addCardToDay } from './ui-board.js';
+import { state, hooks, showToast } from './state.js';
+import { estimateLegTransit, getDayColor, getFormattedDateInfo } from './ui-board.js';
 
-let mapInstance = null;
-let markersLayerGroup = null;
-let routesLayerGroup = null;
-const markerByCardId = {};
-const routeGeometryCache = {};
-const inFlightRouteRequests = {};
-let renderGeneration = 0;
-
-let transitJsonCache = null;
-let transitLoadPromise = null;
-
-// 輕量併發控制佇列，避免同時發出大量請求被公開 OSRM 伺服器限流
-const MAX_CONCURRENT_OSRM = 4;
+let leafletMap = null;
+let markerLayerGroup = null;
+let routeLayerGroup = null;
+const markerLookup = {};
+const routeCache = {};
+const MAX_CONCURRENT_OSRM = 2;
 let activeOsrmCount = 0;
-const osrmWaitQueue = [];
+const osrmTaskQueue = [];
 
-function acquireOsrmSlot() {
-  if (activeOsrmCount < MAX_CONCURRENT_OSRM) {
-    activeOsrmCount++;
-    return Promise.resolve();
-  }
+function enqueueOsrmTask(fn) {
   return new Promise(resolve => {
-    osrmWaitQueue.push(resolve);
-  });
-}
-
-function releaseOsrmSlot() {
-  activeOsrmCount = Math.max(0, activeOsrmCount - 1);
-  if (osrmWaitQueue.length > 0 && activeOsrmCount < MAX_CONCURRENT_OSRM) {
-    activeOsrmCount++;
-    const next = osrmWaitQueue.shift();
-    if (next) next();
-  }
-}
-
-const CATEGORY_SHORT_CHAR = {
-  '景點': '景',
-  '美食': '美',
-  '購物': '購',
-  '住宿': '宿',
-  '機場': '機',
-  '交通': '交',
-  '體驗': '體'
-};
-
-export function addCardFromMapPopup(cardId, dayNum = null) {
-  const targetDay = Number(dayNum) || Number(state.selectedMapDay) || 1;
-  addCardToDay(cardId, targetDay);
-  if (mapInstance) {
-    mapInstance.closePopup();
-  }
-}
-
-export function toggleMapPopupDayPicker(event, pickerId) {
-  if (event) event.stopPropagation();
-  const el = document.getElementById(pickerId);
-  if (!el) return;
-  el.style.display = el.style.display === 'flex' ? 'none' : 'flex';
-}
-
-window.addCardFromMapPopup = addCardFromMapPopup;
-window.toggleMapPopupDayPicker = toggleMapPopupDayPicker;
-
-export async function loadOkinawaTransitJson() {
-  if (transitJsonCache) return transitJsonCache;
-  if (!transitLoadPromise) {
-    transitLoadPromise = (async () => {
-      const candidatePaths = ['./data/okinawa_transit.json', './okinawa_transit.json'];
-      for (const path of candidatePaths) {
-        try {
-          const res = await fetch(path + '?v=20261119a');
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.yui_rail) {
-              transitJsonCache = data;
-              setOkinawaTransitData(data);
-              return data;
-            }
-          }
-        } catch (e) {}
+    const run = async () => {
+      activeOsrmCount++;
+      try {
+        resolve(await fn());
+      } catch (err) {
+        resolve(null);
+      } finally {
+        activeOsrmCount--;
+        if (osrmTaskQueue.length > 0) {
+          const next = osrmTaskQueue.shift();
+          next();
+        }
       }
-      return null;
-    })();
-  }
-  return transitLoadPromise;
-}
-
-export function initLeafletMap() {
-  const container = document.getElementById('mapContainer');
-  if (!container || typeof L === 'undefined') return;
-
-  if (mapInstance) {
-    mapInstance.remove();
-  }
-
-  mapInstance = L.map(container, {
-    center: [26.2124, 127.6792],
-    zoom: 11,
-    zoomControl: true
-  });
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
-  }).addTo(mapInstance);
-
-  routesLayerGroup = L.layerGroup().addTo(mapInstance);
-  markersLayerGroup = L.layerGroup().addTo(mapInstance);
-
-  loadOkinawaTransitJson().then(data => {
-    if (data && state.mode === 'plan') {
-      renderMapMarkers();
+    };
+    if (activeOsrmCount < MAX_CONCURRENT_OSRM) {
+      run();
+    } else {
+      osrmTaskQueue.push(run);
     }
   });
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function isValidCoord(lat, lng) {
+  if (lat === null || lng === null || lat === undefined || lng === undefined || lat === '' || lng === '') return false;
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  if (isNaN(nLat) || isNaN(nLng)) return false;
+  if (Math.abs(nLat) < 0.0001 && Math.abs(nLng) < 0.0001) return false;
+  return nLat >= -90 && nLat <= 90 && nLng >= -180 && nLng <= 180;
+}
+
+function buildDayQuickAssignPopupHtml(cardId) {
+  if (state.isReadOnly) return '';
+  const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
+  const defaultDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
+
+  let optionsHtml = '';
+  for (let d = 1; d <= totalDays; d++) {
+    const info = getFormattedDateInfo(d);
+    const selAttr = d === defaultDay ? ' selected' : '';
+    optionsHtml += '<option value="' + d + '"' + selAttr + '>Day ' + d + ' (' + info.md + ')</option>';
+  }
+
+  return (
+    '<div class="inline-flex items-stretch rounded-lg overflow-hidden shadow-2xs shrink-0">' +
+      '<button type="button" data-card-id="' + escapeHtml(cardId) + '" ' +
+        'onclick="const sel=this.nextElementSibling; addCardToDay(this.dataset.cardId, Number(sel ? sel.value : ' + defaultDay + '));" ' +
+        'class="pl-2.5 pr-1.5 py-1.5 bg-[#2C4D6E] hover:bg-[#233E59] text-white text-[11px] font-bold flex items-center gap-1 transition cursor-pointer">' +
+        '<span>＋ 排入</span>' +
+      '</button>' +
+      '<select aria-label="選擇排入天數" ' +
+        'onchange="if(this.value){ addCardToDay(this.previousElementSibling.dataset.cardId, Number(this.value)); }" ' +
+        'class="pl-1 pr-1.5 py-1.5 bg-[#233E59] hover:bg-[#1B3147] text-white text-[11px] font-bold border-l border-white/20 focus:outline-none cursor-pointer">' +
+        optionsHtml +
+      '</select>' +
+    '</div>'
+  );
+}
+
+function buildPopupHtml(card, orderBadgeText = '') {
+  const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+  const googleMapsLink = card.mapUrl || 'https://www.google.com/maps/search/?api=1&query=' + card.lat + ',' + card.lng;
+  const highlightText = String(card.must_buy || card.meta?.must_buy || '').trim();
+  const detailText = String(card.notes || card.description || '').trim();
+
+  const quickAssignHtml = buildDayQuickAssignPopupHtml(card.id);
+  const editIconHtml = state.isReadOnly
+    ? ''
+    : '<button type="button" onclick="openCardModal(\'' + escapeHtml(card.id) + '\')" title="編輯卡片資料" ' +
+      'class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center text-xs transition shrink-0">' +
+      '<i class="fa-solid fa-pen"></i>' +
+      '</button>';
+
+  return (
+    '<div class="w-[235px] max-w-[72vw] space-y-2 text-slate-800 font-sans">' +
+      '<div class="flex items-center justify-between gap-1.5 flex-wrap">' +
+        '<span class="px-2 py-0.5 rounded-md text-[11px] font-bold ' + style.badge + '">' + escapeHtml(card.category) + '</span>' +
+        (orderBadgeText ? '<span class="px-2 py-0.5 rounded-md bg-slate-800 text-white text-[10px] font-bold">' + escapeHtml(orderBadgeText) + '</span>' : '') +
+      '</div>' +
+      '<div>' +
+        '<h4 class="font-bold text-sm leading-snug text-slate-900 break-words">' + escapeHtml(card.title) + '</h4>' +
+        '<p class="text-[11px] text-slate-500 mt-0.5">' + escapeHtml(card.district || card.country || '') + '・停留約 ' + (card.duration || 60) + ' 分</p>' +
+      '</div>' +
+      (highlightText ? '<div class="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-200/80 leading-snug">⭐ ' + escapeHtml(highlightText) + '</div>' : '') +
+      (detailText ? '<p class="text-[11px] text-slate-600 line-clamp-3 leading-relaxed bg-slate-50 p-1.5 rounded-md border border-slate-100 break-words">' + escapeHtml(detailText) + '</p>' : '') +
+      '<div class="pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5">' +
+        quickAssignHtml +
+        '<div class="flex items-center gap-1 shrink-0 ml-auto">' +
+          editIconHtml +
+          '<a href="' + escapeHtml(googleMapsLink) + '" target="_blank" rel="noopener" title="在 Google 地圖開啟" ' +
+            'class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center text-xs transition shrink-0">' +
+            '<i class="fa-solid fa-diamond-turn-right"></i>' +
+          '</a>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+export function initLeafletMap() {
+  const container = document.getElementById('mapContainer');
+  if (!container || leafletMap) return;
+
+  leafletMap = L.map('mapContainer', {
+    zoomControl: true,
+    attributionControl: true
+  }).setView([26.2124, 127.6809], 11);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(leafletMap);
+
+  markerLayerGroup = L.layerGroup().addTo(leafletMap);
+  routeLayerGroup = L.layerGroup().addTo(leafletMap);
+}
+
 export function invalidateMapSize() {
-  if (mapInstance) {
-    mapInstance.invalidateSize();
+  if (leafletMap) {
+    leafletMap.invalidateSize();
   }
 }
 
 export function renderMapCategoryToggles() {
-  const container = document.getElementById('mapCategoryToggleContainer');
-  if (!container) return;
-
-  container.innerHTML = Object.entries(CATEGORY_STYLES)
-    .map(([cat, style]) => {
-      const visible = state.visibleMapLayers[cat] !== false;
-      const btnCls = visible
-        ? 'bg-white border-slate-300 text-slate-800 shadow-2xs'
-        : 'bg-slate-100 border-slate-200 text-slate-400 opacity-60';
-      const dotColor = visible ? style.hex : '#94a3b8';
+  const box = document.getElementById('mapCategoryToggleContainer');
+  if (!box) return;
+  const categories = Object.keys(CATEGORY_STYLES);
+  box.innerHTML = categories
+    .map(cat => {
+      const style = CATEGORY_STYLES[cat];
+      const active = state.visibleMapLayers[cat] !== false;
       return (
         '<button type="button" onclick="toggleMapCategoryLayer(\'' + cat + '\')" ' +
-        'class="px-2 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 border transition ' + btnCls + '">' +
-        '<span class="w-2 h-2 rounded-full" style="background:' + dotColor + '"></span>' +
+        'class="px-2 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1 border transition ' +
+        (active
+          ? 'bg-white border-slate-300 text-slate-800 shadow-2xs'
+          : 'bg-slate-100 border-slate-200 text-slate-400 opacity-60') + '">' +
+        '<span class="w-2 h-2 rounded-full" style="background:' + (active ? style.hex : '#94a3b8') + '"></span>' +
         '<span>' + cat + '</span>' +
         '</button>'
       );
@@ -153,22 +174,23 @@ export function toggleMapCategoryLayer(category) {
 }
 
 export function setOnlyAttractionsLayer() {
-  Object.keys(CATEGORY_STYLES).forEach(cat => {
+  Object.keys(state.visibleMapLayers).forEach(cat => {
     state.visibleMapLayers[cat] = cat === '景點';
   });
   renderMapCategoryToggles();
   renderMapMarkers();
 }
 
-export function setAllMapLayersVisible(visible = true) {
-  Object.keys(CATEGORY_STYLES).forEach(cat => {
-    state.visibleMapLayers[cat] = visible;
+export function setAllMapLayersVisible(visible) {
+  Object.keys(state.visibleMapLayers).forEach(cat => {
+    state.visibleMapLayers[cat] = Boolean(visible);
   });
   renderMapCategoryToggles();
   renderMapMarkers();
 }
 
 export function toggleOverlayPocketOnPlanMap() {
+  if (state.isReadOnly) return;
   state.overlayPocketOnPlan = !state.overlayPocketOnPlan;
   const btn = document.getElementById('btnOverlayPocket');
   const txt = document.getElementById('overlayPocketStatusText');
@@ -184,633 +206,335 @@ export function toggleOverlayPocketOnPlanMap() {
   renderMapMarkers();
 }
 
-function createPinIcon(hexColor, labelText = '', isScheduled = false) {
-  const size = isScheduled ? 28 : 24;
+function createPinIcon(hexColor, labelText = '', isDimmed = false) {
+  const size = labelText ? 26 : 20;
+  const opacity = isDimmed ? 0.78 : 1;
+  const html =
+    '<div style="width:' + size + 'px;height:' + size + 'px;background:' + hexColor + ';opacity:' + opacity + ';" ' +
+    'class="rounded-full border-2 border-white shadow-md flex items-center justify-center text-white font-extrabold text-[11px]">' +
+    escapeHtml(labelText) +
+    '</div>';
+
   return L.divIcon({
-    className: 'custom-map-pin',
+    className: 'echi-custom-pin',
+    html,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-    html:
-      '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:9999px;background:' + hexColor +
-      ';color:#ffffff;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(15,23,42,0.35);' +
-      'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;">' +
-      labelText +
-      '</div>'
+    popupAnchor: [0, -size / 2]
   });
 }
 
-function escapeHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function attachSpotTooltipAndPopup(marker, card) {
-  const cleanTitle = escapeHtml(card.title);
-  const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
-  const fallbackMapUrl =
-    card.mapUrl ||
-    'https://www.google.com/maps/search/?api=1&query=' +
-      encodeURIComponent(card.title + ' ' + (card.lat || '') + ',' + (card.lng || ''));
-
-  marker.bindTooltip(
-    '<span style="font-size:12px;font-weight:700;color:#0f172a;">' + cleanTitle + '</span>',
-    {
-      direction: 'top',
-      offset: [0, -10],
-      opacity: 0.96
-    }
-  );
-
-  const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
-  const defaultDay = Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1));
-  const btnColor = getDayColor(defaultDay);
-
-  const scheduledDays = [];
-  for (let d = 1; d <= totalDays; d++) {
-    if ((state.itinerary[d]?.items || []).some(it => it.cardId === card.id)) {
-      scheduledDays.push('Day ' + d);
-    }
-  }
-
-  const pickerId = 'popup-day-pills-' + String(card.id).replace(/[^a-zA-Z0-9_-]/g, '_');
-  const dayPillsHtml = Array.from({ length: totalDays }, (_, i) => {
-    const d = i + 1;
-    const dColor = getDayColor(d);
-    const isCurrent = d === defaultDay;
-    const bg = isCurrent ? dColor : '#ffffff';
-    const fg = isCurrent ? '#ffffff' : dColor;
-    return (
-      '<button type="button" onclick="addCardFromMapPopup(\'' + card.id + '\', ' + d + ')" ' +
-      'style="padding:3px 7px;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;border:1px solid ' +
-      dColor + ';background:' + bg + ';color:' + fg + ';line-height:1.2;">' +
-      'Day ' + d +
-      '</button>'
-    );
-  }).join('');
-
-  const subMeta = [card.district, '停留 ' + (Number(card.duration) || 60) + ' 分'].filter(Boolean).join(' · ');
-  const scheduledBadgeHtml =
-    scheduledDays.length > 0
-      ? '<span style="padding:2px 6px;border-radius:9999px;font-size:10px;font-weight:700;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;">已排 ' +
-        scheduledDays.join(', ') +
-        '</span>'
-      : '';
-
-  const dropdownArrowHtml =
-    totalDays > 1
-      ? '<button type="button" onclick="toggleMapPopupDayPicker(event, \'' + pickerId + '\')" title="選擇其他天數" ' +
-        'style="width:24px;height:30px;background:' + btnColor + ';color:#ffffff;border:none;border-left:1px solid rgba(255,255,255,0.28);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">' +
-        '<i class="fa-solid fa-chevron-down" style="font-size:9px;"></i>' +
-        '</button>'
-      : '';
-
-  const popupHtml =
-    '<div style="min-width:210px;max-width:255px;padding:2px 0;font-family:inherit;">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;">' +
-    '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:800;background:' + style.hex + '18;color:' + style.hex + ';">' +
-    '<span style="width:6px;height:6px;border-radius:9999px;background:' + style.hex + ';"></span>' +
-    escapeHtml(card.category || '景點') +
-    '</span>' +
-    scheduledBadgeHtml +
-    '</div>' +
-    '<div style="font-weight:800;font-size:13.5px;color:#0f172a;line-height:1.35;margin-bottom:3px;">' +
-    cleanTitle +
-    '</div>' +
-    '<div style="font-size:11px;color:#64748b;margin-bottom:9px;">' +
-    escapeHtml(subMeta) +
-    '</div>' +
-    '<div style="display:flex;align-items:center;gap:6px;">' +
-    '<div style="flex:1;display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,0.12);">' +
-    '<button type="button" onclick="addCardFromMapPopup(\'' + card.id + '\', ' + defaultDay + ')" title="直接排入 Day ' + defaultDay + '" ' +
-    'style="flex:1;height:30px;padding:0 10px;background:' + btnColor + ';color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:700;white-space:nowrap;">' +
-    '<i class="fa-solid fa-plus" style="font-size:10px;"></i>' +
-    '<span>排入 Day ' + defaultDay + '</span>' +
-    '</button>' +
-    dropdownArrowHtml +
-    '</div>' +
-    '<button type="button" onclick="openCardModal(\'' + card.id + '\')" title="編輯卡片" ' +
-    'style="width:30px;height:30px;border-radius:8px;background:#f8fafc;color:#475569;border:1px solid #e2e8f0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">' +
-    '<i class="fa-regular fa-pen-to-square" style="font-size:13px;"></i>' +
-    '</button>' +
-    '<a href="' + fallbackMapUrl + '" target="_blank" rel="noopener" title="在 Google 地圖開啟" ' +
-    'style="width:30px;height:30px;border-radius:8px;background:#eff6ff;color:#2563eb;border:1px solid #dbeafe;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;flex-shrink:0;">' +
-    '<i class="fa-solid fa-map-location-dot" style="font-size:13px;"></i>' +
-    '</a>' +
-    '</div>' +
-    '<div id="' + pickerId + '" style="display:none;flex-wrap:wrap;gap:4px;margin-top:7px;padding-top:7px;border-top:1px dashed #e2e8f0;">' +
-    dayPillsHtml +
-    '</div>' +
-    '</div>';
-
-  marker.bindPopup(popupHtml, { maxWidth: 270 });
-}
-
-function buildGoogleMapsLegUrl(cardA, cardB, itemB) {
-  const origin = Number(cardA.lat) + ',' + Number(cardA.lng);
-  const dest = Number(cardB.lat) + ',' + Number(cardB.lng);
-  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
-  const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
-
-  let travelmode = 'transit';
-  if (profile === 'drive' || profile === 'taxi') {
-    travelmode = 'driving';
-  } else if (profile === 'walk') {
-    travelmode = 'walking';
-  }
-
-  return (
-    'https://www.google.com/maps/dir/?api=1&origin=' +
-    encodeURIComponent(origin) +
-    '&destination=' +
-    encodeURIComponent(dest) +
-    '&travelmode=' +
-    travelmode
-  );
-}
-
-function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
-  const points = [];
-  const steps = 32;
-  const dLat = lat2 - lat1;
-  const dLng = lng2 - lng1;
-  const offsetScale = 0.14;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const arch = Math.sin(Math.PI * t) * offsetScale;
-    points.push([lat1 + dLat * t - dLng * arch, lng1 + dLng * t + dLat * arch]);
-  }
-  return points;
-}
-
-function haversineKm(lat1, lng1, lat2, lng2) {
+function calcDirectKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function polylineLengthKm(latLngs) {
-  if (!Array.isArray(latLngs) || latLngs.length < 2) return 0;
-  let sum = 0;
-  for (let i = 1; i < latLngs.length; i++) {
-    sum += haversineKm(latLngs[i - 1][0], latLngs[i - 1][1], latLngs[i][0], latLngs[i][1]);
+function detectRoutingProfile(cardA, cardB, itemB) {
+  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
+  const globalMode = document.getElementById('transitProfileSelect')?.value || 'smart';
+  const effective = itemMode || globalMode;
+  const km = calcDirectKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+
+  if (effective === 'walk') return 'foot';
+  if (effective === 'drive' || effective === 'taxi' || effective === 'transit') return 'driving';
+  return km <= 1.2 ? 'foot' : 'driving';
+}
+
+function isReasonableStreetRoute(routeCoords, directKm) {
+  if (!Array.isArray(routeCoords) || routeCoords.length < 2) return false;
+  let routeKm = 0;
+  for (let i = 1; i < routeCoords.length; i++) {
+    routeKm += calcDirectKm(
+      routeCoords[i - 1][0],
+      routeCoords[i - 1][1],
+      routeCoords[i][0],
+      routeCoords[i][1]
+    );
   }
-  return sum;
-}
-
-function findNearestStop(stops, lat, lng) {
-  let best = null;
-  let minKm = Infinity;
-  (stops || []).forEach((st, idx) => {
-    const km = haversineKm(lat, lng, st.lat, st.lng);
-    if (km < minKm) {
-      minKm = km;
-      best = { ...st, idx, km };
-    }
-  });
-  return best;
-}
-
-async function queryOsrmWithTimeout(url, timeoutMs = 4500) {
-  await acquireOsrmSlot();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.code === 'Ok' && data.routes && data.routes[0]?.geometry?.coordinates) {
-      return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-    }
-  } catch (e) {
-  } finally {
-    clearTimeout(timer);
-    releaseOsrmSlot();
-  }
-  return null;
-}
-
-async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
-  const cacheKey = mode + ':' + lng1.toFixed(5) + ',' + lat1.toFixed(5) + ';' + lng2.toFixed(5) + ',' + lat2.toFixed(5);
-  if (routeGeometryCache[cacheKey]) return routeGeometryCache[cacheKey];
-  if (inFlightRouteRequests[cacheKey]) return inFlightRouteRequests[cacheKey];
-
-  const task = (async () => {
-    const directKm = haversineKm(lat1, lng1, lat2, lng2);
-    const coordsStr = lng1 + ',' + lat1 + ';' + lng2 + ',' + lat2;
-
-    const primaryUrl =
-      mode === 'foot'
-        ? 'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson'
-        : 'https://routing.openstreetmap.de/routed-car/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson';
-
-    let pts = await queryOsrmWithTimeout(primaryUrl, 4500);
-
-    if (!pts) {
-      const backupUrl =
-        mode === 'foot'
-          ? 'https://router.project-osrm.org/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson'
-          : 'https://router.project-osrm.org/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson';
-      pts = await queryOsrmWithTimeout(backupUrl, 4500);
-    }
-
-    if (pts && pts.length >= 2) {
-      const pathKm = polylineLengthKm(pts);
-      if (mode === 'car' && directKm < 5 && pathKm > directKm * 2.2 + 0.35) {
-        const footFallback = await queryOsrmWithTimeout(
-          'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson',
-          4000
-        );
-        if (footFallback && polylineLengthKm(footFallback) < pathKm * 0.75) {
-          pts = footFallback;
-        }
-      }
-      routeGeometryCache[cacheKey] = pts;
-      return pts;
-    }
-
-    return null;
-  })();
-
-  inFlightRouteRequests[cacheKey] = task;
-  try {
-    return await task;
-  } finally {
-    delete inFlightRouteRequests[cacheKey];
-  }
-}
-
-function createProvisionalLine(lat1, lng1, lat2, lng2, dayColor, targetLayerGroup, isWalk = false) {
-  return L.polyline(
-    [
-      [lat1, lng1],
-      [lat2, lng2]
-    ],
-    {
-      color: dayColor,
-      weight: isWalk ? 3.2 : 3.8,
-      opacity: 0.65,
-      dashArray: isWalk ? '5, 6' : '6, 5'
-    }
-  ).addTo(targetLayerGroup);
-}
-
-async function drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stopA, stopB, shapeLatLngs, lineColor, targetLayerGroup, seq) {
-  if (typeof turf === 'undefined' || !Array.isArray(shapeLatLngs) || shapeLatLngs.length < 10) return false;
-
-  const lineCoords = shapeLatLngs.map(pt => [pt[1], pt[0]]);
-  const fullLine = turf.lineString(lineCoords);
-  const sliced = turf.lineSlice(turf.point([stopA.lng, stopA.lat]), turf.point([stopB.lng, stopB.lat]), fullLine);
-  const slicedLatLngs = sliced.geometry.coordinates.map(c => [c[1], c[0]]);
-
-  L.polyline(slicedLatLngs, {
-    color: lineColor,
-    weight: 5,
-    opacity: 0.94
-  }).addTo(targetLayerGroup);
-
-  const provStart = stopA.km > 0.03 ? createProvisionalLine(lat1, lng1, stopA.lat, stopA.lng, lineColor, targetLayerGroup, true) : null;
-  const provEnd = stopB.km > 0.03 ? createProvisionalLine(stopB.lat, stopB.lng, lat2, lng2, lineColor, targetLayerGroup, true) : null;
-
-  const [walkStart, walkEnd] = await Promise.all([
-    stopA.km > 0.03 ? fetchStreetAlignedCoords(lat1, lng1, stopA.lat, stopA.lng, 'foot') : Promise.resolve(null),
-    stopB.km > 0.03 ? fetchStreetAlignedCoords(stopB.lat, stopB.lng, lat2, lng2, 'foot') : Promise.resolve(null)
-  ]);
-
-  if (seq !== renderGeneration) return true;
-
-  if (walkStart && provStart) {
-    targetLayerGroup.removeLayer(provStart);
-    L.polyline(walkStart, { color: lineColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
-  }
-  if (walkEnd && provEnd) {
-    targetLayerGroup.removeLayer(provEnd);
-    L.polyline(walkEnd, { color: lineColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
-  }
-
+  if (directKm < 0.25 && routeKm > 1.2) return false;
+  if (directKm >= 0.25 && directKm < 2.0 && routeKm > directKm * 3.8) return false;
+  if (directKm >= 2.0 && routeKm > directKm * 2.8) return false;
   return true;
 }
 
-async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, targetLayerGroup, seq) {
-  const lat1 = Number(cardA.lat);
-  const lng1 = Number(cardA.lng);
-  const lat2 = Number(cardB.lat);
-  const lng2 = Number(cardB.lng);
-  const directKm = haversineKm(lat1, lng1, lat2, lng2);
+async function fetchStreetRouteCoords(cardA, cardB, itemB) {
+  const profile = detectRoutingProfile(cardA, cardB, itemB);
+  const directKm = calcDirectKm(cardA.lat, cardA.lng, cardB.lat, cardB.lng);
+  const key =
+    profile + ':' +
+    Number(cardA.lat).toFixed(5) + ',' + Number(cardA.lng).toFixed(5) + '->' +
+    Number(cardB.lat).toFixed(5) + ',' + Number(cardB.lng).toFixed(5);
 
-  if (legInfo.km > 250 || directKm > 250) {
-    const arcCoords = buildCurvedFlightArc(lat1, lng1, lat2, lng2);
-    L.polyline(arcCoords, {
-      color: dayColor,
-      weight: 3,
-      opacity: 0.75,
-      dashArray: '8, 8'
-    }).addTo(targetLayerGroup);
-    return;
-  }
+  if (routeCache[key]) return routeCache[key];
 
-  const itemMode = itemB?.transitMode && itemB.transitMode !== 'auto' ? itemB.transitMode : null;
-  const profile = itemMode || document.getElementById('transitProfileSelect')?.value || 'smart';
-  const isWalk = profile === 'walk' || (directKm <= 0.8 && !itemMode);
-
-  const transitData = transitJsonCache || (await loadOkinawaTransitJson());
-  if (seq !== renderGeneration) return;
-
-  if (transitData && (profile === 'transit' || profile === 'smart') && directKm > 0.8) {
-    const yui = transitData.yui_rail;
-    if (yui && Array.isArray(yui.stations) && Array.isArray(yui.shape)) {
-      const stA = findNearestStop(yui.stations, lat1, lng1);
-      const stB = findNearestStop(yui.stations, lat2, lng2);
-      if (stA && stB && stA.id !== stB.id && stA.km <= 1.2 && stB.km <= 1.2) {
-        const ok = await drawYuiRailSlicedRoute(lat1, lng1, lat2, lng2, stA, stB, yui.shape, dayColor, targetLayerGroup, seq);
-        if (ok) return;
+  return enqueueOsrmTask(async () => {
+    if (routeCache[key]) return routeCache[key];
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const url =
+        'https://router.project-osrm.org/route/v1/' + profile + '/' +
+        cardA.lng + ',' + cardA.lat + ';' + cardB.lng + ',' + cardB.lat +
+        '?overview=full&geometries=geojson';
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
+        const coords = data.routes[0].geometry.coordinates.map(pt => [pt[1], pt[0]]);
+        if (isReasonableStreetRoute(coords, directKm)) {
+          routeCache[key] = coords;
+          return coords;
+        }
       }
-    }
-
-    if (Array.isArray(transitData.buses) && directKm >= 1.2) {
-      let bestBus = null;
-      let bestWalkSum = Infinity;
-      transitData.buses.forEach(bus => {
-        const bA = findNearestStop(bus.stops, lat1, lng1);
-        const bB = findNearestStop(bus.stops, lat2, lng2);
-        if (bA && bB && bA.id !== bB.id && bA.km <= 1.2 && bB.km <= 1.2) {
-          const walkSum = bA.km + bB.km;
-          const busSpanKm = haversineKm(bA.lat, bA.lng, bB.lat, bB.lng);
-          if (walkSum < directKm * 0.65 && busSpanKm >= 0.8 && walkSum < bestWalkSum) {
-            bestWalkSum = walkSum;
-            bestBus = { bus, bA, bB };
-          }
-        }
-      });
-
-      if (bestBus) {
-        const { bA, bB } = bestBus;
-        const prov1 = bA.km > 0.03 ? createProvisionalLine(lat1, lng1, bA.lat, bA.lng, dayColor, targetLayerGroup, true) : null;
-        const prov2 = createProvisionalLine(bA.lat, bA.lng, bB.lat, bB.lng, dayColor, targetLayerGroup, false);
-        const prov3 = bB.km > 0.03 ? createProvisionalLine(bB.lat, bB.lng, lat2, lng2, dayColor, targetLayerGroup, true) : null;
-
-        const [walkToBus, busRoadCoords, walkFromBus] = await Promise.all([
-          bA.km > 0.03 ? fetchStreetAlignedCoords(lat1, lng1, bA.lat, bA.lng, 'foot') : Promise.resolve(null),
-          fetchStreetAlignedCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'car'),
-          bB.km > 0.03 ? fetchStreetAlignedCoords(bB.lat, bB.lng, lat2, lng2, 'foot') : Promise.resolve(null)
-        ]);
-        if (seq !== renderGeneration) return;
-
-        if (walkToBus && prov1) {
-          targetLayerGroup.removeLayer(prov1);
-          L.polyline(walkToBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
-        }
-        if (busRoadCoords && prov2) {
-          targetLayerGroup.removeLayer(prov2);
-          L.polyline(busRoadCoords, { color: dayColor, weight: 4.5, opacity: 0.92 }).addTo(targetLayerGroup);
-        }
-        if (walkFromBus && prov3) {
-          targetLayerGroup.removeLayer(prov3);
-          L.polyline(walkFromBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
-        }
-        return;
-      }
-    }
-  }
-
-  const modeStr = isWalk ? 'foot' : 'car';
-  const cacheKey = modeStr + ':' + lng1.toFixed(5) + ',' + lat1.toFixed(5) + ';' + lng2.toFixed(5) + ',' + lat2.toFixed(5);
-  if (routeGeometryCache[cacheKey]) {
-    L.polyline(routeGeometryCache[cacheKey], {
-      color: dayColor,
-      weight: isWalk ? 3.8 : 4.5,
-      opacity: 0.9,
-      dashArray: isWalk ? '5, 6' : null
-    }).addTo(targetLayerGroup);
-    return;
-  }
-
-  const provisionalLine = createProvisionalLine(lat1, lng1, lat2, lng2, dayColor, targetLayerGroup, isWalk);
-  const roadLatLngs = await fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, modeStr);
-  if (seq !== renderGeneration) return;
-
-  if (roadLatLngs) {
-    targetLayerGroup.removeLayer(provisionalLine);
-    L.polyline(roadLatLngs, {
-      color: dayColor,
-      weight: isWalk ? 3.8 : 4.5,
-      opacity: 0.9,
-      dashArray: isWalk ? '5, 6' : null
-    }).addTo(targetLayerGroup);
-  }
+    } catch (err) {}
+    return null;
+  });
 }
 
-export function renderMapMarkers(getFilteredCardsFn = null) {
-  if (!mapInstance || !markersLayerGroup || !routesLayerGroup) return;
+let renderSessionToken = 0;
 
-  const seq = ++renderGeneration;
-  markersLayerGroup.clearLayers();
-  routesLayerGroup.clearLayers();
-  Object.keys(markerByCardId).forEach(k => delete markerByCardId[k]);
+export async function renderMapMarkers(getFilteredCardsFn) {
+  if (!leafletMap || !markerLayerGroup || !routeLayerGroup) return;
 
-  const bounds = [];
-  const includeFlightInBounds = Boolean(document.getElementById('chkIncludeCrossSeaFlight')?.checked);
-  let pinCount = 0;
+  const currentToken = ++renderSessionToken;
+  markerLayerGroup.clearLayers();
+  routeLayerGroup.clearLayers();
+  Object.keys(markerLookup).forEach(k => delete markerLookup[k]);
 
-  if (state.mode === 'collect') {
+  const boundsPoints = [];
+  const includeFlight = Boolean(document.getElementById('chkIncludeCrossSeaFlight')?.checked);
+  const legsSummaryBox = document.getElementById('dailyTransitLegsList');
+  const transitBadge = document.getElementById('dailyTransitBadge');
+  const multiDayLegendBox = document.getElementById('multiDayLegendBox');
+
+  if (state.mode === 'collect' && !state.isReadOnly) {
     const cards = typeof getFilteredCardsFn === 'function' ? getFilteredCardsFn() : state.cards;
+    let visibleCount = 0;
+
     cards.forEach(card => {
       if (state.visibleMapLayers[card.category] === false) return;
-      if (card.lat === null || card.lng === null || isNaN(Number(card.lat)) || isNaN(Number(card.lng))) return;
+      if (!isValidCoord(card.lat, card.lng)) return;
 
-      const lat = Number(card.lat);
-      const lng = Number(card.lng);
       const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
-      const catChar = CATEGORY_SHORT_CHAR[card.category] || '景';
-      const marker = L.marker([lat, lng], {
-        icon: createPinIcon(style.hex, catChar, false)
-      });
-      attachSpotTooltipAndPopup(marker, card);
+      const marker = L.marker([Number(card.lat), Number(card.lng)], {
+        icon: createPinIcon(style.hex)
+      }).bindPopup(buildPopupHtml(card));
 
-      marker.addTo(markersLayerGroup);
-      markerByCardId[card.id] = marker;
-      bounds.push([lat, lng]);
-      pinCount++;
-    });
-  } else {
-    const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
-    const daysToDraw = state.mapOverviewAllDays
-      ? Array.from({ length: totalDays }, (_, i) => i + 1)
-      : [Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1))];
-
-    const scheduledIds = new Set();
-    let totalMinSum = 0;
-    let totalKmSum = 0;
-    const legSummaryRows = [];
-
-    daysToDraw.forEach(dayNum => {
-      const dayColor = getDayColor(dayNum);
-      const items = state.itinerary[dayNum]?.items || [];
-
-      items.forEach((it, idx) => {
-        scheduledIds.add(it.cardId);
-        const card = state.cards.find(c => c.id === it.cardId);
-        if (!card || card.lat === null || card.lng === null) return;
-
-        const lat = Number(card.lat);
-        const lng = Number(card.lng);
-        if (isNaN(lat) || isNaN(lng)) return;
-
-        let isCrossSeaPoint = false;
-        if (idx < items.length - 1) {
-          const nextCard = state.cards.find(c => c.id === items[idx + 1].cardId);
-          if (nextCard && nextCard.lat != null) {
-            const legCheck = estimateLegTransit(card, nextCard, items[idx + 1]);
-            if (legCheck.km > 250) isCrossSeaPoint = true;
-          }
-        }
-        if (includeFlightInBounds || !isCrossSeaPoint) {
-          bounds.push([lat, lng]);
-        }
-
-        pinCount++;
-        const label = state.mapOverviewAllDays ? 'D' + dayNum : String(idx + 1);
-        const marker = L.marker([lat, lng], {
-          icon: createPinIcon(dayColor, label, true)
-        });
-        attachSpotTooltipAndPopup(marker, card);
-        marker.addTo(markersLayerGroup);
-        markerByCardId[card.id] = marker;
-
-        if (idx > 0) {
-          const prevCard = state.cards.find(c => c.id === items[idx - 1].cardId);
-          if (prevCard && prevCard.lat != null && prevCard.lng != null) {
-            const leg = estimateLegTransit(prevCard, card, it);
-            totalMinSum += leg.min;
-            totalKmSum += leg.km;
-            legSummaryRows.push({
-              dayNum,
-              dayColor,
-              fromTitle: prevCard.title,
-              toTitle: card.title,
-              leg,
-              gmapsUrl: buildGoogleMapsLegUrl(prevCard, card, it)
-            });
-            drawRoadSnappedLeg(prevCard, card, it, leg, dayColor, routesLayerGroup, seq);
-          }
-        }
-      });
+      marker.addTo(markerLayerGroup);
+      markerLookup[card.id] = marker;
+      boundsPoints.push([Number(card.lat), Number(card.lng)]);
+      visibleCount++;
     });
 
-    const badgeEl = document.getElementById('dailyTransitBadge');
-    if (badgeEl) {
-      badgeEl.textContent = totalMinSum + ' 分 (' + totalKmSum.toFixed(1) + ' km)';
-    }
+    const counterEl = document.getElementById('mapPinCounter');
+    if (counterEl) counterEl.textContent = visibleCount + ' 釘';
 
-    const legsListEl = document.getElementById('dailyTransitLegsList');
-    if (legsListEl) {
-      legsListEl.innerHTML =
-        legSummaryRows.length > 0
-          ? legSummaryRows
-              .map(
-                r =>
-                  '<div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-50 border border-slate-100">' +
-                  '<span class="truncate min-w-0">' +
-                  '<span class="inline-block w-2 h-2 rounded-full mr-1" style="background:' + r.dayColor + '"></span>' +
-                  escapeHtml(r.fromTitle) + ' → ' + escapeHtml(r.toTitle) +
-                  '</span>' +
-                  '<div class="flex items-center gap-1.5 shrink-0">' +
-                  '<span class="font-bold text-[#2C4D6E]">' + r.leg.modeLabel + '・' + r.leg.km + 'km / ' + r.leg.min + '分</span>' +
-                  '<a href="' + r.gmapsUrl + '" target="_blank" rel="noopener" title="開啟 Google Maps 查看即時公車與導航路線" ' +
-                  'class="w-6 h-6 rounded-md bg-white hover:bg-blue-50 border border-slate-200 text-blue-600 flex items-center justify-center transition">' +
-                  '<i class="fa-solid fa-diamond-turn-right text-xs"></i>' +
-                  '</a>' +
-                  '</div>' +
-                  '</div>'
-              )
-              .join('')
-          : '<div class="text-slate-400 py-1">當日尚無兩點以上移動路線</div>';
+    if (boundsPoints.length > 0) {
+      leafletMap.fitBounds(boundsPoints, { padding: [36, 36], maxZoom: 14 });
     }
+    return;
+  }
 
-    const legendBox = document.getElementById('multiDayLegendBox');
-    if (legendBox) {
-      if (state.mapOverviewAllDays) {
-        legendBox.classList.remove('hidden');
-        legendBox.classList.add('flex');
-        legendBox.innerHTML = Array.from({ length: totalDays }, (_, i) => {
-          const d = i + 1;
-          const color = getDayColor(d);
+  const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
+  const daysToDraw = state.mapOverviewAllDays
+    ? Array.from({ length: totalDays }, (_, i) => i + 1)
+    : [Math.min(totalDays, Math.max(1, Number(state.selectedMapDay) || 1))];
+
+  if (multiDayLegendBox) {
+    if (state.mapOverviewAllDays) {
+      multiDayLegendBox.classList.remove('hidden');
+      multiDayLegendBox.classList.add('flex');
+      multiDayLegendBox.innerHTML = daysToDraw
+        .map(d => {
+          const c = getDayColor(d);
           return (
-            '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style="background:' + color + '">' +
-            'Day ' + d +
+            '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-700">' +
+            '<span class="w-2 h-2 rounded-full" style="background:' + c + '"></span>Day ' + d +
             '</span>'
           );
-        }).join('');
-      } else {
-        legendBox.classList.add('hidden');
-        legendBox.classList.remove('flex');
-      }
-    }
-
-    if (state.overlayPocketOnPlan) {
-      state.cards.forEach(card => {
-        if (scheduledIds.has(card.id)) return;
-        if (state.visibleMapLayers[card.category] === false) return;
-        if (card.lat === null || card.lng === null) return;
-
-        const lat = Number(card.lat);
-        const lng = Number(card.lng);
-        if (isNaN(lat) || isNaN(lng)) return;
-
-        const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
-        const catChar = CATEGORY_SHORT_CHAR[card.category] || '景';
-        const marker = L.marker([lat, lng], {
-          icon: createPinIcon(style.hex, catChar, false),
-          opacity: 0.9
-        });
-        attachSpotTooltipAndPopup(marker, card);
-        marker.addTo(markersLayerGroup);
-        if (!markerByCardId[card.id]) markerByCardId[card.id] = marker;
-        pinCount++;
-      });
+        })
+        .join('');
+    } else {
+      multiDayLegendBox.classList.add('hidden');
+      multiDayLegendBox.classList.remove('flex');
     }
   }
 
-  const counterEl = document.getElementById('mapPinCounter');
-  if (counterEl) counterEl.textContent = pinCount + ' 釘';
+  const scheduledCardIds = new Set();
+  let totalMinAll = 0;
+  let totalKmAll = 0;
+  const legHtmlList = [];
+  const pendingStreetTasks = [];
 
-  if (bounds.length > 0) {
-    mapInstance.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+  for (const dayNum of daysToDraw) {
+    const dayColor = getDayColor(dayNum);
+    const items = state.itinerary[dayNum]?.items || [];
+    const dayValidStops = [];
+
+    items.forEach((item, idx) => {
+      const card = state.cards.find(c => c.id === item.cardId);
+      if (!card) return;
+      scheduledCardIds.add(card.id);
+
+      if (!isValidCoord(card.lat, card.lng)) return;
+      dayValidStops.push({ card, item, seq: idx + 1 });
+
+      const badgeText = state.mapOverviewAllDays ? 'D' + dayNum + '-' + (idx + 1) : 'Day ' + dayNum + ' 第 ' + (idx + 1) + ' 站';
+      const marker = L.marker([Number(card.lat), Number(card.lng)], {
+        icon: createPinIcon(dayColor, String(idx + 1), false),
+        zIndexOffset: 500
+      }).bindPopup(buildPopupHtml(card, badgeText));
+
+      marker.addTo(markerLayerGroup);
+      markerLookup[card.id] = marker;
+
+      if (includeFlight || card.category !== '機場') {
+        boundsPoints.push([Number(card.lat), Number(card.lng)]);
+      }
+    });
+
+    for (let i = 1; i < dayValidStops.length; i++) {
+      const prev = dayValidStops[i - 1];
+      const curr = dayValidStops[i];
+      const leg = estimateLegTransit(prev.card, curr.card, curr.item);
+      totalMinAll += leg.min;
+      totalKmAll += leg.km;
+
+      legHtmlList.push(
+        '<div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-50 border border-slate-100">' +
+        '<span class="truncate font-medium text-slate-700">' +
+        '<strong style="color:' + dayColor + '">D' + dayNum + '</strong> ' +
+        escapeHtml(prev.card.title) + ' → ' + escapeHtml(curr.card.title) +
+        '</span>' +
+        '<span class="shrink-0 text-slate-500">' + leg.km + 'km / ' + leg.min + '分</span>' +
+        '</div>'
+      );
+
+      if (leg.km > 250) {
+        if (includeFlight) {
+          L.polyline(
+            [
+              [Number(prev.card.lat), Number(prev.card.lng)],
+              [Number(curr.card.lat), Number(curr.card.lng)]
+            ],
+            { color: dayColor, weight: 2.5, dashArray: '6, 8', opacity: 0.7 }
+          ).addTo(routeLayerGroup);
+        }
+      } else {
+        const provisionalLine = L.polyline(
+          [
+            [Number(prev.card.lat), Number(prev.card.lng)],
+            [Number(curr.card.lat), Number(curr.card.lng)]
+          ],
+          { color: dayColor, weight: 3, dashArray: '4, 6', opacity: 0.45 }
+        ).addTo(routeLayerGroup);
+
+        pendingStreetTasks.push({
+          prevCard: prev.card,
+          currCard: curr.card,
+          currItem: curr.item,
+          dayColor,
+          provisionalLine
+        });
+      }
+    }
+  }
+
+  let pocketPinCount = 0;
+  if (!state.isReadOnly && state.overlayPocketOnPlan) {
+    state.cards.forEach(card => {
+      if (scheduledCardIds.has(card.id)) return;
+      if (state.visibleMapLayers[card.category] === false) return;
+      if (!isValidCoord(card.lat, card.lng)) return;
+
+      const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+      const marker = L.marker([Number(card.lat), Number(card.lng)], {
+        icon: createPinIcon(style.hex, '', true)
+      }).bindPopup(buildPopupHtml(card, '尚未排入'));
+
+      marker.addTo(markerLayerGroup);
+      if (!markerLookup[card.id]) markerLookup[card.id] = marker;
+      pocketPinCount++;
+    });
+  }
+
+  if (transitBadge) {
+    transitBadge.textContent = totalMinAll + ' 分 (' + totalKmAll.toFixed(1) + ' km)';
+  }
+  if (legsSummaryBox) {
+    legsSummaryBox.innerHTML = legHtmlList.length > 0
+      ? legHtmlList.join('')
+      : '<p class="text-slate-400 italic py-1">此日尚無兩點以上的移動路線</p>';
+  }
+  const counterEl = document.getElementById('mapPinCounter');
+  if (counterEl) {
+    counterEl.textContent = scheduledCardIds.size + ' 已排' + (pocketPinCount > 0 ? ' + ' + pocketPinCount + ' 口袋' : '');
+  }
+
+  if (boundsPoints.length > 0) {
+    leafletMap.fitBounds(boundsPoints, { padding: [42, 42], maxZoom: 14 });
+  }
+
+  for (const task of pendingStreetTasks) {
+    fetchStreetRouteCoords(task.prevCard, task.currCard, task.currItem).then(streetCoords => {
+      if (currentToken !== renderSessionToken) return;
+      if (streetCoords && streetCoords.length > 1) {
+        if (task.provisionalLine && routeLayerGroup.hasLayer(task.provisionalLine)) {
+          routeLayerGroup.removeLayer(task.provisionalLine);
+        }
+        L.polyline(streetCoords, {
+          color: task.dayColor,
+          weight: 4,
+          opacity: 0.88
+        }).addTo(routeLayerGroup);
+      } else if (task.provisionalLine) {
+        task.provisionalLine.setStyle({ dashArray: null, opacity: 0.72, weight: 3.5 });
+      }
+    });
   }
 }
 
 export function fitMapToFilteredCards() {
-  renderMapMarkers();
+  if (!leafletMap || !markerLayerGroup) return;
+  const latLngs = [];
+  markerLayerGroup.eachLayer(layer => {
+    if (typeof layer.getLatLng === 'function') {
+      latLngs.push(layer.getLatLng());
+    }
+  });
+  if (latLngs.length > 0) {
+    leafletMap.fitBounds(latLngs, { padding: [36, 36], maxZoom: 14 });
+  }
 }
 
 export function focusCardOnMap(cardId, warnIfMissing = true) {
   const card = state.cards.find(c => c.id === cardId);
-  if (!card || card.lat === null || card.lng === null || isNaN(Number(card.lat)) || isNaN(Number(card.lng))) {
-    if (warnIfMissing) showToast('此卡片尚未設定經緯度座標', 'amber');
+  if (!card) return;
+  if (!isValidCoord(card.lat, card.lng)) {
+    if (warnIfMissing) showToast('此景點尚未設定經緯度座標', 'amber');
     return;
   }
 
-  setTimeout(() => {
-    invalidateMapSize();
-    if (!mapInstance) return;
-    const lat = Number(card.lat);
-    const lng = Number(card.lng);
-    mapInstance.setView([lat, lng], 15, { animate: true });
-    if (markerByCardId[cardId]) {
-      markerByCardId[cardId].openPopup();
+  if (leafletMap) {
+    leafletMap.invalidateSize();
+    leafletMap.setView([Number(card.lat), Number(card.lng)], 15, { animate: true });
+    const marker = markerLookup[card.id];
+    if (marker) {
+      setTimeout(() => marker.openPopup(), 220);
     }
-  }, 120);
+  }
 }
 
 export function highlightDatabaseCard(cardId) {
-  const el = document.getElementById('db-card-' + cardId);
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.classList.add('ring-2', 'ring-[#2C4D6E]');
-  setTimeout(() => el.classList.remove('ring-2', 'ring-[#2C4D6E]'), 1600);
+  const el = document.querySelector('[data-card-id="' + cardId + '"]');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-[#2C4D6E]');
+    setTimeout(() => el.classList.remove('ring-2', 'ring-[#2C4D6E]'), 1600);
+  }
 }
