@@ -21,7 +21,6 @@ let cachedTransitDb = null;
 
 const EXACT_SHAPE_CACHE_KEY = 'okinawa_exact_osm_shapes_v1';
 
-// 從 OpenStreetMap 抓取單軌電車真實高密度軌道頂點，並用單向向量接龍法串成單一連續中心線
 async function fetchAndStitchExactMonorailShape(stations) {
   try {
     const cachedRaw = localStorage.getItem(EXACT_SHAPE_CACHE_KEY);
@@ -34,7 +33,7 @@ async function fetchAndStitchExactMonorailShape(stations) {
   } catch (e) {}
 
   try {
-    const query = `[out:json][timeout:10];way["railway"="monorail"](26.185,127.645,26.255,127.755);out geom;`;
+    const query = '[out:json][timeout:10];way["railway"="monorail"](26.185,127.645,26.255,127.755);out geom;';
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: query
@@ -49,10 +48,9 @@ async function fetchAndStitchExactMonorailShape(stations) {
 
     if (ways.length === 0 || !Array.isArray(stations) || stations.length < 2) return null;
 
-    const startPt = [stations[0].lat, stations[0].lng]; // 那霸機場站
-    const endPt = [stations[stations.length - 1].lat, stations[stations.length - 1].lng]; // てだこ浦西站
+    const startPt = [stations[0].lat, stations[0].lng];
+    const endPt = [stations[stations.length - 1].lat, stations[stations.length - 1].lng];
 
-    // 1. 找出距離那霸機場站最近的一段軌道作為起點
     let bestWayIdx = -1;
     let bestReverse = false;
     let minStartDist = Infinity;
@@ -77,7 +75,6 @@ async function fetchAndStitchExactMonorailShape(stations) {
     const used = new Set([bestWayIdx]);
     const stitched = bestReverse ? [...ways[bestWayIdx]].reverse() : [...ways[bestWayIdx]];
 
-    // 2. 沿前進向量接龍下一段軌道（排除對向平行雙軌的折返段）
     let guard = 0;
     while (guard++ < ways.length + 5) {
       const tail = stitched[stitched.length - 1];
@@ -142,7 +139,6 @@ async function fetchAndStitchExactMonorailShape(stations) {
   return null;
 }
 
-// 讀取靜態 GTFS 大眾運輸路線庫（data/okinawa_transit.json）並自動升級高密度軌道幾何
 async function getOkinawaTransitDatabase() {
   if (cachedTransitDb) return cachedTransitDb;
   if (!transitDbPromise) {
@@ -163,7 +159,195 @@ async function getOkinawaTransitDatabase() {
             color: '#dc2626',
             waitMin: 3,
             stations: YUI_RAIL_STATIONS.map((st, idx) => ({
-              id: `YR${idx + 1}`, name: st.name, lat: st.lat, lng: st.lng, cumMin: st.cumMin })), shape: YUI_RAIL_STATIONS.flatMap(st => [...(st.viaPrev \vert{}\vert{} []), [st.lat, st.lng]]) }, buses: [] }; }  // 若目前單軌 shape 點數較疏（小於 150 點），自動從底圖抓取真實高密度軌道並快取 if (db.yui_rail && Array.isArray(db.yui_rail.stations) && (!db.yui_rail.shape \vert{}\vert{} db.yui_rail.shape.length < 150)) { const exactShape = await fetchAndStitchExactMonorailShape(db.yui_rail.stations); if (exactShape && exactShape.length >= 150) { db.yui_rail.shape = exactShape; } }  cachedTransitDb = db; return db; })(); } return transitDbPromise; }  // 解碼 Valhalla 精度 6（1e6）的 Polyline 折線 function decodeValhallaPolyline6(encoded) { if (!encoded \vert{}\vert{} typeof encoded !== 'string') return []; const coords = []; let index = 0; let lat = 0; let lng = 0; const factor = 1e6;  while (index < encoded.length) { let b; let shift = 0; let result = 0; do { b = encoded.charCodeAt(index++) - 63; result \vert{}= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20); const dlat = (result & 1) ? ~(result >> 1) : (result >> 1); lat += dlat;  shift = 0; result = 0; do { b = encoded.charCodeAt(index++) - 63; result \vert{}= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20); const dlng = (result & 1) ? ~(result >> 1) : (result >> 1); lng += dlng;  coords.push([lat / factor, lng / factor]); } return coords; }  // 利用 Turf.js 將上、下車站吸附到連續路線折線上並精準切片（[lat, lng] 與 [lng, lat] 自動轉換） function sliceTransitShapeWithTurf(shapeLatLngs, stopA, stopB) { if (!Array.isArray(shapeLatLngs) \vert{}\vert{} shapeLatLngs.length < 2) { return { coords: [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]], km: haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) }; }  if (typeof window !== 'undefined' && window.turf) { try { const lineCoordsLngLat = shapeLatLngs.map(([lat, lng]) => [lng, lat]); const line = window.turf.lineString(lineCoordsLngLat); const ptStart = window.turf.point([stopA.lng, stopA.lat]); const ptEnd = window.turf.point([stopB.lng, stopB.lat]);  const snappedStart = window.turf.nearestPointOnLine(line, ptStart); const snappedEnd = window.turf.nearestPointOnLine(line, ptEnd); const sliced = window.turf.lineSlice(snappedStart, snappedEnd, line);  if (sliced && sliced.geometry && Array.isArray(sliced.geometry.coordinates) && sliced.geometry.coordinates.length >= 2) { const slicedLatLngs = sliced.geometry.coordinates.map(([lng, lat]) => [lat, lng]); const sliceKm = window.turf.length(sliced, { units: 'kilometers' }); return { coords: slicedLatLngs, km: Math.max(0.1, sliceKm) }; } } catch (e) {} }  // 若 Turf.js 尚未載入的備援切片 let bestIdxA = 0; let bestIdxB = shapeLatLngs.length - 1; let minDA = Infinity; let minDB = Infinity; shapeLatLngs.forEach(([lat, lng], idx) => { const dA = haversineKm(stopA.lat, stopA.lng, lat, lng); if (dA < minDA) { minDA = dA; bestIdxA = idx; } const dB = haversineKm(stopB.lat, stopB.lng, lat, lng); if (dB < minDB) { minDB = dB; bestIdxB = idx; } });  const sub = bestIdxA <= bestIdxB ? shapeLatLngs.slice(bestIdxA, bestIdxB + 1) : shapeLatLngs.slice(bestIdxB, bestIdxA + 1).reverse();  let km = 0; for (let i = 1; i < sub.length; i++) { km += haversineKm(sub[i - 1][0], sub[i - 1][1], sub[i][0], sub[i][1]); } return { coords: sub.length >= 2 ? sub : [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]], km: km \vert{}\vert{} haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) }; }  export function normalizeTraditionalText(str) { let result = String(str \vert{}\vert{} '').trim(); for (const [src, target] of KANJI_TO_TRADITIONAL_MAP) { result = result.split(src).join(target); } return result; }  export function normalizeAdministrativeDistrict(rawArea, country = '') { let text = normalizeTraditionalText(rawArea); if (!text) return country \vert{}\vert{} '未分類';  text = text .replace(/^日本\s*[・\/-]\s*/, '') .replace(/^台灣\s*[・\/-]\s*/, '') .replace(/^臺灣\s*[・\/-]\s*/, '') .trim();  if (text.includes('/')) { const segments = text .split('/') .map(s => normalizeTraditionalText(s).trim()) .filter(Boolean);  const uniqueSegments = segments.filter((seg, idx) => { return !segments.some((other, oIdx) => oIdx !== idx && other.length > seg.length && other.includes(seg)); });  text = uniqueSegments.length > 0 ? uniqueSegments[uniqueSegments.length - 1] : segments[segments.length - 1]; }  text = text.replace(/\s*[•·．]\s*/g, '・'); text = text.replace(/^(沖繩縣)(?!・)(.+)$/, '$1・$2'); text = text.replace(/^(臺北市\vert{}新北市\vert{}桃園市\vert{}臺中市\vert{}臺南市\vert{}高雄市\vert{}基隆市\vert{}新竹市\vert{}嘉義市\vert{}新竹縣\vert{}苗栗縣\vert{}彰化縣\vert{}南投縣\vert{}雲林縣\vert{}嘉義縣\vert{}屏東縣\vert{}宜蘭縣\vert{}花蓮縣\vert{}臺東縣\vert{}澎湖縣\vert{}金門縣\vert{}連江縣)(?!・)(.+)$/, '$1・$2');  const dotParts = text.split('・').map(s => s.trim()).filter(Boolean); const dedupedDotParts = dotParts.filter((part, idx) => idx === 0 \vert{}\vert{} part !== dotParts[idx - 1]); text = dedupedDotParts.join('・');  return text \vert{}\vert{} country \vert{}\vert{} '未分類'; }  export function parseNominatimAddress(addr = {}) { let country = addr.country \vert{}\vert{} '日本'; if (country.includes('臺灣') \vert{}\vert{} country.includes('台灣') \vert{}\vert{} addr.country_code === 'tw') country = '台灣'; if (addr.country_code === 'jp' \vert{}\vert{} country.includes('日本')) country = '日本';  const pref = normalizeTraditionalText(addr.state \vert{}\vert{} addr.province \vert{}\vert{} addr.county \vert{}\vert{} ''); const city = normalizeTraditionalText(addr.city \vert{}\vert{} addr.town \vert{}\vert{} addr.village \vert{}\vert{} addr.municipality \vert{}\vert{} addr.suburb \vert{}\vert{} ''); const combined = [pref, city].filter(Boolean).join('・') \vert{}\vert{} country; const district = normalizeAdministrativeDistrict(combined, country); return { country, district }; }  export async function geocodePlaceName(query, countryHint = '') { const cleaned = String(query).replace(/[\(（][^\)）]*[\)）]/g, '').trim(); const queriesToTry = [ countryHint ? `${countryHint} ${cleaned}` : cleaned, cleaned, query ].filter((v, i, arr) => v && arr.indexOf(v) === i);  for (const q of queriesToTry) { try { const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(q)}`;
+              id: 'YR' + (idx + 1),
+              name: st.name,
+              lat: st.lat,
+              lng: st.lng,
+              cumMin: st.cumMin
+            })),
+            shape: YUI_RAIL_STATIONS.flatMap(st => [...(st.viaPrev || []), [st.lat, st.lng]])
+          },
+          buses: []
+        };
+      }
+
+      if (db.yui_rail && Array.isArray(db.yui_rail.stations) && (!db.yui_rail.shape || db.yui_rail.shape.length < 150)) {
+        const exactShape = await fetchAndStitchExactMonorailShape(db.yui_rail.stations);
+        if (exactShape && exactShape.length >= 150) {
+          db.yui_rail.shape = exactShape;
+        }
+      }
+
+      cachedTransitDb = db;
+      return db;
+    })();
+  }
+  return transitDbPromise;
+}
+
+function decodeValhallaPolyline6(encoded) {
+  if (!encoded || typeof encoded !== 'string') return [];
+  const coords = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const factor = 1e6;
+
+  while (index < encoded.length) {
+    let b;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    coords.push([lat / factor, lng / factor]);
+  }
+  return coords;
+}
+
+function sliceTransitShapeWithTurf(shapeLatLngs, stopA, stopB) {
+  if (!Array.isArray(shapeLatLngs) || shapeLatLngs.length < 2) {
+    return {
+      coords: [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]],
+      km: haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng)
+    };
+  }
+
+  if (typeof window !== 'undefined' && window.turf) {
+    try {
+      const lineCoordsLngLat = shapeLatLngs.map(([lat, lng]) => [lng, lat]);
+      const line = window.turf.lineString(lineCoordsLngLat);
+      const ptStart = window.turf.point([stopA.lng, stopA.lat]);
+      const ptEnd = window.turf.point([stopB.lng, stopB.lat]);
+
+      const snappedStart = window.turf.nearestPointOnLine(line, ptStart);
+      const snappedEnd = window.turf.nearestPointOnLine(line, ptEnd);
+      const sliced = window.turf.lineSlice(snappedStart, snappedEnd, line);
+
+      if (sliced && sliced.geometry && Array.isArray(sliced.geometry.coordinates) && sliced.geometry.coordinates.length >= 2) {
+        const slicedLatLngs = sliced.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        const sliceKm = window.turf.length(sliced, { units: 'kilometers' });
+        return {
+          coords: slicedLatLngs,
+          km: Math.max(0.1, sliceKm)
+        };
+      }
+    } catch (e) {}
+  }
+
+  let bestIdxA = 0;
+  let bestIdxB = shapeLatLngs.length - 1;
+  let minDA = Infinity;
+  let minDB = Infinity;
+  shapeLatLngs.forEach(([lat, lng], idx) => {
+    const dA = haversineKm(stopA.lat, stopA.lng, lat, lng);
+    if (dA < minDA) {
+      minDA = dA;
+      bestIdxA = idx;
+    }
+    const dB = haversineKm(stopB.lat, stopB.lng, lat, lng);
+    if (dB < minDB) {
+      minDB = dB;
+      bestIdxB = idx;
+    }
+  });
+
+  const sub = bestIdxA <= bestIdxB
+    ? shapeLatLngs.slice(bestIdxA, bestIdxB + 1)
+    : shapeLatLngs.slice(bestIdxB, bestIdxA + 1).reverse();
+
+  let km = 0;
+  for (let i = 1; i < sub.length; i++) {
+    km += haversineKm(sub[i - 1][0], sub[i - 1][1], sub[i][0], sub[i][1]);
+  }
+  return {
+    coords: sub.length >= 2 ? sub : [[stopA.lat, stopA.lng], [stopB.lat, stopB.lng]],
+    km: km || haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng)
+  };
+}
+
+export function normalizeTraditionalText(str) {
+  let result = String(str || '').trim();
+  for (const [src, target] of KANJI_TO_TRADITIONAL_MAP) {
+    result = result.split(src).join(target);
+  }
+  return result;
+}
+
+export function normalizeAdministrativeDistrict(rawArea, country = '') {
+  let text = normalizeTraditionalText(rawArea);
+  if (!text) return country || '未分類';
+
+  text = text
+    .replace(/^日本\s*[・\/-]\s*/, '')
+    .replace(/^台灣\s*[・\/-]\s*/, '')
+    .replace(/^臺灣\s*[・\/-]\s*/, '')
+    .trim();
+
+  if (text.includes('/')) {
+    const segments = text
+      .split('/')
+      .map(s => normalizeTraditionalText(s).trim())
+      .filter(Boolean);
+
+    const uniqueSegments = segments.filter((seg, idx) => {
+      return !segments.some((other, oIdx) => oIdx !== idx && other.length > seg.length && other.includes(seg));
+    });
+
+    text = uniqueSegments.length > 0
+      ? uniqueSegments[uniqueSegments.length - 1]
+      : segments[segments.length - 1];
+  }
+
+  text = text.replace(/\s*[•·．]\s*/g, '・');
+  text = text.replace(/^(沖繩縣)(?!・)(.+)$/, '$1・$2');
+  text = text.replace(/^(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣)(?!・)(.+)$/, '$1・$2');
+
+  const dotParts = text.split('・').map(s => s.trim()).filter(Boolean);
+  const dedupedDotParts = dotParts.filter((part, idx) => idx === 0 || part !== dotParts[idx - 1]);
+  text = dedupedDotParts.join('・');
+
+  return text || country || '未分類';
+}
+
+export function parseNominatimAddress(addr = {}) {
+  let country = addr.country || '日本';
+  if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
+  if (addr.country_code === 'jp' || country.includes('日本')) country = '日本';
+
+  const pref = normalizeTraditionalText(addr.state || addr.province || addr.county || '');
+  const city = normalizeTraditionalText(addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '');
+  const combined = [pref, city].filter(Boolean).join('・') || country;
+  const district = normalizeAdministrativeDistrict(combined, country);
+  return { country, district };
+}
+
+export async function geocodePlaceName(query, countryHint = '') {
+  const cleaned = String(query).replace(/[\(（][^\)）]*[\)）]/g, '').trim();
+  const queriesToTry = [
+    countryHint ? (countryHint + ' ' + cleaned) : cleaned,
+    cleaned,
+    query
+  ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+
+  for (const q of queriesToTry) {
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=' + encodeURIComponent(q);
       const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
       const data = await res.json();
       if (data && data.length > 0) {
@@ -179,7 +363,7 @@ async function getOkinawaTransitDatabase() {
 export async function reverseGeocodeCoords(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${lat}&lon=${lng}`;
+    const url = 'https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=' + lat + '&lon=' + lng;
     const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
     const data = await res.json();
     if (data && data.address) {
@@ -241,7 +425,9 @@ export function formatDistanceLabel(km) {
   if (val <= 0) return '';
   if (val < 1) {
     const meters = Math.max(10, Math.round((val * 1000) / 10) * 10);
-    return `${meters} 公尺`; } return `${val.toFixed(1)} 公里`;
+    return meters + ' 公尺';
+  }
+  return val.toFixed(1) + ' 公里';
 }
 
 export function getTransitModeDisplay(mode, transitDetailLabel = '') {
@@ -347,10 +533,55 @@ export function resolveLegModeAndEstimate(cardA, cardB, manualMode = 'auto') {
   };
 }
 
-// 優先呼叫 Valhalla 開源多模式路網（支援真實步行階梯與步道），若連線逾時則無縫退回 OSRM
 export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') {
   const isWalk = mode === 'walk';
-  const cacheKey = `${isWalk ? 'ped' : 'auto'}_${Number(lat1).toFixed(5)},${Number(lng1).toFixed(5)}_${Number(lat2).toFixed(5)},${Number(lng2).toFixed(5)}`; if (roadRouteCache[cacheKey]) { return roadRouteCache[cacheKey]; }  // 1. 嘗試 Valhalla API (valhalla1.openstreetmap.de) try { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 4500); const valhallaRes = await fetch('https://valhalla1.openstreetmap.de/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ locations: [ { lat: Number(lat1), lon: Number(lng1) }, { lat: Number(lat2), lon: Number(lng2) } ], costing: isWalk ? 'pedestrian' : 'auto', units: 'kilometers' }) }); clearTimeout(timer);  if (valhallaRes.ok) { const vData = await valhallaRes.json(); const leg = vData?.trip?.legs?.[0]; const summary = vData?.trip?.summary; if (leg && leg.shape && summary) { const latLngs = decodeValhallaPolyline6(leg.shape); const distanceKm = Number(summary.length) \vert{}\vert{} haversineKm(lat1, lng1, lat2, lng2); const durationMin = isWalk ? Math.max(2, Math.round((Number(summary.time) \vert{}\vert{} 0) / 60)) : Math.max(3, Math.round((Number(summary.time) \vert{}\vert{} 0) / 60));  if (latLngs.length >= 2) { const result = { latLngs, distanceKm, durationMin, engine: 'valhalla' }; roadRouteCache[cacheKey] = result; return result; } } } } catch (e) {}  // 2. 備援：OSRM 路網幾何與真實步速換算 try { const osrmProfile = isWalk ? 'foot' : 'driving'; const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+  const prefix = isWalk ? 'ped_' : 'auto_';
+  const cacheKey = prefix + Number(lat1).toFixed(5) + ',' + Number(lng1).toFixed(5) + '_' + Number(lat2).toFixed(5) + ',' + Number(lng2).toFixed(5);
+  if (roadRouteCache[cacheKey]) {
+    return roadRouteCache[cacheKey];
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4500);
+    const valhallaRes = await fetch('https://valhalla1.openstreetmap.de/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        locations: [
+          { lat: Number(lat1), lon: Number(lng1) },
+          { lat: Number(lat2), lon: Number(lng2) }
+        ],
+        costing: isWalk ? 'pedestrian' : 'auto',
+        units: 'kilometers'
+      })
+    });
+    clearTimeout(timer);
+
+    if (valhallaRes.ok) {
+      const vData = await valhallaRes.json();
+      const leg = vData?.trip?.legs?.[0];
+      const summary = vData?.trip?.summary;
+      if (leg && leg.shape && summary) {
+        const latLngs = decodeValhallaPolyline6(leg.shape);
+        const distanceKm = Number(summary.length) || haversineKm(lat1, lng1, lat2, lng2);
+        const durationMin = isWalk
+          ? Math.max(2, Math.round((Number(summary.time) || 0) / 60))
+          : Math.max(3, Math.round((Number(summary.time) || 0) / 60));
+
+        if (latLngs.length >= 2) {
+          const result = { latLngs, distanceKm, durationMin, engine: 'valhalla' };
+          roadRouteCache[cacheKey] = result;
+          return result;
+        }
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const osrmProfile = isWalk ? 'foot' : 'driving';
+    const url = 'https://router.project-osrm.org/route/v1/' + osrmProfile + '/' + lng1 + ',' + lat1 + ';' + lng2 + ',' + lat2 + '?overview=full&geometries=geojson';
     const res = await fetch(url);
     const data = await res.json();
     if (data && data.code === 'Ok' && data.routes && data.routes.length > 0) {
@@ -377,13 +608,13 @@ export async function fetchRealRoadPath(lat1, lng1, lat2, lng2, mode = 'drive') 
 }
 
 export async function fetchNearestTransitStop(lat, lng) {
-  const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
+  const key = Number(lat).toFixed(4) + ',' + Number(lng).toFixed(4);
   if (transitStopCache[key] !== undefined) {
     return transitStopCache[key];
   }
 
   try {
-    const query = `[out:json][timeout:6];(node(around:650,${lat},${lng})["highway"="bus_stop"];node(around:800,${lat},${lng})["railway"="station"];);out body 5;`;
+    const query = '[out:json][timeout:6];(node(around:650,' + lat + ',' + lng + ')["highway"="bus_stop"];node(around:800,' + lat + ',' + lng + ')["railway"="station"];);out body 5;';
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: query
@@ -413,11 +644,9 @@ export async function fetchNearestTransitStop(lat, lng) {
   return null;
 }
 
-// 結合 GTFS 路線庫、Turf.js 精準切片與 Valhalla 兩端步行的多模式大眾運輸規劃
 export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransfer = false) {
   const db = await getOkinawaTransitDatabase();
 
-  // 第一順位：沖繩都市單軌電車（Yui Rail）
   if (db && db.yui_rail && Array.isArray(db.yui_rail.stations)) {
     const railA = findNearestStopInList(db.yui_rail.stations, cardA.lat, cardA.lng, 1.25);
     const railB = findNearestStopInList(db.yui_rail.stations, cardB.lat, cardB.lng, 1.25);
@@ -435,6 +664,9 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
       const waitMin = Number(db.yui_rail.waitMin) || 3;
       const totalKm = (walk1.distanceKm || 0) + slicedRail.km + (walk2.distanceKm || 0);
 
+      const stNameA = railA.stop.name.replace('站', '');
+      const stNameB = railB.stop.name.replace('站', '');
+
       return {
         isMonorail: true,
         routeColor: db.yui_rail.color || '#dc2626',
@@ -446,12 +678,11 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
         walk2Path: walk2.latLngs,
         totalKm,
         totalMin: walk1Min + railRideMin + waitMin + walk2Min,
-        transitDetailLabel: `🚝 單軌(${railA.stop.name.replace('站', '')}→${railB.stop.name.replace('站', '')}) + 🚶步行`
+        transitDetailLabel: '🚝 單軌(' + stNameA + '→' + stNameB + ') + 🚶步行'
       };
     }
   }
 
-  // 第二順位：沖繩主要觀光幹線公車（GTFS 路線比對與道路真實折線貼合）
   if (db && Array.isArray(db.buses) && db.buses.length > 0) {
     let bestBusMatch = null;
     let bestWalkSum = Infinity;
@@ -501,4 +732,75 @@ export async function buildMultiModalTransitSegments(cardA, cardB, isHotelTransf
         walk2Path: walk2.latLngs,
         totalKm,
         totalMin: walk1Min + busRideMin + waitMin + walk2Min,
-        transitDetailLabel: `🚌 ${bus.routeNo}(${shortStopA
+        transitDetailLabel: '🚌 ' + bus.routeNo + '(' + shortStopA + '→' + shortStopB + ') + 🚶步行'
+      };
+    }
+  }
+
+  const [stopA, stopB] = await Promise.all([
+    fetchNearestTransitStop(cardA.lat, cardA.lng),
+    fetchNearestTransitStop(cardB.lat, cardB.lng)
+  ]);
+
+  const directRoad = await fetchRealRoadPath(cardA.lat, cardA.lng, cardB.lat, cardB.lng, 'drive');
+
+  if (stopA && stopB && haversineKm(stopA.lat, stopA.lng, stopB.lat, stopB.lng) > 0.35) {
+    const [walk1, ride, walk2] = await Promise.all([
+      fetchRealRoadPath(cardA.lat, cardA.lng, stopA.lat, stopA.lng, 'walk'),
+      fetchRealRoadPath(stopA.lat, stopA.lng, stopB.lat, stopB.lng, 'drive'),
+      fetchRealRoadPath(stopB.lat, stopB.lng, cardB.lat, cardB.lng, 'walk')
+    ]);
+
+    const totalKm = (walk1.distanceKm || 0) + (ride.distanceKm || 0) + (walk2.distanceKm || 0);
+    const walk1Min = computeWalkingMinutes(walk1.distanceKm, isHotelTransfer);
+    const walk2Min = computeWalkingMinutes(walk2.distanceKm, isHotelTransfer);
+    const busRideMin = Math.max(6, Math.round((ride.durationMin || 10) * 1.45 + 7));
+
+    return {
+      isMonorail: false,
+      routeColor: '#7c3aed',
+      hasStopSplit: true,
+      stopA,
+      stopB,
+      walk1Path: walk1.latLngs,
+      ridePath: ride.latLngs,
+      walk2Path: walk2.latLngs,
+      totalKm: totalKm || directRoad.distanceKm,
+      totalMin: walk1Min + busRideMin + walk2Min,
+      transitDetailLabel: '🚌 區間公車 + 🚶 步行'
+    };
+  }
+
+  return {
+    isMonorail: false,
+    routeColor: '#7c3aed',
+    hasStopSplit: false,
+    stopA: null,
+    stopB: null,
+    walk1Path: [],
+    ridePath: directRoad.latLngs,
+    walk2Path: [],
+    totalKm: directRoad.distanceKm,
+    totalMin: directRoad.durationMin ? Math.max(12, Math.round(directRoad.durationMin * 1.45 + 8)) : null,
+    transitDetailLabel: '🚌 公車/大眾運輸'
+  };
+}
+
+export function buildCurvedFlightArc(lat1, lng1, lat2, lng2) {
+  const pts = [];
+  const steps = 36;
+  const midLat = (lat1 + lat2) / 2;
+  const midLng = (lng1 + lng2) / 2;
+  const dLat = lat2 - lat1;
+  const dLng = lng2 - lng1;
+  const ctrlLat = midLat - dLng * 0.14;
+  const ctrlLng = midLng + dLat * 0.14;
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const lat = (1 - t) * (1 - t) * lat1 + 2 * (1 - t) * t * ctrlLat + t * t * lat2;
+    const lng = (1 - t) * (1 - t) * lng1 + 2 * (1 - t) * t * ctrlLng + t * t * lng2;
+    pts.push([lat, lng]);
+  }
+  return pts;
+}
