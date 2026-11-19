@@ -6,7 +6,7 @@
   <title>e-chi Go｜一起去旅行</title>
 
   <!-- PWA 全螢幕 App 設定（加到主畫面後隱藏網址列） -->
-  <link rel="manifest" href="./manifest.json?v=20261118c" />
+  <link rel="manifest" href="./manifest.json?v=20261119a" />
   <meta name="theme-color" content="#2C4D6E" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -23,15 +23,15 @@
   <!-- Turf.js 空間幾何切片引擎（軌道與公車路線精準貼合） -->
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <!-- 自訂樣式表 -->
-  <link rel="stylesheet" href="./css/style.css?v=20261118c" />
+  <link rel="stylesheet" href="./css/style.css?v=20261119a" />
 </head>
 <body class="h-dvh flex flex-col select-none overflow-hidden">
 
   <!-- ==================== 頂部導覽列 ==================== -->
   <header class="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
     <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-      <!-- e-chi Go 專屬文青灰藍 Logo（點擊可返回所有行程總覽） -->
-      <button type="button" onclick="openTripListOverview()" title="返回我的行程總覽"
+      <!-- e-chi Go 專屬文青灰藍 Logo（點擊可返回所有行程總覽；唯讀模式下無點擊跳轉） -->
+      <button id="btnLogoOverview" type="button" onclick="openTripListOverview()" title="返回我的行程總覽"
         class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2C4D6E] text-white flex items-center justify-center shrink-0 shadow-xs hover:opacity-95 transition">
         <svg viewBox="0 0 64 64" class="w-5 h-5 sm:w-6 sm:h-6" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M16 44 C 24 28, 38 46, 48 26" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round"/>
@@ -41,12 +41,17 @@
         </svg>
       </button>
       <div class="truncate">
-        <h1 id="tripTitleDisplay" class="font-bold text-sm sm:text-base text-slate-800 truncate">e-chi Go</h1>
+        <div class="flex items-center gap-1.5">
+          <h1 id="tripTitleDisplay" class="font-bold text-sm sm:text-base text-slate-800 truncate">e-chi Go</h1>
+          <span id="guestReadOnlyBadge" class="hidden px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold shrink-0">
+            唯讀分享檢視
+          </span>
+        </div>
         <p id="tripDateDisplay" class="hidden sm:block text-[11px] text-slate-500">一起去旅行 GO・多旅程卡片式規劃</p>
       </div>
     </div>
 
-    <!-- 桌面版雙模式切換器（預設：我的行程 → 口袋清單） -->
+    <!-- 桌面版雙模式切換器（唯讀模式下自動隱藏） -->
     <div id="desktopModeSwitcher" class="hidden md:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
       <button id="tabModePlan" onclick="switchWorkspaceMode('plan')"
         class="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs">
@@ -67,7 +72,7 @@
         <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
         <span id="syncStatusText" class="hidden lg:inline">Google 試算表已連線</span>
       </div>
-      <button onclick="openSettingsModal()" title="設定行程專案與 Google Apps Script 網址"
+      <button id="btnOpenSettings" onclick="openSettingsModal()" title="設定行程專案與 Google Apps Script 網址"
         class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
         <i class="fa-solid fa-gear text-sm"></i>
       </button>
@@ -77,13 +82,33 @@
         <span class="hidden sm:inline">寫入試算表</span>
         <span class="sm:hidden">寫入</span>
       </button>
-      <button id="btnManualSync" onclick="pullFromGoogleSheets(true)" title="從 Google 試算表重新載入最新資料"
+      <button id="btnManualSync" onclick="refreshCurrentData()" title="重新載入最新行程資料"
         class="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
         <i id="syncIcon" class="fa-solid fa-rotate"></i>
         <span id="syncBtnLabel" class="hidden sm:inline">重新載入</span>
       </button>
     </div>
   </header>
+
+  <!-- ==================== 訪客分享連結失效／暫停提示畫面 ==================== -->
+  <section id="sharedErrorSection" class="hidden flex-1 bg-slate-50 items-center justify-center p-6 z-40">
+    <div class="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-lg p-6 text-center space-y-4">
+      <div class="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto text-2xl">
+        <i class="fa-solid fa-lock"></i>
+      </div>
+      <div class="space-y-1.5">
+        <h2 id="sharedErrorTitle" class="text-lg font-bold text-slate-800">無法開啟此分享行程</h2>
+        <p id="sharedErrorDesc" class="text-xs text-slate-500 leading-relaxed">
+          此連結可能已被行程建立者暫停分享，或連結網址不完整。
+        </p>
+      </div>
+      <button type="button" onclick="window.location.reload()"
+        class="px-4 py-2 rounded-xl bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs">
+        <i class="fa-solid fa-rotate"></i>
+        <span>重新嘗試載入</span>
+      </button>
+    </div>
+  </section>
 
   <!-- ==================== 主工作區容器 ==================== -->
   <main id="workspaceMain" class="flex-1 flex overflow-hidden relative min-h-0">
@@ -127,7 +152,6 @@
           </div>
 
           <div class="flex items-center gap-1.5">
-            <!-- 僅在電腦端（md 以上）顯示迷你/完整卡片切換，手機端自動隱藏 -->
             <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
               class="hidden md:inline-flex px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold items-center gap-1 transition"
               title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
@@ -142,7 +166,7 @@
           </div>
         </div>
 
-        <!-- 關鍵字搜尋 ＋ 排序切換器（統一 h-9 高度與比例對齊） -->
+        <!-- 關鍵字搜尋 ＋ 排序切換器 -->
         <div class="flex items-center gap-2">
           <div class="relative flex-1 min-w-0 h-9">
             <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
@@ -247,21 +271,31 @@
     <!-- ==================== 區塊 B：行程規劃區 ==================== -->
     <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
       <!-- 頂部返回行程總覽與操作列 -->
-      <div class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <button type="button" onclick="openTripListOverview()"
+      <div id="boardTopActionBar" class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <button id="btnBackToAllTrips" type="button" onclick="openTripListOverview()"
           class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition shrink-0">
           <i class="fa-solid fa-arrow-left text-[#2C4D6E]"></i>
           <span>所有行程</span>
         </button>
 
+        <div id="guestBoardBannerText" class="hidden items-center gap-1.5 text-xs font-bold text-[#2C4D6E] truncate">
+          <i class="fa-solid fa-route"></i>
+          <span>每日行程總覽（點擊卡片可定位地圖）</span>
+        </div>
+
         <div class="flex items-center gap-1.5 shrink-0">
+          <button id="btnShareTrip" type="button" onclick="openShareTripModal()"
+            class="px-2.5 py-1 rounded-lg bg-[#2C4D6E]/10 hover:bg-[#2C4D6E]/20 text-[#2C4D6E] border border-[#2C4D6E]/25 text-[11px] font-bold flex items-center gap-1 transition">
+            <i class="fa-solid fa-share-nodes"></i>
+            <span>分享行程</span>
+          </button>
           <button id="btnBoardMultiDayToggle" onclick="toggleBoardMultiDayMode()"
             class="hidden md:flex px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 items-center gap-1"
             title="在單日聚焦與多日並列檢視間切換">
             <i class="fa-solid fa-columns"></i>
             <span id="boardModeLabel">多日並列</span>
           </button>
-          <button onclick="pushAllToGoogleSheets(false)"
+          <button id="btnBoardSaveSchedule" onclick="pushAllToGoogleSheets(false)"
             class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition">
             <i class="fa-solid fa-floppy-disk"></i> 儲存排程
           </button>
@@ -376,7 +410,7 @@
     </aside>
   </main>
 
-  <!-- ==================== 手機端專屬底部 App 導覽列（我的行程 → 路線地圖 → 口袋清單） ==================== -->
+  <!-- ==================== 手機端專屬底部 App 導覽列 ==================== -->
   <nav id="mobileBottomNav" class="md:hidden h-14 bg-white border-t border-slate-200 grid grid-cols-3 shrink-0 z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
     <button type="button" data-mobile-tab="trips" onclick="switchMobileTab('trips')"
       class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-[#2C4D6E] font-bold text-[11px] relative bg-slate-100/70">
@@ -384,14 +418,14 @@
         <i class="fa-solid fa-suitcase-rolling text-base"></i>
         <span id="mobileBadgeTrips" class="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-[#2C4D6E]/15 text-[#2C4D6E]">1</span>
       </div>
-      <span>我的行程</span>
+      <span id="mobileTabTripsLabel">我的行程</span>
     </button>
     <button type="button" data-mobile-tab="map" onclick="switchMobileTab('map')"
       class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
       <i class="fa-solid fa-map-location-dot text-base"></i>
       <span>路線地圖</span>
     </button>
-    <button type="button" data-mobile-tab="pocket" onclick="switchMobileTab('pocket')"
+    <button id="mobileTabPocketBtn" type="button" data-mobile-tab="pocket" onclick="switchMobileTab('pocket')"
       class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
       <div class="relative flex items-center">
         <i class="fa-solid fa-layer-group text-base"></i>
@@ -610,7 +644,7 @@
             </button>
           </div>
           <p class="text-[11px] text-amber-800 leading-relaxed">
-            同時支援 <strong>Spots（全球共用口袋庫）</strong> 與 <strong>Trips（多趟旅程排程檔）</strong> 雙工作表雲端同步。
+            同時支援 <strong>Spots（全球共用口袋庫）</strong> 與 <strong>Trips（多趟旅程排程檔與唯讀分享驗證）</strong> 雲端同步。
           </p>
         </div>
       </div>
@@ -622,6 +656,67 @@
           <button onclick="closeSettingsModal()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold">取消</button>
           <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-[#2C4D6E] text-white text-xs font-bold">套用並讀取</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈窗 4：分享行程給友人設定視窗 ==================== -->
+  <div id="shareTripModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden flex flex-col">
+      <div class="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <h3 class="font-bold text-base text-slate-800">
+          <i class="fa-solid fa-share-nodes text-[#2C4D6E] mr-1.5"></i>分享唯讀行程給友人
+        </h3>
+        <button type="button" onclick="closeShareTripModal()" class="text-slate-400 hover:text-slate-700 text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-4 sm:p-5 space-y-4 text-xs">
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+          <div>
+            <div class="font-bold text-sm text-slate-800">開放旅伴瀏覽此行程</div>
+            <p class="text-[11px] text-slate-500 mt-0.5">開啟後，持有專屬連結的友人可即時檢視最新同步的行程與地圖（無法修改資料）</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0">
+            <input type="checkbox" id="chkTripShareEnabled" onchange="onToggleTripShareEnabled(this.checked)" class="sr-only peer" />
+            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+
+        <div id="shareLinkActiveBox" class="space-y-2.5">
+          <label class="block font-bold text-slate-700">專屬唯讀分享網址</label>
+          <div class="flex items-center gap-1.5">
+            <input type="text" id="shareUrlInput" readonly
+              class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] text-slate-700 focus:outline-none select-all" />
+            <button type="button" onclick="copyShareTripUrl()"
+              class="px-3 py-2 rounded-lg bg-[#2C4D6E] hover:bg-[#233E59] text-white text-xs font-bold shrink-0 flex items-center gap-1 shadow-2xs">
+              <i class="fa-regular fa-copy"></i>
+              <span>複製連結</span>
+            </button>
+          </div>
+
+          <div class="pt-1 flex items-center justify-between text-[11px] text-slate-500">
+            <span>若連結外流，可重設新網址使舊連結失效：</span>
+            <button type="button" onclick="regenerateTripShareToken()"
+              class="text-rose-600 hover:underline font-bold inline-flex items-center gap-1">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>重新產生連結</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl bg-blue-50/70 border border-blue-200/80 text-[11px] text-[#2C4D6E] leading-relaxed space-y-1">
+          <div class="font-bold"><i class="fa-solid fa-shield-halved mr-1"></i>隱私與即時同步機制</div>
+          <p>• 旅伴僅會看到<strong>已排入此行程</strong>的景點與路線，不會看到您的其他旅程或未公開口袋清單。</p>
+          <p>• 每次您修改行程並按下「寫入試算表」後，旅伴重新整理網頁即會看到最新版本。</p>
+        </div>
+      </div>
+
+      <div class="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <button type="button" onclick="closeShareTripModal()" class="px-4 py-2 rounded-lg bg-slate-800 text-white text-xs font-bold">
+          完成
+        </button>
       </div>
     </div>
   </div>
@@ -638,7 +733,7 @@
     }
   </script>
 
-<!-- ES6 模組化總入口 -->
-  <script type="module" src="./js/app.js?v=20261118m"></script>
+  <!-- ES6 模組化總入口 -->
+  <script type="module" src="./js/app.js?v=20261119a"></script>
 </body>
 </html>
