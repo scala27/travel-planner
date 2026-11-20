@@ -4,6 +4,7 @@ import { state, hooks, persistState, showToast } from './state.js';
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 let okinawaTransitData = null;
 const expandedNoteKeys = new Set();
+let pendingFocusItemUid = null;
 
 function escapeHtml(str) {
   return String(str || '')
@@ -475,6 +476,13 @@ export function renderKanbanBoard() {
   const boardContainer = document.getElementById('kanbanColumnsContainer');
   if (!pillsBox || !boardContainer) return;
 
+  // 記錄重繪前的捲動位置，避免增修或拖曳後畫面無故跳回頂端
+  const savedBoardScrollLeft = boardContainer.scrollLeft;
+  const savedDayScrollTops = {};
+  boardContainer.querySelectorAll('.day-items-scroll-area[data-day-scroll]').forEach(el => {
+    savedDayScrollTops[el.dataset.dayScroll] = el.scrollTop;
+  });
+
   initBoardTouchGestures(boardContainer);
   openActionMenuKey = null;
 
@@ -706,7 +714,7 @@ export function renderKanbanBoard() {
           return (
             legHtml +
             '<div ' + dragAttrs + ' ' +
-            'data-day="' + dayNum + '" data-idx="' + idx + '" ' +
+            'data-day="' + dayNum + '" data-idx="' + idx + '" data-item-uid="' + escapeHtml(item.uid || '') + '" ' +
             'class="itinerary-item-card bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-400 transition space-y-1.5 ' + cardCursorCls + '">' +
             '<div class="flex items-start justify-between gap-1.5">' +
             '<div class="flex items-center gap-1.5 flex-wrap min-w-0">' +
@@ -799,21 +807,47 @@ export function renderKanbanBoard() {
         '<span class="font-bold" style="color:' + dayColor + '">移動 ' + totalTransitMin + ' 分・約 ' + endDayStr + ' 結束</span>' +
         '</div>' +
         '</div>' +
-        '<div class="day-items-scroll-area flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">' +
+        '<div data-day-scroll="' + dayNum + '" class="day-items-scroll-area flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">' +
         (itemsHtml || emptyPlaceholder) +
         '</div>' +
         '</div>'
       );
     })
     .join('');
+
+  // 先還原原本各日捲動位置，避免畫面無故跳回第 1 站
+  boardContainer.scrollLeft = savedBoardScrollLeft;
+  boardContainer.querySelectorAll('.day-items-scroll-area[data-day-scroll]').forEach(el => {
+    const prevTop = savedDayScrollTops[el.dataset.dayScroll];
+    if (typeof prevTop === 'number') {
+      el.scrollTop = prevTop;
+    }
+  });
+
+  // 若剛新增卡片，平滑捲動定位至該張新卡片並給予高亮提示
+  if (pendingFocusItemUid) {
+    const targetUid = pendingFocusItemUid;
+    pendingFocusItemUid = null;
+    const newCardEl = Array.from(boardContainer.querySelectorAll('.itinerary-item-card')).find(
+      el => el.dataset.itemUid === targetUid
+    );
+    if (newCardEl) {
+      requestAnimationFrame(() => {
+        newCardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        newCardEl.classList.add('ring-2', 'ring-[#2C4D6E]');
+        setTimeout(() => newCardEl.classList.remove('ring-2', 'ring-[#2C4D6E]'), 1600);
+      });
+    }
+  }
 }
 
 export function addCardToDay(cardId, dayNum, insertIdx = null) {
   if (state.isReadOnly) return;
   const d = Number(dayNum);
   if (!state.itinerary[d]) state.itinerary[d] = { startTime: '09:00', items: [] };
+  const newUid = 'it_' + cardId + '_' + d + '_' + Date.now();
   const newItem = {
-    uid: 'it_' + cardId + '_' + d + '_' + Date.now(),
+    uid: newUid,
     cardId,
     order: state.itinerary[d].items.length + 1,
     isCheckout: false,
@@ -826,6 +860,7 @@ export function addCardToDay(cardId, dayNum, insertIdx = null) {
   } else {
     state.itinerary[d].items.push(newItem);
   }
+  pendingFocusItemUid = newUid;
   persistState(true);
   if (typeof hooks.renderAll === 'function') hooks.renderAll();
   showToast('已排入 Day ' + d, 'emerald');
