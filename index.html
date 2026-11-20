@@ -32,12 +32,12 @@
 <body class="h-dvh flex flex-col select-none overflow-hidden">
 
   <!-- ==================== 頂部導覽列 ==================== -->
-  <header class="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
+  <header class="h-11 sm:h-14 bg-white border-b border-slate-200 px-2.5 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 z-30 shadow-xs">
     <div class="flex items-center gap-2 sm:gap-3 min-w-0">
       <!-- e-chi Go 專屬文青灰藍 Logo（點擊可返回所有行程總覽；唯讀模式下無點擊跳轉） -->
       <button id="btnLogoOverview" type="button" onclick="openTripListOverview()" title="返回我的行程總覽"
-        class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2C4D6E] text-white flex items-center justify-center shrink-0 shadow-xs hover:opacity-95 transition">
-        <svg viewBox="0 0 64 64" class="w-5 h-5 sm:w-6 sm:h-6" fill="none" xmlns="http://www.w3.org/2000/svg">
+        class="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#2C4D6E] text-white flex items-center justify-center shrink-0 shadow-xs hover:opacity-95 transition">
+        <svg viewBox="0 0 64 64" class="w-4 h-4 sm:w-6 sm:h-6" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M16 44 C 24 28, 38 46, 48 26" stroke="#F8FAFC" stroke-width="4" stroke-linecap="round"/>
           <circle cx="16" cy="44" r="5" fill="#F8FAFC"/>
           <path d="M48 14 C 43 14, 39 18, 39 23 C 39 29, 48 37, 48 37 C 48 37, 57 29, 57 23 C 57 18, 53 14, 48 14 Z" fill="#FBBF24"/>
@@ -71,23 +71,22 @@
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      <div id="syncStatusPill" class="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+    <div class="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div id="syncStatusPill" title="雲端試算表連線狀態" class="flex items-center gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
         <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
         <span id="syncStatusText" class="hidden lg:inline">Google 試算表已連線</span>
       </div>
       <button id="btnOpenSettings" onclick="openSettingsModal()" title="設定行程專案與 Google Apps Script 網址"
-        class="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
-        <i class="fa-solid fa-gear text-sm"></i>
+        class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition">
+        <i class="fa-solid fa-gear text-xs sm:text-sm"></i>
       </button>
-      <button id="btnPushSync" onclick="pushAllToGoogleSheets(false)" title="立即將所有旅程與口袋資料寫回 Google 試算表"
-        class="px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
+      <button id="btnPushSync" onclick="pushAllToGoogleSheets(false)" title="寫入試算表（立即將所有旅程與口袋資料寫回 Google 試算表）"
+        class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
         <i id="pushIcon" class="fa-solid fa-cloud-arrow-up"></i>
         <span class="hidden sm:inline">寫入試算表</span>
-        <span class="sm:hidden">寫入</span>
       </button>
       <button id="btnManualSync" onclick="refreshCurrentData()" title="重新載入最新行程資料"
-        class="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
+        class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-xs">
         <i id="syncIcon" class="fa-solid fa-rotate"></i>
         <span id="syncBtnLabel" class="hidden sm:inline">重新載入</span>
       </button>
@@ -275,11 +274,11 @@
     <!-- ==================== 區塊 B：行程規劃區 ==================== -->
     <section id="itineraryBoardSection" style="width: 34%;" class="hidden flex-col bg-slate-100/80 overflow-hidden shrink-0 min-w-[280px] min-h-0">
       <!-- 頂部返回行程總覽與操作列 -->
-      <div id="boardTopActionBar" class="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <button id="btnBackToAllTrips" type="button" onclick="openTripListOverview()"
-          class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition shrink-0">
+      <div id="boardTopActionBar" class="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0">
+        <button id="btnBackToAllTrips" type="button" onclick="openTripListOverview()" title="返回所有行程總覽"
+          class="px-2 sm:px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition shrink-0">
           <i class="fa-solid fa-arrow-left text-[#2C4D6E]"></i>
-          <span>所有行程</span>
+          <span class="hidden sm:inline">所有行程</span>
         </button>
 
         <div id="guestBoardBannerText" class="hidden items-center gap-1.5 text-xs font-bold text-[#2C4D6E] truncate">
@@ -288,10 +287,10 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
-          <button id="btnShareTrip" type="button" onclick="openShareTripModal()"
-            class="px-2.5 py-1 rounded-lg bg-[#2C4D6E]/10 hover:bg-[#2C4D6E]/20 text-[#2C4D6E] border border-[#2C4D6E]/25 text-[11px] font-bold flex items-center gap-1 transition">
+          <button id="btnShareTrip" type="button" onclick="openShareTripModal()" title="分享唯讀行程連結給旅伴"
+            class="px-2 sm:px-2.5 py-1 rounded-lg bg-[#2C4D6E]/10 hover:bg-[#2C4D6E]/20 text-[#2C4D6E] border border-[#2C4D6E]/25 text-[11px] font-bold flex items-center gap-1 transition">
             <i class="fa-solid fa-share-nodes"></i>
-            <span>分享行程</span>
+            <span class="hidden sm:inline">分享行程</span>
           </button>
           <button id="btnBoardMultiDayToggle" onclick="toggleBoardMultiDayMode()"
             class="hidden md:flex px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 items-center gap-1"
@@ -299,19 +298,20 @@
             <i class="fa-solid fa-columns"></i>
             <span id="boardModeLabel">多日並列</span>
           </button>
-          <button id="btnBoardSaveSchedule" onclick="pushAllToGoogleSheets(false)"
-            class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition">
-            <i class="fa-solid fa-floppy-disk"></i> 儲存排程
+          <button id="btnBoardSaveSchedule" onclick="pushAllToGoogleSheets(false)" title="儲存排程並寫回 Google 試算表"
+            class="px-2 sm:px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition">
+            <i class="fa-solid fa-floppy-disk"></i>
+            <span class="hidden sm:inline">儲存排程</span>
           </button>
         </div>
       </div>
 
       <!-- Day 1 ~ Day N 橫向快速切換膠囊列 -->
-      <div class="px-3 py-1.5 bg-slate-50 border-b border-slate-200 shrink-0">
+      <div class="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-slate-50 border-b border-slate-200 shrink-0">
         <div id="dayNavPills" class="flex items-center gap-1.5 overflow-x-auto py-0.5"></div>
       </div>
 
-      <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3 flex gap-3 items-stretch"></div>
+      <div id="kanbanColumnsContainer" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-2 sm:p-3 flex gap-3 items-stretch"></div>
     </section>
 
     <!-- 分隔拖曳桿 2 -->
@@ -415,24 +415,24 @@
   </main>
 
   <!-- ==================== 手機端專屬底部 App 導覽列 ==================== -->
-  <nav id="mobileBottomNav" class="md:hidden h-14 bg-white border-t border-slate-200 grid grid-cols-3 shrink-0 z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
+  <nav id="mobileBottomNav" class="md:hidden h-12 bg-white border-t border-slate-200 grid grid-cols-3 shrink-0 z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
     <button type="button" data-mobile-tab="trips" onclick="switchMobileTab('trips')"
-      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-[#2C4D6E] font-bold text-[11px] relative bg-slate-100/70">
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0 text-[#2C4D6E] font-bold text-[10px] relative bg-slate-100/70">
       <div class="relative flex items-center">
-        <i class="fa-solid fa-suitcase-rolling text-base"></i>
+        <i class="fa-solid fa-suitcase-rolling text-sm"></i>
         <span id="mobileBadgeTrips" class="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-[#2C4D6E]/15 text-[#2C4D6E]">1</span>
       </div>
       <span id="mobileTabTripsLabel">我的行程</span>
     </button>
     <button type="button" data-mobile-tab="map" onclick="switchMobileTab('map')"
-      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
-      <i class="fa-solid fa-map-location-dot text-base"></i>
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0 text-slate-500 font-semibold text-[10px] relative">
+      <i class="fa-solid fa-map-location-dot text-sm"></i>
       <span>路線地圖</span>
     </button>
     <button id="mobileTabPocketBtn" type="button" data-mobile-tab="pocket" onclick="switchMobileTab('pocket')"
-      class="mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative">
+      class="mobile-tab-btn flex flex-col items-center justify-center gap-0 text-slate-500 font-semibold text-[10px] relative">
       <div class="relative flex items-center">
-        <i class="fa-solid fa-layer-group text-base"></i>
+        <i class="fa-solid fa-layer-group text-sm"></i>
         <span id="mobileBadgePocket" class="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-slate-100 text-slate-600">0</span>
       </div>
       <span>口袋清單</span>
@@ -726,7 +726,7 @@
   </div>
 
   <!-- Toast 提示訊息 -->
-  <div id="toastContainer" class="fixed bottom-16 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-max max-w-[92vw]"></div>
+  <div id="toastContainer" class="fixed bottom-14 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-max max-w-[92vw]"></div>
 
   <!-- 註冊 Service Worker 以啟用純淨獨立 App 安裝 -->
   <script>
