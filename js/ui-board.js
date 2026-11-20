@@ -228,11 +228,13 @@ function parseFlightNote(customNote) {
 }
 
 let openActionMenuKey = null;
+let openSwapMenuDay = null;
 
 export function toggleCardActionMenu(event, menuKey) {
   if (event) event.stopPropagation();
   const prevKey = openActionMenuKey;
   closeAllCardActionMenus();
+  closeAllDaySwapMenus();
   if (prevKey !== menuKey) {
     const menuEl = document.getElementById('card-menu-' + menuKey);
     if (menuEl) {
@@ -247,13 +249,66 @@ export function closeAllCardActionMenus() {
   openActionMenuKey = null;
 }
 
+export function toggleDaySwapMenu(event, dayNum) {
+  if (event) event.stopPropagation();
+  const prevDay = openSwapMenuDay;
+  closeAllCardActionMenus();
+  closeAllDaySwapMenus();
+  if (prevDay !== dayNum) {
+    const menuEl = document.getElementById('day-swap-menu-' + dayNum);
+    if (menuEl) {
+      menuEl.classList.remove('hidden');
+      openSwapMenuDay = dayNum;
+    }
+  }
+}
+
+export function closeAllDaySwapMenus() {
+  document.querySelectorAll('.day-swap-menu').forEach(el => el.classList.add('hidden'));
+  openSwapMenuDay = null;
+}
+
+export function swapDayItineraries(dayA, dayB) {
+  if (state.isReadOnly) return;
+  const dA = Number(dayA);
+  const dB = Number(dayB);
+  if (!dA || !dB || dA === dB) return;
+
+  closeAllDaySwapMenus();
+
+  const dataA = state.itinerary[dA] || { startTime: '09:00', items: [] };
+  const dataB = state.itinerary[dB] || { startTime: '09:00', items: [] };
+
+  state.itinerary[dA] = {
+    startTime: dataB.startTime || '09:00',
+    items: Array.isArray(dataB.items) ? dataB.items : []
+  };
+  state.itinerary[dB] = {
+    startTime: dataA.startTime || '09:00',
+    items: Array.isArray(dataA.items) ? dataA.items : []
+  };
+
+  persistState(true);
+  if (typeof hooks.renderAll === 'function') {
+    hooks.renderAll();
+  } else {
+    renderKanbanBoard();
+    if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+  }
+  showToast('已將 Day ' + dA + ' 與 Day ' + dB + ' 的行程互換', 'emerald');
+}
+
 window.toggleCardActionMenu = toggleCardActionMenu;
 window.closeAllCardActionMenus = closeAllCardActionMenus;
+window.toggleDaySwapMenu = toggleDaySwapMenu;
+window.closeAllDaySwapMenus = closeAllDaySwapMenus;
+window.swapDayItineraries = swapDayItineraries;
 
 if (!window.__echiMenuListenerAttached) {
   window.__echiMenuListenerAttached = true;
   document.addEventListener('click', () => {
     closeAllCardActionMenus();
+    closeAllDaySwapMenus();
   });
 }
 
@@ -316,6 +371,7 @@ function initBoardTouchGestures(boardContainer) {
         const idx = Number(cardEl.dataset.idx);
         longPressTimer = setTimeout(() => {
           closeAllCardActionMenus();
+          closeAllDaySwapMenus();
           if (navigator.vibrate) {
             try { navigator.vibrate(25); } catch (err) {}
           }
@@ -485,6 +541,7 @@ export function renderKanbanBoard() {
 
   initBoardTouchGestures(boardContainer);
   openActionMenuKey = null;
+  openSwapMenuDay = null;
 
   const isGuest = Boolean(state.isReadOnly);
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
@@ -768,6 +825,41 @@ export function renderKanbanBoard() {
           '<input type="color" value="' + dayColor + '" onchange="updateDayColor(' + dayNum + ', this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />' +
           '</label>';
 
+      let swapDayHtml = '';
+      if (!isGuest && totalDays > 1) {
+        const swapOptionsHtml = [];
+        for (let targetD = 1; targetD <= totalDays; targetD++) {
+          if (targetD === dayNum) continue;
+          const tInfo = getFormattedDateInfo(targetD);
+          const tColor = getDayColor(targetD);
+          const tCount = (state.itinerary[targetD]?.items || []).length;
+          swapOptionsHtml.push(
+            '<button type="button" onclick="swapDayItineraries(' + dayNum + ', ' + targetD + ')" ' +
+            'class="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center justify-between gap-2 transition">' +
+            '<span class="inline-flex items-center gap-1.5">' +
+            '<span class="w-2 h-2 rounded-full shrink-0" style="background:' + tColor + '"></span>' +
+            '<span>與 Day ' + targetD + ' (' + tInfo.md + ') 互換</span>' +
+            '</span>' +
+            '<span class="text-[10px] text-slate-400">' + tCount + '點</span>' +
+            '</button>'
+          );
+        }
+
+        swapDayHtml =
+          '<div class="relative inline-block">' +
+          '<button type="button" onclick="toggleDaySwapMenu(event, ' + dayNum + ')" title="將 Day ' + dayNum + ' 與其他日期的整日行程對調" ' +
+          'class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600 shadow-2xs transition">' +
+          '<i class="fa-solid fa-right-left text-[10px] text-slate-500"></i>' +
+          '<span>日期互換</span>' +
+          '</button>' +
+          '<div id="day-swap-menu-' + dayNum + '" onclick="event.stopPropagation()" ' +
+          'class="day-swap-menu hidden absolute left-0 top-7 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
+          '<div class="px-3 py-1 text-[10px] font-bold text-slate-400 border-b border-slate-100">選擇與 Day ' + dayNum + ' 互換的日期</div>' +
+          swapOptionsHtml.join('') +
+          '</div>' +
+          '</div>';
+      }
+
       const startAndReturnHtml = isGuest
         ? '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">' +
           '<span class="text-slate-500 font-medium">出發</span>' +
@@ -795,10 +887,11 @@ export function renderKanbanBoard() {
         'class="' + colWidthCls + ' bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">' +
         '<div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">' +
         '<div class="flex items-center justify-between gap-2 flex-wrap">' +
-        '<div class="flex items-center gap-2">' +
+        '<div class="flex items-center gap-2 flex-wrap">' +
         '<span class="text-base font-extrabold" style="color:' + dayColor + '">Day ' + dayNum + '</span>' +
         '<span class="text-xs font-semibold text-slate-500">' + info.md + ' (' + info.week + ')</span>' +
         colorPickerHtml +
+        swapDayHtml +
         '</div>' +
         startAndReturnHtml +
         '</div>' +
@@ -992,6 +1085,7 @@ export function onDragStartCard(event, cardId) {
 export function onDragStartItineraryItem(event, fromDay, fromIdx) {
   if (state.isReadOnly) return;
   closeAllCardActionMenus();
+  closeAllDaySwapMenus();
   dragPayload = { type: 'item', fromDay: Number(fromDay), fromIdx: Number(fromIdx) };
   if (event?.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
