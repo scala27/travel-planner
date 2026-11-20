@@ -171,19 +171,35 @@ export async function pullSharedTripFromGoogleSheets(gasUrl, token, manual = fal
 export async function pullFromGoogleSheets(manual = false) {
   if (state.isReadOnly) return;
   const url = (state.settings.gasUrl || '').trim();
+  const adminKey = (state.settings.adminKey || '').trim();
+
   if (!url) {
     setSyncStatus('error', '未設定試算表網址');
     if (manual) showToast('請先於右上角設定 Google Apps Script 網址', 'amber');
     return;
   }
 
+  if (!adminKey) {
+    setSyncStatus('error', '未設定管理員密碼');
+    if (manual) showToast('請先於右上角「⚙ 設定」輸入管理員密碼', 'amber');
+    return;
+  }
+
   const syncIcon = document.getElementById('syncIcon');
   if (syncIcon) syncIcon.classList.add('fa-spin');
-  setSyncStatus('syncing', '正在讀取雲端...');
+  setSyncStatus('syncing', '正在驗證並讀取...');
 
   try {
-    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=getAll&t=${Date.now()}`);
+    const endpoint = `${url}${url.includes('?') ? '&' : '?'}action=getAll&key=${encodeURIComponent(adminKey)}&t=${Date.now()}`;
+    const res = await fetch(endpoint);
     const rawJson = await res.json();
+
+    if (rawJson.status === 'error' || rawJson.code === 'UNAUTHORIZED') {
+      setSyncStatus('error', '管理員密碼錯誤');
+      showToast(rawJson.message || '管理員密碼錯誤，請檢查「⚙ 設定」中的密碼是否與 Code.gs 一致', 'rose');
+      return;
+    }
+
     const data = rawJson.data && typeof rawJson.data === 'object' ? rawJson.data : rawJson;
 
     const rawSpots = Array.isArray(data.spots) ? data.spots : (Array.isArray(data.cards) ? data.cards : []);
@@ -232,8 +248,16 @@ export async function pullFromGoogleSheets(manual = false) {
 export async function pushAllToGoogleSheets(silent = false) {
   if (state.isReadOnly) return;
   const url = (state.settings.gasUrl || '').trim();
+  const adminKey = (state.settings.adminKey || '').trim();
+
   if (!url) {
     if (!silent) showToast('請先於設定中填入 Google Apps Script 網址', 'amber');
+    return;
+  }
+
+  if (!adminKey) {
+    setSyncStatus('error', '未設定管理員密碼');
+    if (!silent) showToast('請先於右上角「⚙ 設定」輸入管理員密碼再寫入', 'amber');
     return;
   }
 
@@ -288,6 +312,9 @@ export async function pushAllToGoogleSheets(silent = false) {
     };
   });
 
+  const safeSettings = { ...state.settings };
+  delete safeSettings.adminKey;
+
   try {
     await fetch(url, {
       method: 'POST',
@@ -295,7 +322,8 @@ export async function pushAllToGoogleSheets(silent = false) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'syncAll',
-        settings: state.settings,
+        adminKey,
+        settings: safeSettings,
         activeTripId: state.activeTripId,
         trips: state.trips,
         spots: spotsPayload,
@@ -304,7 +332,7 @@ export async function pushAllToGoogleSheets(silent = false) {
     });
 
     setSyncStatus('connected', 'Google 試算表已同步');
-    if (!silent) showToast('已將旅程排程與口袋資料寫入 Google 試算表', 'emerald');
+    if (!silent) showToast('已傳送寫入請求（若密碼正確將同步至試算表）', 'emerald');
   } catch (err) {
     console.error('寫入試算表錯誤:', err);
     setSyncStatus('error', '雲端寫入失敗');
@@ -320,8 +348,10 @@ export function copyGasBackendCode() {
 
 export function exportJsonBackup() {
   syncLegacyStateBackToActiveTrip();
+  const safeSettings = { ...state.settings };
+  delete safeSettings.adminKey;
   const blob = new Blob(
-    [JSON.stringify({ settings: state.settings, trips: state.trips, cards: state.cards }, null, 2)],
+    [JSON.stringify({ settings: safeSettings, trips: state.trips, cards: state.cards }, null, 2)],
     { type: 'application/json' }
   );
   const a = document.createElement('a');
