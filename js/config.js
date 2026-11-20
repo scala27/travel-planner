@@ -4,7 +4,8 @@ export const DEFAULT_SETTINGS = {
   tripTitle: '2027沖繩首發自由行',
   startDate: '2027-02-17',
   totalDays: 6,
-  gasUrl: ''
+  gasUrl: '',
+  adminKey: ''
 };
 
 export const CATEGORY_STYLES = {
