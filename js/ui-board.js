@@ -562,7 +562,7 @@ export function renderKanbanBoard() {
 
     pillsHtml.push(
       '<button type="button" data-day-pill="' + d + '" onclick="selectDayFocus(' + d + ')" style="' + btnStyle + '" ' +
-      'class="px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition ' + btnCls + '">' +
+      'class="px-2.5 py-0.5 sm:py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition ' + btnCls + '">' +
       '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + dotBg + '"></span>' +
       '<span>Day ' + d + '</span>' +
       '<span class="opacity-85 font-medium">' + info.md + '</span>' +
@@ -817,11 +817,11 @@ export function renderKanbanBoard() {
 
       const colorPickerHtml = isGuest
         ? ''
-        : '<label title="點擊自訂 Day ' + dayNum + ' 路線與看板顏色" ' +
+        : '<label title="自訂 Day ' + dayNum + ' 路線代表色" ' +
           'class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600 cursor-pointer relative overflow-hidden shadow-2xs transition">' +
           '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + dayColor + '"></span>' +
           '<i class="fa-solid fa-palette text-[10px] text-slate-500"></i>' +
-          '<span>路線色</span>' +
+          '<span class="hidden sm:inline">路線色</span>' +
           '<input type="color" value="' + dayColor + '" onchange="updateDayColor(' + dayNum + ', this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />' +
           '</label>';
 
@@ -847,13 +847,13 @@ export function renderKanbanBoard() {
 
         swapDayHtml =
           '<div class="relative inline-block">' +
-          '<button type="button" onclick="toggleDaySwapMenu(event, ' + dayNum + ')" title="將 Day ' + dayNum + ' 與其他日期的整日行程對調" ' +
+          '<button type="button" onclick="toggleDaySwapMenu(event, ' + dayNum + ')" title="日期互換（與其他日期整日行程對調）" ' +
           'class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600 shadow-2xs transition">' +
           '<i class="fa-solid fa-right-left text-[10px] text-slate-500"></i>' +
-          '<span>日期互換</span>' +
+          '<span class="hidden sm:inline">日期互換</span>' +
           '</button>' +
           '<div id="day-swap-menu-' + dayNum + '" onclick="event.stopPropagation()" ' +
-          'class="day-swap-menu hidden absolute left-0 top-7 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
+          'class="day-swap-menu hidden absolute right-0 sm:left-0 sm:right-auto top-7 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-30 text-xs font-semibold text-slate-700">' +
           '<div class="px-3 py-1 text-[10px] font-bold text-slate-400 border-b border-slate-100">選擇與 Day ' + dayNum + ' 互換的日期</div>' +
           swapOptionsHtml.join('') +
           '</div>' +
@@ -861,19 +861,20 @@ export function renderKanbanBoard() {
       }
 
       const startAndReturnHtml = isGuest
-        ? '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">' +
+        ? '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs">' +
           '<span class="text-slate-500 font-medium">出發</span>' +
           '<span class="font-bold text-slate-800">' + escapeHtml(dayData.startTime || '09:00') + '</span>' +
           '</div>'
         : '<div class="flex items-center gap-1.5 shrink-0">' +
-          '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs">' +
+          '<div class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-0.5 sm:py-1 text-xs">' +
           '<span class="text-slate-500 font-medium shrink-0">出發</span>' +
-          '<select onchange="updateDayStartTime(' + dayNum + ', this.value)" class="font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer min-w-[54px]">' +
+          '<select onchange="updateDayStartTime(' + dayNum + ', this.value)" class="font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer min-w-[50px] sm:min-w-[54px]">' +
           selectOpts +
           '</select>' +
           '</div>' +
-          '<button type="button" onclick="addReturnToHotel(' + dayNum + ')" class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 shrink-0">' +
-          '↩ 回住宿' +
+          '<button type="button" onclick="addReturnToHotel(' + dayNum + ')" title="加入返回住宿點" ' +
+          'class="px-2 py-0.5 sm:py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 shrink-0 inline-flex items-center gap-1">' +
+          '<span>↩</span><span class="hidden sm:inline">回住宿</span>' +
           '</button>' +
           '</div>';
 
@@ -885,22 +886,27 @@ export function renderKanbanBoard() {
         '<div ' + colDropAttrs +
         'style="border-top: 4px solid ' + dayColor + ';" ' +
         'class="' + colWidthCls + ' bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col overflow-hidden">' +
-        '<div class="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">' +
-        '<div class="flex items-center justify-between gap-2 flex-wrap">' +
-        '<div class="flex items-center gap-2 flex-wrap">' +
-        '<span class="text-base font-extrabold" style="color:' + dayColor + '">Day ' + dayNum + '</span>' +
-        '<span class="text-xs font-semibold text-slate-500">' + info.md + ' (' + info.week + ')</span>' +
+        '<div class="p-2 sm:p-3 border-b border-slate-100 bg-slate-50/60 space-y-1 sm:space-y-1.5 shrink-0">' +
+        '<div class="flex items-center justify-between gap-1.5">' +
+        '<div class="flex items-center gap-1.5 sm:gap-2 min-w-0">' +
+        '<span class="text-sm sm:text-base font-extrabold shrink-0" style="color:' + dayColor + '">Day ' + dayNum + '</span>' +
+        '<span class="text-xs font-semibold text-slate-500 truncate">' + info.md + ' (' + info.week + ')</span>' +
+        '</div>' +
+        '<div class="flex items-center gap-1.5 shrink-0">' +
         colorPickerHtml +
         swapDayHtml +
         '</div>' +
+        '</div>' +
+        '<div class="flex items-center justify-between gap-1.5 text-[11px] text-slate-500">' +
         startAndReturnHtml +
+        '<div class="flex items-center gap-1.5 truncate">' +
+        '<span class="hidden sm:inline">共 ' + dayData.items.length + ' 個行程點</span>' +
+        '<span class="sm:hidden font-medium">' + dayData.items.length + '站</span>' +
+        '<span class="font-bold truncate" style="color:' + dayColor + '">移動 ' + totalTransitMin + ' 分・約 ' + endDayStr + ' 結束</span>' +
         '</div>' +
-        '<div class="flex items-center justify-between text-[11px] text-slate-500">' +
-        '<span>共 ' + dayData.items.length + ' 個行程點</span>' +
-        '<span class="font-bold" style="color:' + dayColor + '">移動 ' + totalTransitMin + ' 分・約 ' + endDayStr + ' 結束</span>' +
         '</div>' +
         '</div>' +
-        '<div data-day-scroll="' + dayNum + '" class="day-items-scroll-area flex-1 overflow-y-auto p-2.5 space-y-1 bg-slate-50/30">' +
+        '<div data-day-scroll="' + dayNum + '" class="day-items-scroll-area flex-1 overflow-y-auto p-2 sm:p-2.5 space-y-1 bg-slate-50/30">' +
         (itemsHtml || emptyPlaceholder) +
         '</div>' +
         '</div>'
