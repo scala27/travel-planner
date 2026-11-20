@@ -162,7 +162,6 @@ function applyGuestReadOnlyLayout() {
     logoBtn.classList.remove('cursor-pointer');
   }
 
-  // 手機底部導覽改為「每日行程 / 路線地圖」雙分頁
   const mobileNav = document.getElementById('mobileBottomNav');
   if (mobileNav) {
     mobileNav.classList.remove('grid-cols-3');
@@ -407,8 +406,8 @@ function switchMobileTab(tabName) {
   document.querySelectorAll('.mobile-tab-btn').forEach(btn => {
     const active = btn.dataset.mobileTab === tabName;
     btn.className = active
-      ? 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-[#2C4D6E] font-bold text-[11px] relative bg-slate-100/70'
-      : 'mobile-tab-btn flex flex-col items-center justify-center gap-0.5 text-slate-500 font-semibold text-[11px] relative';
+      ? 'mobile-tab-btn flex flex-col items-center justify-center gap-0 text-[#2C4D6E] font-bold text-[10px] relative bg-slate-100/70'
+      : 'mobile-tab-btn flex flex-col items-center justify-center gap-0 text-slate-500 font-semibold text-[10px] relative';
   });
 
   if (tabName === 'trips') {
@@ -715,12 +714,30 @@ function updateHeaderInfo() {
   }
 }
 
+function toggleAdminKeyVisibility() {
+  const input = document.getElementById('setAdminKey');
+  const icon = document.getElementById('adminKeyEyeIcon');
+  if (!input) return;
+  const isPwd = input.type === 'password';
+  input.type = isPwd ? 'text' : 'password';
+  if (icon) {
+    icon.className = isPwd ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+  }
+}
+
 function openSettingsModal() {
   if (state.isReadOnly) return;
   document.getElementById('setTripTitle').value = state.settings.tripTitle || '';
   document.getElementById('setStartDate').value = state.settings.startDate || '2027-02-17';
   document.getElementById('setTotalDays').value = state.settings.totalDays || 6;
   document.getElementById('setGasUrl').value = state.settings.gasUrl || '';
+  const keyInput = document.getElementById('setAdminKey');
+  if (keyInput) {
+    keyInput.type = 'password';
+    keyInput.value = state.settings.adminKey || '';
+  }
+  const eyeIcon = document.getElementById('adminKeyEyeIcon');
+  if (eyeIcon) eyeIcon.className = 'fa-regular fa-eye';
   document.getElementById('settingsModal').classList.remove('hidden');
 }
 
@@ -734,6 +751,7 @@ function saveSettings() {
   state.settings.startDate = document.getElementById('setStartDate').value || '2027-02-17';
   state.settings.totalDays = Math.max(1, Math.min(15, parseInt(document.getElementById('setTotalDays').value, 10) || 6));
   state.settings.gasUrl = document.getElementById('setGasUrl').value.trim();
+  state.settings.adminKey = (document.getElementById('setAdminKey')?.value || '').trim();
 
   ensureItineraryDays();
   persistState(false);
@@ -773,6 +791,7 @@ Object.assign(window, {
   onToggleTripShareEnabled,
   regenerateTripShareToken,
   copyShareTripUrl,
+  toggleAdminKeyVisibility,
   refreshCurrentData,
   switchWorkspaceMode,
   switchMobileTab,
