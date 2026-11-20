@@ -8,6 +8,7 @@ let routesLayerGroup = null;
 const markerByCardId = {};
 const inFlightRouteRequests = {};
 let renderGeneration = 0;
+let lastFittedScopeKey = null;
 
 const ROUTE_CACHE_STORAGE_KEY = 'echi_route_geom_cache_v1';
 let routeGeometryCache = {};
@@ -151,6 +152,7 @@ export function initLeafletMap() {
   if (!container || typeof L === 'undefined') return;
 
   ensureMapPopupTooltipStyle();
+  lastFittedScopeKey = null;
 
   if (mapInstance) {
     mapInstance.remove();
@@ -707,7 +709,19 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
   }
 }
 
-export function renderMapMarkers(getFilteredCardsFn = null) {
+function getCurrentMapScopeKey() {
+  if (state.mode === 'collect' && !state.isReadOnly) {
+    return 'collect';
+  }
+  const tripKey = state.activeTripId || 'default';
+  if (state.mapOverviewAllDays) {
+    return 'plan:all:' + tripKey;
+  }
+  const dayNum = Math.min(Math.max(1, Number(state.settings.totalDays) || 6), Math.max(1, Number(state.selectedMapDay) || 1));
+  return 'plan:day:' + tripKey + ':' + dayNum;
+}
+
+export function renderMapMarkers(getFilteredCardsFn = null, options = {}) {
   if (!mapInstance || !markersLayerGroup || !routesLayerGroup) return;
 
   const seq = ++renderGeneration;
@@ -881,13 +895,17 @@ export function renderMapMarkers(getFilteredCardsFn = null) {
   const counterEl = document.getElementById('mapPinCounter');
   if (counterEl) counterEl.textContent = pinCount + ' 釘';
 
-  if (bounds.length > 0) {
+  const currentScopeKey = getCurrentMapScopeKey();
+  const shouldFitBounds = Boolean(options.forceFit) || lastFittedScopeKey !== currentScopeKey;
+
+  if (bounds.length > 0 && shouldFitBounds) {
     mapInstance.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+    lastFittedScopeKey = currentScopeKey;
   }
 }
 
 export function fitMapToFilteredCards() {
-  renderMapMarkers();
+  renderMapMarkers(null, { forceFit: true });
 }
 
 export function focusCardOnMap(cardId, warnIfMissing = true) {
