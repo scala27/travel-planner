@@ -6,15 +6,34 @@ let mapInstance = null;
 let markersLayerGroup = null;
 let routesLayerGroup = null;
 const markerByCardId = {};
-const routeGeometryCache = {};
 const inFlightRouteRequests = {};
 let renderGeneration = 0;
+
+const ROUTE_CACHE_STORAGE_KEY = 'echi_route_geom_cache_v1';
+let routeGeometryCache = {};
+try {
+  const savedCache = localStorage.getItem(ROUTE_CACHE_STORAGE_KEY);
+  if (savedCache) routeGeometryCache = JSON.parse(savedCache) || {};
+} catch (e) {
+  routeGeometryCache = {};
+}
+
+function saveRouteGeometryToCache(key, pts) {
+  routeGeometryCache[key] = pts;
+  try {
+    const keys = Object.keys(routeGeometryCache);
+    if (keys.length > 220) {
+      delete routeGeometryCache[keys[0]];
+    }
+    localStorage.setItem(ROUTE_CACHE_STORAGE_KEY, JSON.stringify(routeGeometryCache));
+  } catch (e) {}
+}
 
 let transitJsonCache = null;
 let transitLoadPromise = null;
 
-// 輕量併發控制佇列，避免同時發出大量請求被公開 OSRM 伺服器限流
-const MAX_CONCURRENT_OSRM = 4;
+// 輕量併發控制佇列與節流間隔，避免同時發出大量請求被公開 OSRM 伺服器限流
+const MAX_CONCURRENT_OSRM = 2;
 let activeOsrmCount = 0;
 const osrmWaitQueue = [];
 
@@ -29,12 +48,14 @@ function acquireOsrmSlot() {
 }
 
 function releaseOsrmSlot() {
-  activeOsrmCount = Math.max(0, activeOsrmCount - 1);
-  if (osrmWaitQueue.length > 0 && activeOsrmCount < MAX_CONCURRENT_OSRM) {
-    activeOsrmCount++;
-    const next = osrmWaitQueue.shift();
-    if (next) next();
-  }
+  setTimeout(() => {
+    activeOsrmCount = Math.max(0, activeOsrmCount - 1);
+    if (osrmWaitQueue.length > 0 && activeOsrmCount < MAX_CONCURRENT_OSRM) {
+      activeOsrmCount++;
+      const next = osrmWaitQueue.shift();
+      if (next) next();
+    }
+  }, 160);
 }
 
 const CATEGORY_SHORT_CHAR = {
@@ -66,6 +87,41 @@ export function toggleMapPopupDayPicker(event, pickerId) {
 window.addCardFromMapPopup = addCardFromMapPopup;
 window.toggleMapPopupDayPicker = toggleMapPopupDayPicker;
 
+function ensureMapPopupTooltipStyle() {
+  if (document.getElementById('echi-map-popup-tip-style')) return;
+  const styleEl = document.createElement('style');
+  styleEl.id = 'echi-map-popup-tip-style';
+  styleEl.textContent = `
+    .echi-pop-tip-btn {
+      position: relative;
+    }
+    .echi-pop-tip-btn::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%) translateY(2px);
+      background: #0f172a;
+      color: #ffffff;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 5px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.14s ease, transform 0.14s ease;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+      z-index: 9999;
+    }
+    .echi-pop-tip-btn:hover::after {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
+
 export async function loadOkinawaTransitJson() {
   if (transitJsonCache) return transitJsonCache;
   if (!transitLoadPromise) {
@@ -93,6 +149,8 @@ export async function loadOkinawaTransitJson() {
 export function initLeafletMap() {
   const container = document.getElementById('mapContainer');
   if (!container || typeof L === 'undefined') return;
+
+  ensureMapPopupTooltipStyle();
 
   if (mapInstance) {
     mapInstance.remove();
@@ -276,27 +334,28 @@ function attachSpotTooltipAndPopup(marker, card) {
 
     const dropdownArrowHtml =
       totalDays > 1
-        ? '<button type="button" onclick="toggleMapPopupDayPicker(event, \'' + pickerId + '\')" title="選擇其他天數" ' +
-          'style="width:24px;height:30px;background:' + btnColor + ';color:#ffffff;border:none;border-left:1px solid rgba(255,255,255,0.28);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">' +
+        ? '<button type="button" class="echi-pop-tip-btn" data-tip="選擇排入天數" onclick="toggleMapPopupDayPicker(event, \'' + pickerId + '\')" title="選擇排入天數" ' +
+          'style="width:20px;height:30px;background:' + btnColor + ';color:#ffffff;border:none;border-left:1px solid rgba(255,255,255,0.28);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-top-right-radius:8px;border-bottom-right-radius:8px;">' +
           '<i class="fa-solid fa-chevron-down" style="font-size:9px;"></i>' +
           '</button>'
         : '';
 
+    const addBtnRightRadius = totalDays > 1 ? '0' : '8px';
+
     bottomActionsHtml =
       '<div style="display:flex;align-items:center;gap:6px;">' +
-      '<div style="flex:1;display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,0.12);">' +
-      '<button type="button" onclick="addCardFromMapPopup(\'' + card.id + '\', ' + defaultDay + ')" title="直接排入 Day ' + defaultDay + '" ' +
-      'style="flex:1;height:30px;padding:0 10px;background:' + btnColor + ';color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:700;white-space:nowrap;">' +
-      '<i class="fa-solid fa-plus" style="font-size:10px;"></i>' +
-      '<span>排入 Day ' + defaultDay + '</span>' +
+      '<div style="display:inline-flex;align-items:stretch;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.12);">' +
+      '<button type="button" class="echi-pop-tip-btn" data-tip="排入 Day ' + defaultDay + '" onclick="addCardFromMapPopup(\'' + card.id + '\', ' + defaultDay + ')" title="排入 Day ' + defaultDay + '" ' +
+      'style="width:30px;height:30px;background:' + btnColor + ';color:#ffffff;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-top-left-radius:8px;border-bottom-left-radius:8px;border-top-right-radius:' + addBtnRightRadius + ';border-bottom-right-radius:' + addBtnRightRadius + ';">' +
+      '<i class="fa-solid fa-plus" style="font-size:12px;"></i>' +
       '</button>' +
       dropdownArrowHtml +
       '</div>' +
-      '<button type="button" onclick="openCardModal(\'' + card.id + '\')" title="編輯卡片" ' +
+      '<button type="button" class="echi-pop-tip-btn" data-tip="編輯卡片" onclick="openCardModal(\'' + card.id + '\')" title="編輯卡片" ' +
       'style="width:30px;height:30px;border-radius:8px;background:#f8fafc;color:#475569;border:1px solid #e2e8f0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">' +
       '<i class="fa-regular fa-pen-to-square" style="font-size:13px;"></i>' +
       '</button>' +
-      '<a href="' + fallbackMapUrl + '" target="_blank" rel="noopener" title="在 Google 地圖開啟" ' +
+      '<a href="' + fallbackMapUrl + '" target="_blank" rel="noopener" class="echi-pop-tip-btn" data-tip="Google 地圖" title="在 Google 地圖開啟" ' +
       'style="width:30px;height:30px;border-radius:8px;background:#eff6ff;color:#2563eb;border:1px solid #dbeafe;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;flex-shrink:0;">' +
       '<i class="fa-solid fa-map-location-dot" style="font-size:13px;"></i>' +
       '</a>' +
@@ -309,7 +368,7 @@ function attachSpotTooltipAndPopup(marker, card) {
   }
 
   const popupHtml =
-    '<div style="min-width:210px;max-width:255px;padding:2px 0;font-family:inherit;">' +
+    '<div style="min-width:200px;max-width:255px;padding:2px 0;font-family:inherit;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;">' +
     '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:800;background:' + style.hex + '18;color:' + style.hex + ';">' +
     '<span style="width:6px;height:6px;border-radius:9999px;background:' + style.hex + ';"></span>' +
@@ -398,7 +457,7 @@ function findNearestStop(stops, lat, lng) {
   return best;
 }
 
-async function queryOsrmWithTimeout(url, timeoutMs = 4500) {
+async function queryOsrmWithTimeout(url, timeoutMs = 8000) {
   await acquireOsrmSlot();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -417,42 +476,52 @@ async function queryOsrmWithTimeout(url, timeoutMs = 4500) {
   return null;
 }
 
-async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
-  const cacheKey = mode + ':' + lng1.toFixed(5) + ',' + lat1.toFixed(5) + ';' + lng2.toFixed(5) + ',' + lat2.toFixed(5);
+async function fetchWaypointsRoadCoords(latLngWaypoints, mode = 'car') {
+  if (!Array.isArray(latLngWaypoints) || latLngWaypoints.length < 2) return null;
+  const coordsStr = latLngWaypoints.map(pt => Number(pt[1]).toFixed(5) + ',' + Number(pt[0]).toFixed(5)).join(';');
+  const cacheKey = mode + ':' + coordsStr;
+
   if (routeGeometryCache[cacheKey]) return routeGeometryCache[cacheKey];
   if (inFlightRouteRequests[cacheKey]) return inFlightRouteRequests[cacheKey];
 
   const task = (async () => {
-    const directKm = haversineKm(lat1, lng1, lat2, lng2);
-    const coordsStr = lng1 + ',' + lat1 + ';' + lng2 + ',' + lat2;
-
-    const primaryUrl =
+    const candidateUrls =
       mode === 'foot'
-        ? 'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson'
-        : 'https://routing.openstreetmap.de/routed-car/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson';
+        ? [
+            'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson',
+            'https://router.project-osrm.org/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson'
+          ]
+        : [
+            'https://routing.openstreetmap.de/routed-car/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson',
+            'https://router.project-osrm.org/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson'
+          ];
 
-    let pts = await queryOsrmWithTimeout(primaryUrl, 4500);
+    let pts = null;
+    for (const url of candidateUrls) {
+      pts = await queryOsrmWithTimeout(url, 8000);
+      if (pts && pts.length >= 2) break;
+    }
 
     if (!pts) {
-      const backupUrl =
-        mode === 'foot'
-          ? 'https://router.project-osrm.org/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson'
-          : 'https://router.project-osrm.org/route/v1/driving/' + coordsStr + '?overview=full&geometries=geojson';
-      pts = await queryOsrmWithTimeout(backupUrl, 4500);
+      await new Promise(r => setTimeout(r, 500));
+      pts = await queryOsrmWithTimeout(candidateUrls[candidateUrls.length - 1], 8500);
     }
 
     if (pts && pts.length >= 2) {
-      const pathKm = polylineLengthKm(pts);
-      if (mode === 'car' && directKm < 5 && pathKm > directKm * 2.2 + 0.35) {
-        const footFallback = await queryOsrmWithTimeout(
-          'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson',
-          4000
-        );
-        if (footFallback && polylineLengthKm(footFallback) < pathKm * 0.75) {
-          pts = footFallback;
+      if (latLngWaypoints.length === 2 && mode === 'car') {
+        const directKm = haversineKm(latLngWaypoints[0][0], latLngWaypoints[0][1], latLngWaypoints[1][0], latLngWaypoints[1][1]);
+        const pathKm = polylineLengthKm(pts);
+        if (directKm < 5 && pathKm > directKm * 2.2 + 0.35) {
+          const footFallback = await queryOsrmWithTimeout(
+            'https://routing.openstreetmap.de/routed-foot/route/v1/foot/' + coordsStr + '?overview=full&geometries=geojson',
+            6000
+          );
+          if (footFallback && polylineLengthKm(footFallback) < pathKm * 0.75) {
+            pts = footFallback;
+          }
         }
       }
-      routeGeometryCache[cacheKey] = pts;
+      saveRouteGeometryToCache(cacheKey, pts);
       return pts;
     }
 
@@ -465,6 +534,16 @@ async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
   } finally {
     delete inFlightRouteRequests[cacheKey];
   }
+}
+
+async function fetchStreetAlignedCoords(lat1, lng1, lat2, lng2, mode = 'car') {
+  return fetchWaypointsRoadCoords(
+    [
+      [lat1, lng1],
+      [lat2, lng2]
+    ],
+    mode
+  );
 }
 
 function createProvisionalLine(lat1, lng1, lat2, lng2, dayColor, targetLayerGroup, isWalk = false) {
@@ -572,28 +651,29 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
 
       if (bestBus) {
         const { bA, bB } = bestBus;
-        const prov1 = bA.km > 0.03 ? createProvisionalLine(lat1, lng1, bA.lat, bA.lng, dayColor, targetLayerGroup, true) : null;
-        const prov2 = createProvisionalLine(bA.lat, bA.lng, bB.lat, bB.lng, dayColor, targetLayerGroup, false);
-        const prov3 = bB.km > 0.03 ? createProvisionalLine(bB.lat, bB.lng, lat2, lng2, dayColor, targetLayerGroup, true) : null;
+        const waypoints = [
+          [lat1, lng1],
+          [bA.lat, bA.lng],
+          [bB.lat, bB.lng],
+          [lat2, lng2]
+        ];
+        const provLine = L.polyline(waypoints, {
+          color: dayColor,
+          weight: 3.8,
+          opacity: 0.65,
+          dashArray: '6, 5'
+        }).addTo(targetLayerGroup);
 
-        const [walkToBus, busRoadCoords, walkFromBus] = await Promise.all([
-          bA.km > 0.03 ? fetchStreetAlignedCoords(lat1, lng1, bA.lat, bA.lng, 'foot') : Promise.resolve(null),
-          fetchStreetAlignedCoords(bA.lat, bA.lng, bB.lat, bB.lng, 'car'),
-          bB.km > 0.03 ? fetchStreetAlignedCoords(bB.lat, bB.lng, lat2, lng2, 'foot') : Promise.resolve(null)
-        ]);
+        const combinedRoadCoords = await fetchWaypointsRoadCoords(waypoints, 'car');
         if (seq !== renderGeneration) return;
 
-        if (walkToBus && prov1) {
-          targetLayerGroup.removeLayer(prov1);
-          L.polyline(walkToBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
-        }
-        if (busRoadCoords && prov2) {
-          targetLayerGroup.removeLayer(prov2);
-          L.polyline(busRoadCoords, { color: dayColor, weight: 4.5, opacity: 0.92 }).addTo(targetLayerGroup);
-        }
-        if (walkFromBus && prov3) {
-          targetLayerGroup.removeLayer(prov3);
-          L.polyline(walkFromBus, { color: dayColor, weight: 3.5, opacity: 0.85, dashArray: '5, 6' }).addTo(targetLayerGroup);
+        if (combinedRoadCoords) {
+          targetLayerGroup.removeLayer(provLine);
+          L.polyline(combinedRoadCoords, {
+            color: dayColor,
+            weight: 4.5,
+            opacity: 0.92
+          }).addTo(targetLayerGroup);
         }
         return;
       }
