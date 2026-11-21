@@ -5,6 +5,7 @@ import { estimateLegTransit, setOkinawaTransitData, getDayColor, addCardToDay } 
 let mapInstance = null;
 let markersLayerGroup = null;
 let routesLayerGroup = null;
+let focusedAdhocMarker = null;
 const markerByCardId = {};
 const inFlightRouteRequests = {};
 let renderGeneration = 0;
@@ -736,6 +737,7 @@ export function renderMapMarkers(getFilteredCardsFn = null, options = {}) {
   const seq = ++renderGeneration;
   markersLayerGroup.clearLayers();
   routesLayerGroup.clearLayers();
+  focusedAdhocMarker = null;
   Object.keys(markerByCardId).forEach(k => delete markerByCardId[k]);
 
   const bounds = [];
@@ -920,20 +922,60 @@ export function fitMapToFilteredCards() {
 export function focusCardOnMap(cardId, warnIfMissing = true) {
   const card = state.cards.find(c => c.id === cardId);
   if (!card || card.lat === null || card.lng === null || isNaN(Number(card.lat)) || isNaN(Number(card.lng))) {
-    if (warnIfMissing) showToast('此卡片尚未設定經緯度座標', 'amber');
+    if (warnIfMissing) showToast('此卡片尚未設定經緯度座標，請先編輯補齊座標', 'amber');
     return;
   }
 
+  // 手機端（< 768px）自動切換至「路線地圖」分頁，確保地圖容器處於顯示狀態
+  const isMobileViewport = window.innerWidth < 768;
+  if (isMobileViewport && state.mobileTab !== 'map' && typeof window.switchMobileTab === 'function') {
+    window.switchMobileTab('map');
+  }
+
+  // 若為桌機版行程規劃模式且右側地圖面板意外隱藏，確保展開
+  const mapPanel = document.getElementById('mapPanel');
+  if (mapPanel && mapPanel.classList.contains('hidden')) {
+    mapPanel.classList.remove('hidden');
+    mapPanel.classList.add('flex');
+  }
+
   setTimeout(() => {
+    if (!mapInstance) {
+      initLeafletMap();
+    }
     invalidateMapSize();
     if (!mapInstance) return;
+
     const lat = Number(card.lat);
     const lng = Number(card.lng);
-    mapInstance.setView([lat, lng], 15, { animate: true });
-    if (markerByCardId[cardId]) {
-      markerByCardId[cardId].openPopup();
+
+    // 清除前一次未排入行程的臨時聚焦圖釘
+    if (focusedAdhocMarker && markersLayerGroup) {
+      try {
+        markersLayerGroup.removeLayer(focusedAdhocMarker);
+      } catch (e) {}
+      focusedAdhocMarker = null;
     }
-  }, 120);
+
+    let targetMarker = markerByCardId[cardId];
+    // 若此口袋卡片尚未排入行程或目前不在圖層上，動態建立聚焦標記並彈出資訊卡
+    if (!targetMarker && markersLayerGroup) {
+      const style = CATEGORY_STYLES[card.category] || CATEGORY_STYLES['景點'];
+      const catChar = CATEGORY_SHORT_CHAR[card.category] || '景';
+      targetMarker = L.marker([lat, lng], {
+        icon: createPinIcon(style.hex, catChar, true),
+        zIndexOffset: 1000
+      });
+      attachSpotTooltipAndPopup(targetMarker, card);
+      targetMarker.addTo(markersLayerGroup);
+      focusedAdhocMarker = targetMarker;
+    }
+
+    mapInstance.setView([lat, lng], 16, { animate: true });
+    if (targetMarker) {
+      targetMarker.openPopup();
+    }
+  }, 180);
 }
 
 export function highlightDatabaseCard(cardId) {
