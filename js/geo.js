@@ -327,8 +327,33 @@ export function normalizeAdministrativeDistrict(rawArea, country = '') {
 
 export function parseNominatimAddress(addr = {}) {
   let country = addr.country || '日本';
-  if (country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw') country = '台灣';
+  const isTw = country.includes('臺灣') || country.includes('台灣') || addr.country_code === 'tw';
+  if (isTw) country = '臺灣';
   if (addr.country_code === 'jp' || country.includes('日本')) country = '日本';
+
+  if (isTw) {
+    const rawCity = normalizeTraditionalText(addr.city || '');
+    const rawCounty = normalizeTraditionalText(addr.county || '');
+    const rawSub = normalizeTraditionalText(
+      addr.suburb || addr.district || addr.city_district || addr.town || addr.village || ''
+    );
+
+    let level1 = rawCounty || rawCity;
+    let level2 = '';
+
+    if (rawCounty) {
+      // 縣轄地區（如：南投縣・魚池鄉、澎湖縣・馬公市）
+      level2 = normalizeTraditionalText(addr.town || addr.city || addr.suburb || addr.district || addr.village || '');
+    } else if (rawCity) {
+      // 直轄市／省轄市（如：臺中市・沙鹿區、臺北市・大安區）
+      level2 = rawSub;
+    }
+
+    if (level2 === level1) level2 = '';
+    const combined = [level1, level2].filter(Boolean).join('・') || country;
+    const district = normalizeAdministrativeDistrict(combined, country);
+    return { country, district };
+  }
 
   const pref = normalizeTraditionalText(addr.state || addr.province || addr.county || '');
   const city = normalizeTraditionalText(addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '');
@@ -363,7 +388,7 @@ export async function geocodePlaceName(query, countryHint = '') {
 export async function reverseGeocodeCoords(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
   try {
-    const url = 'https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=' + lat + '&lon=' + lng;
+    const url = 'https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=14&lat=' + lat + '&lon=' + lng;
     const res = await fetch(url, { headers: { 'Accept-Language': 'zh-TW,ja,en' } });
     const data = await res.json();
     if (data && data.address) {
