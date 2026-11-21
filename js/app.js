@@ -474,6 +474,7 @@ function switchMobileTab(tabName) {
     setTimeout(() => mapMod.invalidateMapSize(), 80);
   } else if (tabName === 'pocket') {
     state.mode = 'collect';
+    document.getElementById('btnHierarchyViewToggle')?.classList.remove('hidden');
     cardsMod.renderDatabaseCards();
   }
 }
@@ -613,6 +614,7 @@ function switchWorkspaceMode(targetMode) {
 
   const dbTitle = document.getElementById('dbPanelTitleText');
   const btnAddCollect = document.getElementById('btnAddCardCollect');
+  const btnHierarchy = document.getElementById('btnHierarchyViewToggle');
   const btnMini = document.getElementById('btnMiniCardToggle');
   const btnCollapse = document.getElementById('btnCollapsePocket');
   const btnExpand = document.getElementById('btnExpandPocket');
@@ -641,6 +643,7 @@ function switchWorkspaceMode(targetMode) {
 
     dbTitle.textContent = '全球口袋資料庫';
     if (btnAddCollect) btnAddCollect.classList.remove('hidden');
+    if (btnHierarchy) btnHierarchy.classList.remove('hidden');
     if (btnMini) btnMini.classList.remove('hidden');
     btnCollapse.classList.add('hidden');
     btnCollapse.classList.remove('flex');
@@ -652,6 +655,7 @@ function switchWorkspaceMode(targetMode) {
     dbCardsGrid.className = 'flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch content-start bg-slate-50/40';
     mapHeaderCollect.classList.remove('hidden');
     mapHeaderPlan.classList.add('hidden');
+    cardsMod.updateHierarchyViewButtonUi();
     cardsMod.updateMiniCardButtonUi();
   } else {
     tabPlan.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#2C4D6E] text-white shadow-xs';
@@ -688,6 +692,7 @@ function switchWorkspaceMode(targetMode) {
       } else {
         dbTitle.textContent = '口袋待排清單';
         if (btnAddCollect) btnAddCollect.classList.add('hidden');
+        if (btnHierarchy) btnHierarchy.classList.add('hidden');
         if (btnMini) btnMini.classList.add('hidden');
         btnCollapse.classList.remove('hidden');
         btnCollapse.classList.add('flex');
@@ -800,28 +805,39 @@ function saveSettings() {
   updateHeaderInfo();
   populateMapDaySelector();
   closeSettingsModal();
+  renderAll();
+
   if (state.settings.gasUrl) {
     pullFromGoogleSheets(true);
   } else {
-    renderAll();
-    showToast('已套用設定', 'emerald');
+    showToast('設定已儲存', 'emerald');
   }
 }
 
-export function renderAll() {
+function renderAll() {
+  updateHeaderInfo();
+  syncMobileNavBadges();
   if (!state.isReadOnly) {
     renderTripProjectsGrid();
     cardsMod.renderDatabaseCards();
-    syncMobileNavBadges();
   }
-  if (state.mode === 'plan' && (state.tripViewStep === 'detail' || state.isReadOnly)) {
-    populateMapDaySelector();
-    boardMod.renderKanbanBoard();
-  }
-  hooks.renderMapMarkers();
+  boardMod.renderKanbanBoard();
+  mapMod.renderMapCategoryToggles();
+  mapMod.renderMapMarkers(cardsMod.getFilteredAndSortedCards);
 }
 
+// 掛載全域函式給 HTML inline 事件使用
 Object.assign(window, {
+  ...cardsMod,
+  ...boardMod,
+  ...mapMod,
+  pullFromGoogleSheets,
+  pushAllToGoogleSheets,
+  copyGasBackendCode,
+  exportJsonBackup,
+  refreshCurrentData,
+  switchWorkspaceMode,
+  switchMobileTab,
   openTripListOverview,
   selectAndOpenTrip,
   openCreateTripModal,
@@ -834,131 +850,39 @@ Object.assign(window, {
   regenerateTripShareToken,
   copyShareTripUrl,
   refreshShareStatsInModal,
-  toggleAdminKeyVisibility,
-  refreshCurrentData,
-  switchWorkspaceMode,
-  switchMobileTab,
   togglePocketCollapse,
-  toggleMiniCardMode: cardsMod.toggleMiniCardMode,
-  toggleBatchImportBox: cardsMod.toggleBatchImportBox,
-  toggleSmartClipBox: cardsMod.toggleSmartClipBox,
-  clearSmartClipBox: cardsMod.clearSmartClipBox,
-  runSmartTextParse: cardsMod.runSmartTextParse,
-  handleSmartScreenshotUpload: cardsMod.handleSmartScreenshotUpload,
-  handleSmartPasteEvent: cardsMod.handleSmartPasteEvent,
-  toggleMultiSpotItem: cardsMod.toggleMultiSpotItem,
-  toggleAllMultiSpots: cardsMod.toggleAllMultiSpots,
-  applySingleSpotFromBatch: cardsMod.applySingleSpotFromBatch,
-  batchCreateSelectedSpots: cardsMod.batchCreateSelectedSpots,
-  setPlanQuickFilter: cardsMod.setPlanQuickFilter,
-  togglePlanProximitySort: cardsMod.togglePlanProximitySort,
-  setFilter: cardsMod.setFilter,
-  clearSearch: cardsMod.clearSearch,
-  toggleCardDetailExpand: cardsMod.toggleCardDetailExpand,
-  renderDatabaseCards: cardsMod.renderDatabaseCards,
-  handleCardClick: cardsMod.handleCardClick,
-  onCountryFilterChange: cardsMod.onCountryFilterChange,
-  handleBatchImport: cardsMod.handleBatchImport,
-  batchUpdateAllDistricts: cardsMod.batchUpdateAllDistricts,
-  handleLatLngPaste: cardsMod.handleLatLngPaste,
-  extractCoordsFromMapUrlField: cardsMod.extractCoordsFromMapUrlField,
-  reverseGeocodeModalCoords: cardsMod.reverseGeocodeModalCoords,
-  onModalCategoryChange: cardsMod.onModalCategoryChange,
-  openCardModal: cardsMod.openCardModal,
-  closeCardModal: cardsMod.closeCardModal,
-  saveCardFromModal: cardsMod.saveCardFromModal,
-  deleteCard: cardsMod.deleteCard,
-  toggleStarCard: cardsMod.toggleStarCard,
-  toggleBoardMultiDayMode: boardMod.toggleBoardMultiDayMode,
-  moveItineraryItem: boardMod.moveItineraryItem,
-  renderKanbanBoard: boardMod.renderKanbanBoard,
-  onDragStartCard: boardMod.onDragStartCard,
-  onDragStartItineraryItem: boardMod.onDragStartItineraryItem,
-  onDragOverColumn: boardMod.onDragOverColumn,
-  onDragLeaveColumn: boardMod.onDragLeaveColumn,
-  onDropOnDay: boardMod.onDropOnDay,
-  quickAssignCardToDay: boardMod.quickAssignCardToDay,
-  addCardToDay: boardMod.addCardToDay,
-  removeItineraryItem: boardMod.removeItineraryItem,
-  updateDayStartTime: boardMod.updateDayStartTime,
-  cycleTransitMode: boardMod.cycleTransitMode,
-  editLegCustomTime: boardMod.editLegCustomTime,
-  editItemFlightSchedule: boardMod.editItemFlightSchedule,
-  extendHotelToNextDay: boardMod.extendHotelToNextDay,
-  addReturnToHotel: boardMod.addReturnToHotel,
-  selectDayFocus: boardMod.selectDayFocus,
-  onMapDayChange: boardMod.onMapDayChange,
-  recalculateAllDayTimes: boardMod.recalculateAllDayTimes,
   toggleMapDrawer,
-  toggleMapCategoryLayer: mapMod.toggleMapCategoryLayer,
-  setOnlyAttractionsLayer: mapMod.setOnlyAttractionsLayer,
-  setAllMapLayersVisible: mapMod.setAllMapLayersVisible,
-  toggleOverlayPocketOnPlanMap: mapMod.toggleOverlayPocketOnPlanMap,
-  renderMapMarkers: hooks.renderMapMarkers,
-  fitMapToFilteredCards: mapMod.fitMapToFilteredCards,
-  focusCardOnMap: hooks.focusCardOnMap,
-  highlightDatabaseCard: mapMod.highlightDatabaseCard,
-  pullFromGoogleSheets,
-  pushAllToGoogleSheets,
-  copyGasBackendCode,
-  exportJsonBackup,
+  toggleAdminKeyVisibility,
   openSettingsModal,
   closeSettingsModal,
   saveSettings
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const urlParams = new URLSearchParams(window.location.search);
-    const shareParam = (urlParams.get('share') || '').trim();
+  const urlParams = new URLSearchParams(window.location.search);
+  const shareParam = (urlParams.get('share') || '').trim();
+  const apiParam = (urlParams.get('api') || '').trim();
 
-    if (shareParam) {
-      // ==================== 訪客唯讀分享模式啟動流程 ====================
-      state.isReadOnly = true;
-      state.shareToken = shareParam;
-      state.tripViewStep = 'detail';
-      state.mode = 'plan';
+  if (shareParam) {
+    // ==================== 訪客唯讀分享模式 ====================
+    state.isReadOnly = true;
+    state.shareToken = shareParam;
+    state.mode = 'plan';
+    state.tripViewStep = 'detail';
+    state.mapOverviewAllDays = true;
+    state.overlayPocketOnPlan = false;
 
-      const encodedApi = (urlParams.get('api') || '').trim();
-      if (encodedApi) {
-        try {
-          state.settings.gasUrl = decodeURIComponent(atob(encodedApi));
-        } catch (err) {}
+    if (apiParam) {
+      try {
+        state.settings.gasUrl = decodeURIComponent(atob(apiParam));
+      } catch (e) {
+        state.settings.gasUrl = apiParam;
       }
-
-      applyGuestReadOnlyLayout();
-      mapMod.initLeafletMap();
-      initSplitResizers();
-      mapMod.renderMapCategoryToggles();
-      syncMapDrawerUi();
-
-      const res = await pullSharedTripFromGoogleSheets(state.settings.gasUrl, shareParam, false);
-      if (!res.ok) {
-        showSharedTripError(res.message);
-        return;
-      }
-
-      updateHeaderInfo();
-      if (isMobileViewport()) {
-        switchMobileTab('trips');
-      } else {
-        switchWorkspaceMode('plan');
-      }
-      return;
     }
 
-    // ==================== 一般擁有者規劃模式啟動流程 ====================
-    loadLocalState();
-    ensureItineraryDays();
-    updateHeaderInfo();
+    applyGuestReadOnlyLayout();
     mapMod.initLeafletMap();
-    initSplitResizers();
     mapMod.renderMapCategoryToggles();
-    cardsMod.populateRegionDropdowns();
-    syncMapDrawerUi();
-
-    state.tripViewStep = 'list';
-    syncTripStepAttributes();
 
     if (isMobileViewport()) {
       switchMobileTab('trips');
@@ -966,15 +890,35 @@ window.addEventListener('DOMContentLoaded', async () => {
       switchWorkspaceMode('plan');
     }
 
-    if (state.settings.gasUrl) {
-      await pullFromGoogleSheets(false);
-      if (isMobileViewport()) {
-        switchMobileTab(currentMobileTab);
-      } else {
-        switchWorkspaceMode(state.mode);
-      }
+    const res = await pullSharedTripFromGoogleSheets(state.settings.gasUrl, shareParam, false);
+    if (res.ok) {
+      updateHeaderInfo();
+      populateMapDaySelector();
+      renderAll();
+      setTimeout(() => mapMod.fitMapToFilteredCards(), 350);
+    } else {
+      showSharedTripError(res.message);
     }
-  } catch (err) {
-    console.error('初始化畫面時發生錯誤:', err);
+    return;
+  }
+
+  // ==================== 管理員完整操作模式 ====================
+  loadLocalState();
+  state.tripViewStep = 'list';
+  syncTripStepAttributes();
+  updateHeaderInfo();
+  cardsMod.populateRegionDropdowns();
+  mapMod.initLeafletMap();
+  mapMod.renderMapCategoryToggles();
+  initSplitResizers();
+
+  if (isMobileViewport()) {
+    switchMobileTab('trips');
+  } else {
+    switchWorkspaceMode('plan');
+  }
+
+  if (state.settings.gasUrl) {
+    pullFromGoogleSheets(false);
   }
 });
