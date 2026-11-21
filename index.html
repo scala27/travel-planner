@@ -10,7 +10,7 @@
   <meta property="og:description" content="點擊開啟專屬行程看板與路線地圖，隨時查看每日景點安排、停留時間與交通動線。" />
 
   <!-- PWA 全螢幕 App 設定（加到主畫面後隱藏網址列） -->
-  <link rel="manifest" href="./manifest.json?v=20261121c" />
+  <link rel="manifest" href="./manifest.json?v=20261121d" />
   <meta name="theme-color" content="#2C4D6E" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -27,7 +27,7 @@
   <!-- Turf.js 空間幾何切片引擎（軌道與公車路線精準貼合） -->
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <!-- 自訂樣式表 -->
-  <link rel="stylesheet" href="./css/style.css?v=20261121c" />
+  <link rel="stylesheet" href="./css/style.css?v=20261121d" />
 </head>
 <body class="h-dvh flex flex-col select-none overflow-hidden">
 
@@ -155,6 +155,13 @@
           </div>
 
           <div class="flex items-center gap-1.5">
+            <button id="btnHierarchyViewToggle" onclick="toggleHierarchyViewMode()"
+              class="px-2.5 py-1 rounded-lg border border-[#2C4D6E]/30 bg-[#2C4D6E]/10 hover:bg-[#2C4D6E]/15 text-[#2C4D6E] text-xs font-bold flex items-center gap-1 transition"
+              title="切換國家/行政區分層卡片或直接展開全部景點">
+              <i id="hierarchyViewBtnIcon" class="fa-solid fa-sitemap"></i>
+              <span id="hierarchyViewBtnLabel">分層檢視</span>
+            </button>
+
             <button id="btnMiniCardToggle" onclick="toggleMiniCardMode()"
               class="hidden md:inline-flex px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold items-center gap-1 transition"
               title="切換為超精簡卡片，只顯示地點名稱與分類，方便配合大地圖瀏覽">
@@ -230,7 +237,7 @@
               class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
               <option value="all">全部國家 / 地區</option>
             </select>
-            <select id="cityFilter" onchange="renderDatabaseCards()"
+            <select id="cityFilter" onchange="onCityFilterChange()"
               class="text-[11px] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 focus:outline-none">
               <option value="all">全部城市 / 町村</option>
             </select>
@@ -255,6 +262,9 @@
               class="cat-btn px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-slate-200 text-slate-600">🎡 體驗</button>
           </div>
         </div>
+
+        <!-- 三層階層麵包屑導覽列 -->
+        <div id="dbHierarchyBreadcrumb" class="hidden pt-1.5 border-t border-slate-200/70 flex items-center justify-between gap-2 text-xs"></div>
       </div>
 
       <!-- 卡片列表容器 -->
@@ -836,6 +846,6 @@
   </script>
 
   <!-- ES6 模組化總入口 -->
-  <script type="module" src="./js/app.js?v=20261121c"></script>
+  <script type="module" src="./js/app.js?v=20261121d"></script>
 </body>
 </html>
