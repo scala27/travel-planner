@@ -7,7 +7,10 @@ import {
   syncLegacyStateBackToActiveTrip,
   persistState,
   ensureItineraryDays,
-  showToast
+  showToast,
+  isDomesticCountry,
+  normalizeCountryName,
+  normalizeDistrictName
 } from './state.js';
 
 function getOrCreateGuestDeviceId() {
@@ -66,17 +69,40 @@ function normalizeStartTime(val) {
   return '09:00';
 }
 
+function formatAreaForSheet(card) {
+  const rawCountry = String(card.country || '').trim();
+  const rawDistrict = String(card.district || '').trim();
+  const inferredDomestic =
+    isDomesticCountry(rawCountry) ||
+    (!rawCountry && /^(臺灣|台灣|臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(rawDistrict));
+
+  const normCountry = inferredDomestic ? '臺灣' : normalizeCountryName(rawCountry);
+  const normDistrict = normalizeDistrictName(rawDistrict, normCountry);
+
+  if (normCountry && normDistrict) {
+    return `${normCountry}・${normDistrict}`;
+  }
+  return normDistrict || normCountry || '';
+}
+
 function mapRawSpotsToCards(rawSpots) {
   return (rawSpots || []).map((row, idx) => {
     const areaStr = String(row.district || row.area || '').trim();
-    const inferredCountry = String(row.country || '').trim() ||
-      (areaStr.startsWith('台灣') || areaStr.startsWith('臺灣') ? '臺灣' : '日本');
+    const inferredDomestic =
+      isDomesticCountry(row.country) ||
+      /^(臺灣|台灣|臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(areaStr);
+
+    const inferredCountry = inferredDomestic
+      ? '臺灣'
+      : normalizeCountryName(String(row.country || '').trim() || '日本');
+    const cleanDistrict = normalizeDistrictName(areaStr, inferredCountry);
+
     return {
       id: String(row.id || `spot_${Date.now()}_${idx}`).trim(),
       title: String(row.title || row.name || '未命名地點').trim(),
       category: String(row.category || '景點').trim(),
       country: inferredCountry,
-      district: areaStr,
+      district: cleanDistrict,
       lat: row.lat !== '' && row.lat !== null && !isNaN(Number(row.lat)) ? Number(row.lat) : null,
       lng: row.lng !== '' && row.lng !== null && !isNaN(Number(row.lng)) ? Number(row.lng) : null,
       duration: Number(row.estimated_duration ?? row.duration) || 60,
@@ -354,10 +380,12 @@ export async function pushAllToGoogleSheets(silent = false) {
 
   const spotsPayload = state.cards.map(c => {
     const sched = activeDayMap[c.id] || { day: '', order: '', transitMode: '', customTransitMin: '' };
+    const formattedArea = formatAreaForSheet(c);
     return {
       ...c,
       name: c.title,
-      area: c.district || '',
+      area: formattedArea,
+      district: formattedArea,
       description: c.notes || '',
       estimated_duration: c.duration || 60,
       source_url: c.mapUrl || '',
@@ -373,9 +401,8 @@ export async function pushAllToGoogleSheets(silent = false) {
   delete safeSettings.adminKey;
 
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
-      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'syncAll',
@@ -388,12 +415,23 @@ export async function pushAllToGoogleSheets(silent = false) {
       })
     });
 
+    if (!res.ok) {
+      throw new Error(`HTTP 錯誤 (${res.status})`);
+    }
+
+    const result = await res.json();
+    if (result.status !== 'ok') {
+      setSyncStatus('error', result.message || '寫入試算表被拒絕');
+      showToast(`寫入失敗：${result.message || '請確認管理員密碼是否與 Code.gs 一致'}`, 'rose');
+      return;
+    }
+
     setSyncStatus('connected', 'Google 試算表已同步');
-    if (!silent) showToast('已傳送寫入請求（若密碼正確將同步至試算表）', 'emerald');
+    if (!silent) showToast(`已成功寫入 ${spotsPayload.length} 筆口袋卡片至 Google 試算表！`, 'emerald');
   } catch (err) {
     console.error('寫入試算表錯誤:', err);
     setSyncStatus('error', '雲端寫入失敗');
-    if (!silent) showToast('寫入 Google 試算表失敗，請稍後再試', 'rose');
+    showToast(`寫入 Google 試算表失敗：${err.message}`, 'rose');
   } finally {
     if (pushIcon) pushIcon.classList.remove('fa-bounce');
   }
