@@ -9,7 +9,13 @@ import {
   normalizeDistrictName,
   formatCardRegionDisplay
 } from './state.js';
-import { reverseGeocodeCoords, extractCoordsFromText } from './geo.js';
+import {
+  reverseGeocodeCoords,
+  geocodePlaceName,
+  extractCoordsFromText,
+  normalizeTraditionalText
+} from './geo.js';
+import { requestSmartExtractFromGas } from './api.js';
 
 export function updateMiniCardButtonUi() {
   const label = document.getElementById('miniCardBtnLabel');
@@ -342,11 +348,336 @@ async function autoFillRegionFromModalCoords(force = false) {
   }
 }
 
+// ==================== 智慧快建（Google Drive 原生 OCR ＋ 輕量規則拆解 ＋ Maps 短網址） ====================
+function setSmartClipStatus(text, tone = 'slate') {
+  const el = document.getElementById('smartClipStatusText');
+  if (!el) return;
+  if (!text) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
+  const tones = {
+    slate: 'text-slate-500',
+    loading: 'text-[#2C4D6E] font-bold',
+    emerald: 'text-emerald-700 font-bold',
+    rose: 'text-rose-600 font-bold'
+  };
+  el.className = `text-[11px] leading-relaxed ${tones[tone] || tones.slate}`;
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
+
+function compressImageFileToBase64(file, maxWidth = 1200, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > maxWidth) {
+          h = Math.round((h * maxWidth) / w);
+          w = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('圖片讀取失敗'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('檔案讀取失敗'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function inferCategoryFromText(text) {
+  const t = String(text || '');
+  if (/機場|空港|Airport|航廈|航班/i.test(t)) return '機場';
+  if (/飯店|酒店|民宿|旅館|青旅|度假村|Hotel|Resort|Hostel|Inn/i.test(t)) return '住宿';
+  if (/拉麵|燒肉|居酒屋|咖啡|甜點|蛋糕|餐廳|小吃|美食|食堂|壽司|烏龍麵|定食|早午餐|牛排|火鍋|冰|茶|酒|Cafe|Ramen|Sushi|BBQ/i.test(t)) return '美食';
+  if (/藥妝|購物|百貨|商場|伴手禮|超市|免稅|Outlet|Mall|Store|Shop|唐吉訶德|大國/i.test(t)) return '購物';
+  if (/車站|單軌|地鐵|公車|巴士|渡輪|碼頭|租車|Station|Bus|Ferry/i.test(t)) return '交通';
+  if (/潛水|浮潛|體驗|和服|手作|溫泉|SPA|樂園|門票|水族館|美術館|博物館/i.test(t)) return '體驗';
+  return '景點';
+}
+
+function filterSocialUiNoiseLines(rawText) {
+  const lines = normalizeTraditionalText(rawText)
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  const noiseExact = /^(追蹤|追蹤中|發送訊息|讚|留言|分享|收藏|儲存|查看翻譯|顯示翻譯|原始音訊|更多|展開|收合|reels|instagram|facebook|following|follow|like|comment|share|save|sponsored|贊助|廣告|\d+\s*[萬千]?\s*(次觀看|個讚|則留言|次分享))$/i;
+
+  return lines.filter(line => {
+    if (noiseExact.test(line)) return false;
+    // 排除手機頂部狀態列時間或電量（如 14:32、98%、5G）
+    if (/^\d{1,2}:\d{2}$/.test(line)) return false;
+    if (/^\d{1,3}%$/.test(line)) return false;
+    if (/^[0-9\s.,kKmM萬千]+$/.test(line)) return false;
+    if (/^@[a-zA-Z0-9._]+$/.test(line)) return false;
+    return true;
+  });
+}
+
+async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
+  const cleanLines = filterSocialUiNoiseLines(rawText);
+  const fullCleanText = cleanLines.join('\n');
+
+  // 1. 地點名稱萃取（優先取 Maps 地標名、引號內標題或首行非網址非 Hashtag 文字）
+  let detectedTitle = mapInfo?.placeTitle ? normalizeTraditionalText(mapInfo.placeTitle) : '';
+  if (!detectedTitle) {
+    const bracketMatch = fullCleanText.match(/[【「《『]([^】」》』\n]{2,28})[】」》』]/);
+    if (bracketMatch && bracketMatch[1]) {
+      detectedTitle = bracketMatch[1].trim();
+    }
+  }
+  if (!detectedTitle) {
+    const firstCandidate = cleanLines.find(
+      l => !l.startsWith('http') && !l.startsWith('#') && l.length >= 2 && l.length <= 36
+    );
+    if (firstCandidate) {
+      detectedTitle = firstCandidate
+        .replace(/^[📍🏠🍜🏞️🛍️🏨✈️🚆🎡⭐🔥✨・•\-\d.\s]+/, '')
+        .split(/[｜|／\/－—]/)[0]
+        .trim();
+    }
+  }
+
+  // 2. 類別推斷
+  const detectedCategory = inferCategoryFromText(`${detectedTitle} ${fullCleanText}`);
+
+  // 3. 營業時間／公休日萃取
+  let detectedHours = '';
+  const hoursLine = cleanLines.find(l =>
+    /(營業時間|營業|時間|公休|定休日|週[一二三四五六日天]休|\d{1,2}[:：]\d{2}\s*[-~～至]\s*\d{1,2}[:：]\d{2})/.test(l)
+  );
+  if (hoursLine) {
+    detectedHours = hoursLine.replace(/^(營業時間|營業|時間)[：:\s]*/i, '').trim();
+  }
+
+  // 4. 必點／推薦品項萃取
+  let detectedMustBuy = '';
+  const mustLine = cleanLines.find(l => /(推薦|必點|必吃|必買|招牌|人氣)[：:\s]/.test(l));
+  if (mustLine) {
+    detectedMustBuy = mustLine.replace(/^.*?(推薦|必點|必吃|必買|招牌|人氣)[：:\s]*/i, '').trim();
+  }
+
+  // 5. 交通／停車資訊萃取
+  let detectedParking = '';
+  const parkLine = cleanLines.find(l => /(停車|停車場|步行\s*\d+\s*分|車站|單軌|捷運|公車|出口)/.test(l));
+  if (parkLine) {
+    detectedParking = parkLine.replace(/^(交通|停車|地址)[：:\s]*/i, '').trim();
+  }
+
+  // 6. 地址或地區線索萃取
+  const addrLine = cleanLines.find(l =>
+    /(地址|沖繩縣|東京都|大阪府|京都府|北海道|福岡縣|臺北市|新北市|桃園市|臺中市|臺南市|高雄市|宜蘭縣|花蓮縣|臺東縣|南投縣|屏東縣|澎湖縣|金門縣)/.test(l)
+  );
+
+  // 7. 精簡備註（移除純 Hashtag 行與網址行，保留精華內容）
+  const noteLines = cleanLines.filter(l => !l.startsWith('http') && !/^#/.test(l));
+  const summaryNotes = noteLines
+    .join('\n')
+    .replace(/#[^\s#]+/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 450);
+
+  // 填入表單欄位
+  if (detectedTitle && !document.getElementById('fieldTitle').value.trim()) {
+    document.getElementById('fieldTitle').value = detectedTitle;
+  } else if (detectedTitle) {
+    document.getElementById('fieldTitle').value = detectedTitle;
+  }
+
+  const catSel = document.getElementById('fieldCategory');
+  if (catSel) {
+    catSel.value = detectedCategory;
+    onModalCategoryChange();
+  }
+
+  if (detectedMustBuy && document.getElementById('fieldMustBuy')) {
+    document.getElementById('fieldMustBuy').value = detectedMustBuy;
+  }
+  if (detectedHours && document.getElementById('fieldBusinessHours')) {
+    document.getElementById('fieldBusinessHours').value = detectedHours;
+  }
+  if (detectedParking && document.getElementById('fieldParkingInfo')) {
+    document.getElementById('fieldParkingInfo').value = detectedParking;
+  }
+  if (summaryNotes) {
+    document.getElementById('fieldNotes').value = summaryNotes;
+  }
+
+  // 網址與經緯度處理
+  const urlInText = rawText.match(/https?:\/\/[^\s"'<>）)】」』]+/i)?.[0] || '';
+  const finalMapUrl = mapInfo?.expandedUrl || urlInText;
+  if (finalMapUrl && /google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(finalMapUrl)) {
+    document.getElementById('fieldMapUrl').value = finalMapUrl;
+  }
+
+  const inlineCoords = extractCoordsFromText(rawText);
+  const finalLat = mapInfo?.lat ?? inlineCoords?.lat ?? null;
+  const finalLng = mapInfo?.lng ?? inlineCoords?.lng ?? null;
+
+  if (finalLat != null && finalLng != null) {
+    document.getElementById('fieldLat').value = finalLat;
+    document.getElementById('fieldLng').value = finalLng;
+    await autoFillRegionFromModalCoords(true);
+    return;
+  }
+
+  // 若無直接座標，嘗試用地址或店名查詢經緯度與地區
+  const geoQuery = addrLine
+    ? addrLine.replace(/^地址[：:\s]*/i, '').trim()
+    : detectedTitle;
+
+  if (geoQuery) {
+    const currentCountry = document.getElementById('fieldCountry')?.value || '';
+    const geoRes = await geocodePlaceName(geoQuery, currentCountry);
+    if (geoRes) {
+      const normCountry = normalizeCountryName(geoRes.country);
+      const normDistrict = normalizeDistrictName(geoRes.district, normCountry);
+      document.getElementById('fieldLat').value = geoRes.lat;
+      document.getElementById('fieldLng').value = geoRes.lng;
+      document.getElementById('fieldCountry').value = normCountry;
+      document.getElementById('fieldDistrict').value = normDistrict;
+    }
+  }
+}
+
+export function toggleSmartClipBox() {
+  const body = document.getElementById('smartClipBody');
+  const chev = document.getElementById('smartClipChevron');
+  if (!body) return;
+  const isHidden = body.classList.contains('hidden');
+  if (isHidden) {
+    body.classList.remove('hidden');
+    if (chev) chev.className = 'fa-solid fa-chevron-up text-[10px]';
+  } else {
+    body.classList.add('hidden');
+    if (chev) chev.className = 'fa-solid fa-chevron-down text-[10px]';
+  }
+}
+
+export function clearSmartClipBox() {
+  const input = document.getElementById('smartClipTextInput');
+  const fileInput = document.getElementById('smartScreenshotInput');
+  if (input) input.value = '';
+  if (fileInput) fileInput.value = '';
+  setSmartClipStatus('', 'slate');
+}
+
+export async function runSmartTextParse() {
+  const rawText = (document.getElementById('smartClipTextInput')?.value || '').trim();
+  if (!rawText) {
+    showToast('請先貼上 FB 貼文文字或 Google Maps 網址', 'amber');
+    return;
+  }
+
+  const hasShortUrl = /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)/i.test(rawText);
+  let mapInfo = null;
+
+  try {
+    if (hasShortUrl) {
+      setSmartClipStatus('正在透過 GAS 後端展開 Google Maps 短網址...', 'loading');
+      const res = await requestSmartExtractFromGas({ text: rawText });
+      if (res.status === 'ok') {
+        mapInfo = res.mapInfo || null;
+      } else {
+        showToast(res.message || '短網址展開失敗，改用文字解析', 'amber');
+      }
+    } else {
+      setSmartClipStatus('正在拆解貼文欄位與定位地區...', 'loading');
+    }
+
+    await applyParsedFieldsToCardModal(rawText, mapInfo);
+    setSmartClipStatus('已自動拆解並帶入下方卡片欄位，請確認後儲存！', 'emerald');
+    showToast('智慧拆解完成，已自動填入卡片欄位', 'emerald');
+  } catch (err) {
+    console.error('智慧文字解析錯誤:', err);
+    setSmartClipStatus(`解析發生異常：${err.message}`, 'rose');
+  }
+}
+
+async function processScreenshotFileForOcr(file) {
+  if (!file) return;
+  try {
+    setSmartClipStatus('正在壓縮截圖並呼叫 Google Drive OCR 辨識文字...', 'loading');
+    const compressedDataUrl = await compressImageFileToBase64(file, 1200, 0.8);
+    const existingText = (document.getElementById('smartClipTextInput')?.value || '').trim();
+
+    const res = await requestSmartExtractFromGas({
+      text: existingText,
+      imageBase64: compressedDataUrl,
+      mimeType: 'image/jpeg'
+    });
+
+    if (res.status !== 'ok') {
+      setSmartClipStatus(res.message || 'OCR 辨識失敗，請確認 GAS 已啟用 Drive API', 'rose');
+      showToast(res.message || 'OCR 辨識失敗', 'rose');
+      return;
+    }
+
+    const ocrText = String(res.ocrText || '').trim();
+    const combinedText = [existingText, ocrText].filter(Boolean).join('\n');
+    const textBox = document.getElementById('smartClipTextInput');
+    if (textBox && ocrText) {
+      textBox.value = combinedText;
+    }
+
+    if (!combinedText && !res.mapInfo) {
+      setSmartClipStatus('圖片中未偵測到可辨識文字，請換一張較清晰的截圖', 'rose');
+      return;
+    }
+
+    await applyParsedFieldsToCardModal(combinedText, res.mapInfo || null);
+    setSmartClipStatus('Drive OCR 辨識完成！已自動填入店名、分類與地區', 'emerald');
+    showToast('截圖文字辨識完成並已帶入表單', 'emerald');
+  } catch (err) {
+    console.error('截圖 OCR 錯誤:', err);
+    setSmartClipStatus(`截圖辨識失敗：${err.message}`, 'rose');
+    showToast('截圖辨識失敗，請稍後再試', 'rose');
+  }
+}
+
+export async function handleSmartScreenshotUpload(event) {
+  const file = event.target?.files?.[0];
+  if (!file) return;
+  await processScreenshotFileForOcr(file);
+  event.target.value = '';
+}
+
+export async function handleSmartPasteEvent(event) {
+  const items = event.clipboardData?.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type && items[i].type.startsWith('image/')) {
+      event.preventDefault();
+      const file = items[i].getAsFile();
+      if (file) {
+        await processScreenshotFileForOcr(file);
+      }
+      return;
+    }
+  }
+}
+
 export function openCardModal(cardId = null) {
   const modal = document.getElementById('cardModal');
   if (!modal) return;
 
   bindModalCoordAutoGeocode();
+  clearSmartClipBox();
 
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const assignSel = document.getElementById('fieldAssignDay');
@@ -355,6 +686,9 @@ export function openCardModal(cardId = null) {
       `<option value="">僅存入口袋資料庫</option>` +
       Array.from({ length: totalDays }, (_, i) => `<option value="${i + 1}">Day ${i + 1}</option>`).join('');
   }
+
+  const smartBody = document.getElementById('smartClipBody');
+  const smartChev = document.getElementById('smartClipChevron');
 
   if (cardId) {
     const card = state.cards.find(c => c.id === cardId);
@@ -377,6 +711,10 @@ export function openCardModal(cardId = null) {
     document.getElementById('fieldStarred').checked = Boolean(card.starred);
     lastGeocodedCoordsKey =
       card.lat != null && card.lng != null ? `${Number(card.lat).toFixed(5)},${Number(card.lng).toFixed(5)}` : '';
+
+    // 編輯既有卡片時預設收合智慧快建區，維持精簡畫面
+    if (smartBody) smartBody.classList.add('hidden');
+    if (smartChev) smartChev.className = 'fa-solid fa-chevron-down text-[10px]';
   } else {
     editingCardCache = {};
     lastGeocodedCoordsKey = '';
@@ -393,6 +731,10 @@ export function openCardModal(cardId = null) {
     document.getElementById('fieldMapUrl').value = '';
     document.getElementById('fieldImage').value = '';
     document.getElementById('fieldStarred').checked = false;
+
+    // 新增卡片時預設展開智慧快建區，方便手機滑社群秒存
+    if (smartBody) smartBody.classList.remove('hidden');
+    if (smartChev) smartChev.className = 'fa-solid fa-chevron-up text-[10px]';
   }
 
   onModalCategoryChange();
@@ -518,14 +860,41 @@ export function handleLatLngPaste(event) {
   }
 }
 
-export function extractCoordsFromMapUrlField() {
-  const url = document.getElementById('fieldMapUrl')?.value || '';
+export async function extractCoordsFromMapUrlField() {
+  const url = (document.getElementById('fieldMapUrl')?.value || '').trim();
+  if (!url) return;
+
   const coords = extractCoordsFromText(url);
   if (coords) {
     document.getElementById('fieldLat').value = coords.lat;
     document.getElementById('fieldLng').value = coords.lng;
     showToast('已從網址自動擷取經緯度', 'emerald');
-    autoFillRegionFromModalCoords(true);
+    await autoFillRegionFromModalCoords(true);
+    return;
+  }
+
+  // 若貼入的是 Google Maps 手機短網址，自動呼叫 GAS 後端展開並抓出座標與店名
+  if (/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)/i.test(url)) {
+    showToast('正在展開 Google Maps 短網址...', 'blue');
+    try {
+      const res = await requestSmartExtractFromGas({ text: url });
+      if (res.status === 'ok' && res.mapInfo) {
+        if (res.mapInfo.expandedUrl) {
+          document.getElementById('fieldMapUrl').value = res.mapInfo.expandedUrl;
+        }
+        if (res.mapInfo.placeTitle && !document.getElementById('fieldTitle').value.trim()) {
+          document.getElementById('fieldTitle').value = normalizeTraditionalText(res.mapInfo.placeTitle);
+        }
+        if (res.mapInfo.lat != null && res.mapInfo.lng != null) {
+          document.getElementById('fieldLat').value = res.mapInfo.lat;
+          document.getElementById('fieldLng').value = res.mapInfo.lng;
+          showToast('已展開短網址並自動擷取座標', 'emerald');
+          await autoFillRegionFromModalCoords(true);
+        }
+      }
+    } catch (err) {
+      console.warn('短網址展開失敗:', err);
+    }
   }
 }
 
