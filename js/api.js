@@ -10,6 +10,29 @@ import {
   showToast
 } from './state.js';
 
+function getOrCreateGuestDeviceId() {
+  const storageKey = 'echi_go_guest_device_id_v1';
+  try {
+    let existing = localStorage.getItem(storageKey);
+    if (existing && existing.trim()) return existing.trim();
+    const generated = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(storageKey, generated);
+    return generated;
+  } catch (err) {
+    return `dev_sess_${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+function detectSimpleDeviceType() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows';
+  return '其他裝置';
+}
+
 function setSyncStatus(status, text) {
   const pill = document.getElementById('syncStatusPill');
   const dot = document.getElementById('syncStatusDot');
@@ -120,7 +143,7 @@ function parseLegacyItinerary(rawItinerary, totalDays) {
   return null;
 }
 
-// ==================== 訪客唯讀分享模式：即時讀取單一授權行程 ====================
+// ==================== 訪客唯讀分享模式：即時讀取單一授權行程並回報匿名裝置 ====================
 export async function pullSharedTripFromGoogleSheets(gasUrl, token, manual = false) {
   const url = String(gasUrl || '').trim();
   const cleanToken = String(token || '').trim();
@@ -134,7 +157,9 @@ export async function pullSharedTripFromGoogleSheets(gasUrl, token, manual = fal
   setSyncStatus('syncing', '正在載入最新行程...');
 
   try {
-    const endpoint = `${url}${url.includes('?') ? '&' : '?'}action=getSharedTrip&token=${encodeURIComponent(cleanToken)}&t=${Date.now()}`;
+    const deviceId = getOrCreateGuestDeviceId();
+    const deviceType = detectSimpleDeviceType();
+    const endpoint = `${url}${url.includes('?') ? '&' : '?'}action=getSharedTrip&token=${encodeURIComponent(cleanToken)}&deviceId=${encodeURIComponent(deviceId)}&deviceType=${encodeURIComponent(deviceType)}&t=${Date.now()}`;
     const res = await fetch(endpoint);
     const data = await res.json();
 
@@ -201,6 +226,7 @@ export async function pullFromGoogleSheets(manual = false) {
     }
 
     const data = rawJson.data && typeof rawJson.data === 'object' ? rawJson.data : rawJson;
+    state.shareStats = (data.shareStats && typeof data.shareStats === 'object') ? data.shareStats : {};
 
     const rawSpots = Array.isArray(data.spots) ? data.spots : (Array.isArray(data.cards) ? data.cards : []);
     if (rawSpots.length > 0) {
