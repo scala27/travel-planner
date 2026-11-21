@@ -17,6 +17,9 @@ export const state = {
   boardMultiDayMode: false,
   pocketCollapsed: false,
   miniCardMode: false,
+  hierarchyViewMode: true, // true: 三層階層鑽取（國家 -> 行政區 -> 景點） | false: 全部展開扁平列表
+  drillCountry: '', // 目前鑽取進入的國家名稱（'' 表示在第一層國家總覽）
+  drillDistrict: '', // 目前鑽取進入的行政區名稱（'' 表示在第二層行政區總覽）
   mapDrawerOpenCollect: false,
   mapDrawerOpenPlan: false,
   filters: {
