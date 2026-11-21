@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, STORAGE_KEY } from './config.js';
 export const state = {
   isReadOnly: false, // 訪客開啟 ?share= 連結時為 true
   shareToken: '',
+  shareStats: {}, // 各行程目前分享連結的瀏覽統計
   mode: 'plan', // 'plan'（我的行程） | 'collect'（口袋清單）
   tripViewStep: 'list', // 'list'（行程專案總覽牆） | 'detail'（單一行程每日排程）
   trips: [],
@@ -51,6 +52,80 @@ export const hooks = {
   addCardToDay: null,
   invalidateMapSize: null
 };
+
+// ==================== 地區名稱正規化與「方向 B」顯示工具 ====================
+export function normalizeTaiwanTraditionalChars(str) {
+  return String(str || '')
+    .replace(/台灣/g, '臺灣')
+    .replace(/台北市/g, '臺北市')
+    .replace(/台北縣/g, '臺北縣')
+    .replace(/台中市/g, '臺中市')
+    .replace(/台中縣/g, '臺中縣')
+    .replace(/台南市/g, '臺南市')
+    .replace(/台南縣/g, '臺南縣')
+    .replace(/台東縣/g, '臺東縣')
+    .replace(/台東市/g, '臺東市');
+}
+
+export function isDomesticCountry(country) {
+  const c = String(country || '').trim();
+  return c === '台灣' || c === '臺灣' || c.toUpperCase() === 'TW' || c.toLowerCase() === 'taiwan';
+}
+
+export function normalizeCountryName(country) {
+  const raw = String(country || '').trim();
+  if (!raw) return '日本';
+  if (isDomesticCountry(raw)) return '臺灣';
+  return normalizeTaiwanTraditionalChars(raw);
+}
+
+export function normalizeDistrictName(district, country = '') {
+  let d = normalizeTaiwanTraditionalChars(String(district || '').trim());
+  if (!d) return '';
+
+  // 清除開頭重複的國家名稱前綴（例如「日本・沖繩縣・那霸市」或「臺灣・臺中市」）
+  d = d.replace(/^(臺灣|台灣)\s*[・‧·\-/]\s*/i, '');
+  const normCountry = normalizeCountryName(country);
+  if (normCountry && !isDomesticCountry(normCountry)) {
+    const escapedCountry = normCountry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefixRegex = new RegExp(`^${escapedCountry}\\s*[・‧·\\-/]\\s*`, 'i');
+    d = d.replace(prefixRegex, '');
+  }
+
+  // 統一階層分隔符號為「・」
+  d = d
+    .split(/\s*[・‧·]\s*/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join('・');
+
+  return d;
+}
+
+/**
+ * 方向 B 統一顯示規則：
+ * - 國內（臺灣）：精簡不顯示國家，僅顯示「縣市・鄉鎮市區」（如：臺中市・沙鹿區）
+ * - 國外（日本等）：統一顯示「國家・行政區」（如：日本・沖繩縣・那霸市）
+ */
+export function formatCardRegionDisplay(card) {
+  if (!card) return '未分類地區';
+  const rawCountry = String(card.country || '').trim();
+  const rawDistrict = String(card.district || '').trim();
+  const inferredDomestic =
+    isDomesticCountry(rawCountry) ||
+    (!rawCountry && /^(臺灣|台灣|臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(rawDistrict));
+
+  const country = inferredDomestic ? '臺灣' : normalizeCountryName(rawCountry);
+  const district = normalizeDistrictName(rawDistrict, country);
+
+  if (inferredDomestic) {
+    return district || '臺灣';
+  }
+  if (country && district) {
+    return `${country}・${district}`;
+  }
+  return district || country || '未分類地區';
+}
 
 export function generateRandomShareToken() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -126,8 +201,8 @@ export function syncLegacyStateBackToActiveTrip() {
   active.title = state.settings.tripTitle;
   active.startDate = state.settings.startDate;
   active.totalDays = state.settings.totalDays;
-  active.dayColors = state.settings.dayColors && typeof active.dayColors === 'object'
-    ? { ...active.dayColors }
+  active.dayColors = state.settings.dayColors && typeof state.settings.dayColors === 'object'
+    ? { ...state.settings.dayColors }
     : {};
   active.itinerary = state.itinerary;
 }
