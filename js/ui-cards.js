@@ -596,8 +596,7 @@ function renderSpotCardsList(container, cards, scheduledMap) {
 
       return `
         <div id="db-card-${card.id}" draggable="true" ondragstart="onDragStartCard(event, '${card.id}')"
-          onclick="handleCardClick('${card.id}')"
-          class="bg-white rounded-xl border ${days.length > 0 ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} p-3 shadow-2xs hover:shadow-sm hover:border-[#2C4D6E]/40 transition flex flex-col justify-between gap-2.5 cursor-pointer">
+          class="bg-white rounded-xl border ${days.length > 0 ? 'border-emerald-200 bg-emerald-50/15' : 'border-slate-200'} p-3 shadow-2xs hover:shadow-sm hover:border-[#2C4D6E]/40 transition flex flex-col justify-between gap-2.5">
           <div class="space-y-1.5">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-start gap-2 min-w-0">
@@ -628,7 +627,7 @@ function renderSpotCardsList(container, cards, scheduledMap) {
             }
           </div>
 
-          <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-1.5" onclick="event.stopPropagation()">
+          <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-1.5">
             <select onchange="quickAssignCardToDay('${card.id}', this)"
               class="text-xs font-bold text-[#2C4D6E] bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none cursor-pointer">
               <option value="">＋ 排入行程</option>
@@ -644,8 +643,8 @@ function renderSpotCardsList(container, cards, scheduledMap) {
                     </a>`
                   : ''
               }
-              <button type="button" onclick="focusCardOnMap('${card.id}')" title="在地圖檢視"
-                class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-[#2C4D6E] flex items-center justify-center text-xs">
+              <button type="button" onclick="event.stopPropagation(); focusCardOnMap('${card.id}')" title="在路線地圖定位"
+                class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-[#2C4D6E] active:bg-[#2C4D6E] active:text-white flex items-center justify-center text-xs transition">
                 <i class="fa-solid fa-location-dot"></i>
               </button>
               <button type="button" onclick="openCardModal('${card.id}')" title="編輯卡片"
@@ -688,7 +687,6 @@ export function renderDatabaseCards() {
   const scheduledMap = getScheduledDaysMap();
   const q = (document.getElementById('searchInput')?.value || '').trim();
 
-  // 驗證當前鑽取的國家/行政區是否仍存在於資料中，避免刪除最後一張卡片後停在空層級
   if (state.drillCountry && !baseCards.some(c => getCardCanonicalCountry(c) === state.drillCountry)) {
     state.drillCountry = '';
     state.drillDistrict = '';
@@ -732,6 +730,8 @@ export function toggleCardDetailExpand() {}
 let editingCardCache = null;
 let lastGeocodedCoordsKey = '';
 let detectedMultiSpotsCache = [];
+let mapUrlDebounceTimer = null;
+let lastParsedMapUrlInput = '';
 
 function bindModalCoordAutoGeocode() {
   const latEl = document.getElementById('fieldLat');
@@ -819,7 +819,6 @@ async function resolvePlaceCoordsAndRegion(title, address, countryHint = '') {
     candidates.push(cleanAddr);
     if (jpAddr !== cleanAddr) candidates.push(jpAddr);
 
-    // 去除末尾門牌番地（例如 "沖縄県那覇市牧志3-1-1" -> "沖縄県那覇市牧志"），避免地圖庫因缺門牌查無結果
     const strippedBlock = jpAddr.replace(/[\s\-－]*\d+(?:[\-－]\d+)*\s*(?:F|階|號|号)?\s*$/i, '').trim();
     if (strippedBlock && strippedBlock.length >= 4 && !candidates.includes(strippedBlock)) {
       candidates.push(strippedBlock);
@@ -827,7 +826,6 @@ async function resolvePlaceCoordsAndRegion(title, address, countryHint = '') {
   }
 
   if (title) {
-    // 清理 OCR 誤判符號後再查詢店名
     const cleanTitle = title.replace(/\([^)]*\/?>[^)]*\)/g, '').replace(/（[^）]*\/?>[^）]*）/g, '').trim();
     if (cleanTitle && !candidates.includes(cleanTitle)) {
       candidates.push(cleanTitle);
@@ -1278,7 +1276,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
   hideMultiSpotBatchBox();
   const allLines = filterSocialUiNoiseLines(rawText);
 
-  // 先檢查是否為「懶人包／精選多間店」合集貼文
   const multiSpots = detectMultipleSpotsFromLines(allLines);
   if (multiSpots.length >= 2) {
     detectedMultiSpotsCache = multiSpots;
@@ -1286,7 +1283,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     return { isMultiSpot: true, count: multiSpots.length };
   }
 
-  // 若為單一店家截圖，過濾影片畫面頂端無關的覆蓋小字（在「【店名】」之前）
   const bracketIdx = allLines.findIndex(l => /[【「《『][^】」》』\n]{2,28}[】」》』]/.test(l));
   const cleanLines =
     bracketIdx > 1 && allLines[0].length <= 16 && !/[，。！？,.!?]/.test(allLines[0])
@@ -1295,7 +1291,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
 
   const fullCleanText = cleanLines.join('\n');
 
-  // 1. 地點名稱萃取（排除 📍 地址、營業時間等欄位行，並支援最長 65 字元的雙語店名）
   const fieldPrefixNoise = /^(?:📍|⏰|🕒|🕐|🧾|🍽️|地址|Address|營業時間|營業時段|開放時間|公休|電話|TEL|官網|IG|Instagram)[：:\s]/i;
   let titleLineIndex = -1;
   let detectedTitle = mapInfo?.placeTitle ? normalizeTraditionalText(mapInfo.placeTitle) : '';
@@ -1324,23 +1319,16 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     }
   }
 
-  // 2. 類別推斷
   const detectedCategory = inferCategoryFromText(`${detectedTitle} ${fullCleanText}`);
-
-  // 3. 營業時間／公休日精準萃取
   const detectedHours = extractHoursFromLines(cleanLines);
-
-  // 4. 必點／推薦品項與菜單萃取
   const detectedMustBuy = extractMustBuyFromLines(cleanLines);
 
-  // 5. 交通／停車資訊萃取
   let detectedParking = '';
   const parkLine = cleanLines.find(l => /(停車|停車場|步行\s*\d+\s*分|車站|單軌|捷運|公車|出口)/.test(l));
   if (parkLine) {
     detectedParking = parkLine.replace(/^(交通|停車)[：:\s]*/i, '').trim();
   }
 
-  // 6. 地址或地區線索萃取（支援中文縣市、📍圖示行及英文日本地址，並完整清除「📍 地址：」前綴）
   let addrLine = '';
   const pinIdx = cleanLines.findIndex(l => /^(?:📍\s*)?(?:地址|Address)[：:\s]/i.test(l) || /^📍/.test(l));
   if (pinIdx !== -1) {
@@ -1358,7 +1346,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     }
   }
 
-  // 7. 精簡備註（移除純 Hashtag 行、網址行及已抽出的首行店名，保留乾淨介紹與地址）
   const noteLines = cleanLines.filter((l, idx) => idx !== titleLineIndex && !l.startsWith('http') && !/^#/.test(l));
   const summaryNotes = noteLines
     .join('\n')
@@ -1367,7 +1354,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     .trim()
     .slice(0, 500);
 
-  // 填入表單欄位
   if (detectedTitle) {
     document.getElementById('fieldTitle').value = detectedTitle;
   }
@@ -1391,7 +1377,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     document.getElementById('fieldNotes').value = summaryNotes;
   }
 
-  // 網址與經緯度處理
   const urlInText = rawText.match(/https?:\/\/[^\s"'<>）)】」』]+/i)?.[0] || '';
   const finalMapUrl = mapInfo?.expandedUrl || urlInText;
   if (finalMapUrl && /google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(finalMapUrl)) {
@@ -1419,7 +1404,6 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     }
   }
 
-  // 8. 若原圖沒有附帶 Google Maps 網址，但已解析出店名與地區，自動補齊搜尋連結方便導航
   const mapUrlInput = document.getElementById('fieldMapUrl');
   if (mapUrlInput && !mapUrlInput.value.trim() && detectedTitle) {
     const regionHint = document.getElementById('fieldDistrict')?.value.trim() || addrLine || '';
@@ -1564,6 +1548,7 @@ export function openCardModal(cardId = null) {
 
   bindModalCoordAutoGeocode();
   clearSmartClipBox();
+  lastParsedMapUrlInput = '';
 
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
   const assignSel = document.getElementById('fieldAssignDay');
@@ -1597,6 +1582,7 @@ export function openCardModal(cardId = null) {
     document.getElementById('fieldStarred').checked = Boolean(card.starred);
     lastGeocodedCoordsKey =
       card.lat != null && card.lng != null ? `${Number(card.lat).toFixed(5)},${Number(card.lng).toFixed(5)}` : '';
+    lastParsedMapUrlInput = card.mapUrl || '';
 
     if (smartBody) smartBody.classList.add('hidden');
     if (smartChev) smartChev.className = 'fa-solid fa-chevron-down text-[10px]';
@@ -1745,11 +1731,36 @@ export function handleLatLngPaste(event) {
   }
 }
 
-export async function extractCoordsFromMapUrlField() {
-  const url = (document.getElementById('fieldMapUrl')?.value || '').trim();
-  if (!url) return;
+export function scheduleMapUrlExtract() {
+  clearTimeout(mapUrlDebounceTimer);
+  mapUrlDebounceTimer = setTimeout(() => {
+    extractCoordsFromMapUrlField();
+  }, 350);
+}
 
-  const coords = extractCoordsFromText(url);
+export async function extractCoordsFromMapUrlField() {
+  const urlInputEl = document.getElementById('fieldMapUrl');
+  const rawInput = (urlInputEl?.value || '').trim();
+  if (!rawInput || rawInput === lastParsedMapUrlInput) return;
+
+  // 若手機 Google Maps 分享時連同「店名 + 網址」整段貼入，自動分離純網址與前綴店名
+  const urlMatch = rawInput.match(/https?:\/\/[^\s"'<>）)】」』]+/i);
+  const cleanUrl = urlMatch ? urlMatch[0].trim() : rawInput;
+  const prefixTitle = urlMatch
+    ? rawInput.slice(0, urlMatch.index).replace(/[-–—|｜:：\s]+$/g, '').trim()
+    : '';
+
+  if (urlMatch && cleanUrl !== rawInput && urlInputEl) {
+    urlInputEl.value = cleanUrl;
+  }
+  if (prefixTitle && !document.getElementById('fieldTitle').value.trim()) {
+    document.getElementById('fieldTitle').value = normalizeTraditionalText(prefixTitle);
+  }
+
+  lastParsedMapUrlInput = cleanUrl;
+
+  // 1. 若為完整長網址，前端直接正規表達式抽出座標並自動反查國家與行政區
+  const coords = extractCoordsFromText(cleanUrl);
   if (coords) {
     document.getElementById('fieldLat').value = coords.lat;
     document.getElementById('fieldLng').value = coords.lng;
@@ -1758,13 +1769,15 @@ export async function extractCoordsFromMapUrlField() {
     return;
   }
 
-  if (/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)/i.test(url)) {
-    showToast('正在展開 Google Maps 短網址...', 'blue');
+  // 2. 若為手機版複製的 Google Maps 短網址（maps.app.goo.gl / goo.gl/maps），呼叫 GAS 後端展開轉址
+  if (/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)/i.test(cleanUrl)) {
+    showToast('正在展開 Google Maps 短網址並帶入地區...', 'blue');
     try {
-      const res = await requestSmartExtractFromGas({ text: url });
+      const res = await requestSmartExtractFromGas({ text: cleanUrl });
       if (res.status === 'ok' && res.mapInfo) {
-        if (res.mapInfo.expandedUrl) {
-          document.getElementById('fieldMapUrl').value = res.mapInfo.expandedUrl;
+        if (res.mapInfo.expandedUrl && urlInputEl) {
+          urlInputEl.value = res.mapInfo.expandedUrl;
+          lastParsedMapUrlInput = res.mapInfo.expandedUrl;
         }
         if (res.mapInfo.placeTitle && !document.getElementById('fieldTitle').value.trim()) {
           document.getElementById('fieldTitle').value = normalizeTraditionalText(res.mapInfo.placeTitle);
@@ -1774,10 +1787,24 @@ export async function extractCoordsFromMapUrlField() {
           document.getElementById('fieldLng').value = res.mapInfo.lng;
           showToast('已展開短網址並自動擷取座標', 'emerald');
           await autoFillRegionFromModalCoords(true);
+        } else if (res.mapInfo.placeTitle || prefixTitle) {
+          // 備援：若轉址後仍無座標，改以店名進行地理編碼補齊座標與行政區
+          const queryName = res.mapInfo.placeTitle || prefixTitle;
+          const geoRes = await resolvePlaceCoordsAndRegion(queryName, '', document.getElementById('fieldCountry')?.value || '');
+          if (geoRes) {
+            document.getElementById('fieldLat').value = geoRes.lat;
+            document.getElementById('fieldLng').value = geoRes.lng;
+            await autoFillRegionFromModalCoords(true);
+          } else {
+            showToast('已展開連結但無法取得座標，請確認 GAS 已部署最新版本', 'amber');
+          }
         }
+      } else {
+        showToast(res.message || '短網址展開失敗，請確認 GAS 連線與密碼設定', 'amber');
       }
     } catch (err) {
       console.warn('短網址展開失敗:', err);
+      showToast('展開短網址失敗，請確認網路或 GAS 設定', 'rose');
     }
   }
 }
