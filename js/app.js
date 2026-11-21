@@ -54,7 +54,7 @@ function syncTripStepAttributes() {
   document.body.setAttribute('data-trip-step', state.tripViewStep);
 }
 
-// ==================== 分享行程管理（開關、複製連結、重設 Token） ====================
+// ==================== 分享行程管理（開關、複製連結、重設 Token、裝置統計） ====================
 function buildShareTripUrl(trip) {
   const url = new URL(window.location.href);
   url.search = '';
@@ -81,6 +81,45 @@ function syncShareModalUi() {
     } else {
       activeBox.classList.add('opacity-50', 'pointer-events-none');
     }
+  }
+
+  // 更新不重複裝置與瀏覽統計顯示
+  const statsMap = state.shareStats || {};
+  const tripStats = statsMap[trip.id] || { uniqueDevices: 0, totalViews: 0, lastViewedAt: '' };
+  const uniqueDevices = Number(tripStats.uniqueDevices) || 0;
+  const totalViews = Number(tripStats.totalViews) || 0;
+  const lastViewed = String(tripStats.lastViewedAt || '').trim();
+
+  const devEl = document.getElementById('shareUniqueDevicesCount');
+  const viewEl = document.getElementById('shareTotalViewsCount');
+  const lastEl = document.getElementById('shareLastViewedText');
+  const alertEl = document.getElementById('shareMultiDeviceAlert');
+
+  if (devEl) devEl.textContent = `${uniqueDevices} 台`;
+  if (viewEl) viewEl.textContent = `${totalViews} 次`;
+  if (lastEl) {
+    lastEl.textContent = lastViewed ? lastViewed.slice(5) : '尚無紀錄';
+    lastEl.title = lastViewed || '尚無瀏覽紀錄';
+  }
+  if (alertEl) {
+    if (uniqueDevices >= 2) {
+      alertEl.classList.remove('hidden');
+    } else {
+      alertEl.classList.add('hidden');
+    }
+  }
+}
+
+async function refreshShareStatsInModal() {
+  if (state.isReadOnly) return;
+  const icon = document.getElementById('refreshShareStatsIcon');
+  if (icon) icon.classList.add('fa-spin');
+  try {
+    await pullFromGoogleSheets(false);
+    syncShareModalUi();
+    showToast('已更新最新瀏覽統計數據', 'emerald');
+  } finally {
+    if (icon) icon.classList.remove('fa-spin');
   }
 }
 
@@ -117,6 +156,9 @@ function regenerateTripShareToken() {
   const trip = getActiveTrip();
   trip.shareToken = generateRandomShareToken();
   trip.shareEnabled = true;
+  if (state.shareStats && state.shareStats[trip.id]) {
+    state.shareStats[trip.id] = { uniqueDevices: 0, totalViews: 0, lastViewedAt: '', devices: [] };
+  }
   syncShareModalUi();
   persistState(true);
   showToast('已產生全新分享連結，舊連結已失效', 'emerald');
@@ -791,6 +833,7 @@ Object.assign(window, {
   onToggleTripShareEnabled,
   regenerateTripShareToken,
   copyShareTripUrl,
+  refreshShareStatsInModal,
   toggleAdminKeyVisibility,
   refreshCurrentData,
   switchWorkspaceMode,
