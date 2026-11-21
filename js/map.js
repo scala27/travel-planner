@@ -926,8 +926,8 @@ export function focusCardOnMap(cardId, warnIfMissing = true) {
     return;
   }
 
-  // 手機端（< 768px）自動切換至「路線地圖」分頁，確保地圖容器處於顯示狀態
-  const isMobileViewport = window.innerWidth < 768;
+  // 手機端（<= 768px）自動切換至「路線地圖」分頁，與 app.js 的 isMobileViewport() 斷點一致
+  const isMobileViewport = window.innerWidth <= 768;
   if (isMobileViewport && state.mobileTab !== 'map' && typeof window.switchMobileTab === 'function') {
     window.switchMobileTab('map');
   }
