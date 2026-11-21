@@ -9,6 +9,7 @@ const markerByCardId = {};
 const inFlightRouteRequests = {};
 let renderGeneration = 0;
 let lastFittedScopeKey = null;
+let lastCollectCardsGetter = null;
 
 const ROUTE_CACHE_STORAGE_KEY = 'echi_route_geom_cache_v1';
 let routeGeometryCache = {};
@@ -711,7 +712,10 @@ async function drawRoadSnappedLeg(cardA, cardB, itemB, legInfo, dayColor, target
 
 function getCurrentMapScopeKey() {
   if (state.mode === 'collect' && !state.isReadOnly) {
-    return 'collect';
+    const scope = state.filters?.scope || 'all';
+    const drillC = state.hierarchyViewMode ? (state.drillCountry || 'all') : (document.getElementById('countryFilter')?.value || 'all');
+    const drillD = state.hierarchyViewMode ? (state.drillDistrict || 'all') : (document.getElementById('cityFilter')?.value || 'all');
+    return 'collect:' + scope + ':' + drillC + ':' + drillD;
   }
   const tripKey = state.activeTripId || 'default';
   if (state.mapOverviewAllDays) {
@@ -724,6 +728,11 @@ function getCurrentMapScopeKey() {
 export function renderMapMarkers(getFilteredCardsFn = null, options = {}) {
   if (!mapInstance || !markersLayerGroup || !routesLayerGroup) return;
 
+  if (typeof getFilteredCardsFn === 'function') {
+    lastCollectCardsGetter = getFilteredCardsFn;
+  }
+  const activeGetter = typeof getFilteredCardsFn === 'function' ? getFilteredCardsFn : lastCollectCardsGetter;
+
   const seq = ++renderGeneration;
   markersLayerGroup.clearLayers();
   routesLayerGroup.clearLayers();
@@ -734,7 +743,7 @@ export function renderMapMarkers(getFilteredCardsFn = null, options = {}) {
   let pinCount = 0;
 
   if (state.mode === 'collect' && !state.isReadOnly) {
-    const cards = typeof getFilteredCardsFn === 'function' ? getFilteredCardsFn() : state.cards;
+    const cards = typeof activeGetter === 'function' ? activeGetter() : state.cards;
     cards.forEach(card => {
       if (state.visibleMapLayers[card.category] === false) return;
       if (card.lat === null || card.lng === null || isNaN(Number(card.lat)) || isNaN(Number(card.lng))) return;
