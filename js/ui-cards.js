@@ -17,10 +17,108 @@ import {
 } from './geo.js';
 import { requestSmartExtractFromGas } from './api.js';
 
+const UNASSIGNED_DISTRICT_LABEL = '待補齊行政區';
+
+function escapeHtmlAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getCardCanonicalCountry(card) {
+  const rawCountry = String(card?.country || '').trim();
+  const rawDistrict = String(card?.district || '').trim();
+  const inferredDomestic =
+    isDomesticCountry(rawCountry) ||
+    (!rawCountry && /^(臺灣|台灣|臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/.test(rawDistrict));
+  return inferredDomestic ? '臺灣' : normalizeCountryName(rawCountry);
+}
+
+function getCardCanonicalDistrict(card) {
+  const country = getCardCanonicalCountry(card);
+  const normDist = normalizeDistrictName(card?.district || '', country);
+  return normDist || UNASSIGNED_DISTRICT_LABEL;
+}
+
 export function updateMiniCardButtonUi() {
   const label = document.getElementById('miniCardBtnLabel');
   if (label) {
     label.textContent = state.miniCardMode ? '完整卡片' : '迷你卡片';
+  }
+}
+
+export function updateHierarchyViewButtonUi() {
+  const btn = document.getElementById('btnHierarchyViewToggle');
+  const icon = document.getElementById('hierarchyViewBtnIcon');
+  const label = document.getElementById('hierarchyViewBtnLabel');
+  if (!btn || !label) return;
+
+  if (state.hierarchyViewMode) {
+    btn.className = 'px-2.5 py-1 rounded-lg border border-[#2C4D6E]/30 bg-[#2C4D6E]/10 hover:bg-[#2C4D6E]/15 text-[#2C4D6E] text-xs font-bold flex items-center gap-1 transition';
+    if (icon) icon.className = 'fa-solid fa-sitemap';
+    label.textContent = '分層檢視';
+  } else {
+    btn.className = 'px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1 transition';
+    if (icon) icon.className = 'fa-solid fa-table-cells-large text-[#2C4D6E]';
+    label.textContent = '全部展開';
+  }
+}
+
+export function toggleHierarchyViewMode() {
+  state.hierarchyViewMode = !state.hierarchyViewMode;
+  updateHierarchyViewButtonUi();
+  renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') {
+    hooks.renderMapMarkers();
+  }
+}
+
+export function drillToRoot() {
+  state.drillCountry = '';
+  state.drillDistrict = '';
+  const countrySel = document.getElementById('countryFilter');
+  const citySel = document.getElementById('cityFilter');
+  if (countrySel) countrySel.value = 'all';
+  if (citySel) citySel.value = 'all';
+  populateRegionDropdowns();
+  renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') {
+    hooks.renderMapMarkers();
+  }
+}
+
+export function drillToCountry(countryName) {
+  state.hierarchyViewMode = true;
+  state.drillCountry = countryName || '';
+  state.drillDistrict = '';
+  const countrySel = document.getElementById('countryFilter');
+  const citySel = document.getElementById('cityFilter');
+  if (countrySel) {
+    const hasOption = Array.from(countrySel.options).some(opt => opt.value === countryName);
+    countrySel.value = hasOption ? countryName : 'all';
+  }
+  populateRegionDropdowns();
+  if (citySel) citySel.value = 'all';
+  renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') {
+    hooks.renderMapMarkers();
+  }
+}
+
+export function drillToDistrict(districtName) {
+  state.hierarchyViewMode = true;
+  state.drillDistrict = districtName || '';
+  const citySel = document.getElementById('cityFilter');
+  if (citySel) {
+    const hasOption = Array.from(citySel.options).some(opt => opt.value === districtName);
+    citySel.value = hasOption ? districtName : 'all';
+  }
+  renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') {
+    hooks.renderMapMarkers();
   }
 }
 
@@ -54,6 +152,12 @@ export function setFilter(type, value) {
   state.filters[type] = value;
 
   if (type === 'scope') {
+    state.drillCountry = '';
+    state.drillDistrict = '';
+    const countrySel = document.getElementById('countryFilter');
+    const citySel = document.getElementById('cityFilter');
+    if (countrySel) countrySel.value = 'all';
+    if (citySel) citySel.value = 'all';
     document.querySelectorAll('.scope-btn').forEach(btn => {
       const active = btn.dataset.filterScope === value;
       btn.className = active
@@ -80,6 +184,7 @@ export function clearSearch() {
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
   renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
 }
 
 export function populateRegionDropdowns() {
@@ -91,7 +196,7 @@ export function populateRegionDropdowns() {
   const currentCity = citySel.value || 'all';
 
   const countries = Array.from(
-    new Set(state.cards.map(c => normalizeCountryName(c.country)).filter(Boolean))
+    new Set(state.cards.map(c => getCardCanonicalCountry(c)).filter(Boolean))
   );
   countrySel.innerHTML =
     `<option value="all">全部國家 / 地區</option>` +
@@ -100,7 +205,7 @@ export function populateRegionDropdowns() {
   const filteredByCountry =
     countrySel.value === 'all'
       ? state.cards
-      : state.cards.filter(c => normalizeCountryName(c.country) === countrySel.value);
+      : state.cards.filter(c => getCardCanonicalCountry(c) === countrySel.value);
 
   const cities = Array.from(
     new Set(
@@ -115,7 +220,19 @@ export function populateRegionDropdowns() {
 }
 
 export function onCountryFilterChange() {
+  const val = document.getElementById('countryFilter')?.value || 'all';
+  state.drillCountry = val === 'all' ? '' : val;
+  state.drillDistrict = '';
   populateRegionDropdowns();
+  const citySel = document.getElementById('cityFilter');
+  if (citySel) citySel.value = 'all';
+  renderDatabaseCards();
+  if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
+}
+
+export function onCityFilterChange() {
+  const val = document.getElementById('cityFilter')?.value || 'all';
+  state.drillDistrict = val === 'all' ? '' : val;
   renderDatabaseCards();
   if (typeof hooks.renderMapMarkers === 'function') hooks.renderMapMarkers();
 }
@@ -131,7 +248,10 @@ function getScheduledDaysMap() {
   return map;
 }
 
-export function getFilteredAndSortedCards() {
+/**
+ * 取得基礎篩選後的卡片清單（不含三層鑽取範圍，供第一、二層統計與第三層明細共用）
+ */
+function getBaseFilteredCards() {
   const q = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
   const sortBy = document.getElementById('sortSelect')?.value || 'newest';
   const countryVal = document.getElementById('countryFilter')?.value || 'all';
@@ -139,7 +259,7 @@ export function getFilteredAndSortedCards() {
   const scheduledMap = getScheduledDaysMap();
 
   let list = state.cards.filter(card => {
-    const normCountry = normalizeCountryName(card.country);
+    const normCountry = getCardCanonicalCountry(card);
     const normDistrict = normalizeDistrictName(card.district, card.country);
     const regionDisplay = formatCardRegionDisplay(card);
 
@@ -160,8 +280,10 @@ export function getFilteredAndSortedCards() {
 
     if (state.filters.scope === 'domestic' && !isDomesticCountry(normCountry)) return false;
     if (state.filters.scope === 'international' && isDomesticCountry(normCountry)) return false;
-    if (countryVal !== 'all' && normCountry !== countryVal) return false;
-    if (cityVal !== 'all' && normDistrict !== cityVal) return false;
+    if (!state.hierarchyViewMode) {
+      if (countryVal !== 'all' && normCountry !== countryVal) return false;
+      if (cityVal !== 'all' && normDistrict !== cityVal) return false;
+    }
     if (state.filters.category !== 'all' && card.category !== state.filters.category) return false;
 
     return true;
@@ -178,26 +300,276 @@ export function getFilteredAndSortedCards() {
   return list;
 }
 
-export function renderDatabaseCards() {
-  const container = document.getElementById('databaseCardsContainer');
-  if (!container) return;
+/**
+ * 匯出給地圖與第三層卡片使用的最終篩選清單（套用三層階層鑽取範圍）
+ */
+export function getFilteredAndSortedCards() {
+  const baseList = getBaseFilteredCards();
+  if (state.mode !== 'collect' || !state.hierarchyViewMode) {
+    return baseList;
+  }
 
-  const totalCount = state.cards.length;
-  const domesticCount = state.cards.filter(c => isDomesticCountry(c.country)).length;
-  const intlCount = totalCount - domesticCount;
+  const q = (document.getElementById('searchInput')?.value || '').trim();
+  if (q) {
+    return baseList;
+  }
 
-  const badgeTotal = document.getElementById('badgeTotalCount');
-  if (badgeTotal) badgeTotal.textContent = String(totalCount);
+  let scopedList = baseList;
+  if (state.drillCountry) {
+    scopedList = scopedList.filter(c => getCardCanonicalCountry(c) === state.drillCountry);
+    if (state.drillDistrict) {
+      scopedList = scopedList.filter(c => getCardCanonicalDistrict(c) === state.drillDistrict);
+    }
+  }
+  return scopedList;
+}
 
-  const scopeAllBtn = document.querySelector('[data-filter-scope="all"]');
-  const scopeDomBtn = document.querySelector('[data-filter-scope="domestic"]');
-  const scopeIntlBtn = document.querySelector('[data-filter-scope="international"]');
-  if (scopeAllBtn) scopeAllBtn.textContent = `全部 (${totalCount})`;
-  if (scopeDomBtn) scopeDomBtn.textContent = `TW 國內 (${domesticCount})`;
-  if (scopeIntlBtn) scopeIntlBtn.textContent = `✈️ 國外 (${intlCount})`;
+function buildCategoryBreakdownBadges(cardsSubset) {
+  const counts = {};
+  cardsSubset.forEach(c => {
+    const cat = c.category || '景點';
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
 
-  const cards = getFilteredAndSortedCards();
-  const scheduledMap = getScheduledDaysMap();
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([cat, count]) => {
+      const style = CATEGORY_STYLES[cat] || CATEGORY_STYLES['景點'];
+      return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100/90 text-slate-700 border border-slate-200/70">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:${style.hex}"></span>
+        <span>${escapeHtmlAttr(cat)} ${count}</span>
+      </span>`;
+    })
+    .join('');
+}
+
+function renderHierarchyBreadcrumb(baseCards) {
+  const bar = document.getElementById('dbHierarchyBreadcrumb');
+  if (!bar) return;
+
+  const q = (document.getElementById('searchInput')?.value || '').trim();
+  if (state.mode !== 'collect' || !state.hierarchyViewMode) {
+    bar.classList.add('hidden');
+    bar.innerHTML = '';
+    return;
+  }
+
+  bar.classList.remove('hidden');
+
+  if (q) {
+    bar.innerHTML = `
+      <div class="flex items-center gap-1.5 text-slate-600 min-w-0 truncate">
+        <i class="fa-solid fa-magnifying-glass text-[#2C4D6E] text-[11px]"></i>
+        <span>跨區關鍵字搜尋「<strong class="text-slate-800">${escapeHtmlAttr(q)}</strong>」共 <strong>${baseCards.length}</strong> 筆</span>
+      </div>
+      <button type="button" onclick="clearSearch()"
+        class="px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 shrink-0">
+        返回分層總覽
+      </button>
+    `;
+    return;
+  }
+
+  const countryCards = state.drillCountry
+    ? baseCards.filter(c => getCardCanonicalCountry(c) === state.drillCountry)
+    : [];
+  const districtCards = state.drillCountry && state.drillDistrict
+    ? countryCards.filter(c => getCardCanonicalDistrict(c) === state.drillDistrict)
+    : [];
+
+  const parts = [];
+  if (!state.drillCountry) {
+    parts.push(
+      `<span class="font-bold text-[#2C4D6E] inline-flex items-center gap-1.5"><i class="fa-solid fa-earth-asia"></i><span>全球國家 / 地區總覽 (${baseCards.length})</span></span>`
+    );
+  } else {
+    parts.push(
+      `<button type="button" onclick="drillToRoot()" class="text-slate-500 hover:text-[#2C4D6E] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-earth-asia"></i><span>全球總覽</span></button>`
+    );
+    parts.push(`<i class="fa-solid fa-chevron-right text-[9px] text-slate-300"></i>`);
+
+    if (!state.drillDistrict) {
+      parts.push(
+        `<span class="font-bold text-[#2C4D6E]">${escapeHtmlAttr(state.drillCountry)} (${countryCards.length})</span>`
+      );
+    } else {
+      parts.push(
+        `<button type="button" onclick="drillToCountry('${escapeHtmlAttr(state.drillCountry)}')" class="text-slate-500 hover:text-[#2C4D6E] font-semibold transition">${escapeHtmlAttr(state.drillCountry)}</button>`
+      );
+      parts.push(`<i class="fa-solid fa-chevron-right text-[9px] text-slate-300"></i>`);
+      parts.push(
+        `<span class="font-bold text-[#2C4D6E] truncate">${escapeHtmlAttr(state.drillDistrict)} (${districtCards.length})</span>`
+      );
+    }
+  }
+
+  let backActionHtml = '';
+  if (state.drillDistrict) {
+    backActionHtml = `<button type="button" onclick="drillToCountry('${escapeHtmlAttr(state.drillCountry)}')"
+      class="px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 inline-flex items-center gap-1 shrink-0">
+      <i class="fa-solid fa-arrow-left text-[10px] text-[#2C4D6E]"></i><span>返回行政區</span>
+    </button>`;
+  } else if (state.drillCountry) {
+    backActionHtml = `<button type="button" onclick="drillToRoot()"
+      class="px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 inline-flex items-center gap-1 shrink-0">
+      <i class="fa-solid fa-arrow-left text-[10px] text-[#2C4D6E]"></i><span>返回國家</span>
+    </button>`;
+  }
+
+  bar.innerHTML = `
+    <div class="flex items-center gap-1.5 flex-wrap min-w-0">${parts.join('')}</div>
+    ${backActionHtml}
+  `;
+}
+
+function renderCountryLevelCards(container, baseCards, scheduledMap) {
+  const countryGroups = new Map();
+  baseCards.forEach(card => {
+    const country = getCardCanonicalCountry(card);
+    if (!countryGroups.has(country)) {
+      countryGroups.set(country, []);
+    }
+    countryGroups.get(country).push(card);
+  });
+
+  const sortedCountries = Array.from(countryGroups.entries()).sort((a, b) => b[1].length - a[1].length);
+
+  if (sortedCountries.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-full py-12 flex flex-col items-center justify-center text-slate-400 text-xs">
+        <i class="fa-regular fa-folder-open text-3xl mb-2 text-slate-300"></i>
+        <p class="font-semibold text-slate-500">目前無符合條件的國家或收藏卡片</p>
+        <p class="mt-1">可點擊上方「＋ 新增卡片」隨時收藏景點或餐廳</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sortedCountries
+    .map(([country, items]) => {
+      const districtSet = new Set(items.map(c => getCardCanonicalDistrict(c)));
+      const scheduledCount = items.filter(c => (scheduledMap[c.id] || []).length > 0).length;
+      const pct = items.length > 0 ? Math.round((scheduledCount / items.length) * 100) : 0;
+      const catBadges = buildCategoryBreakdownBadges(items);
+
+      return `
+        <div onclick="drillToCountry('${escapeHtmlAttr(country)}')"
+          class="group bg-[#FAFBFD] hover:bg-white rounded-2xl border border-slate-200/90 hover:border-[#2C4D6E]/55 p-4 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between gap-3.5">
+          <div class="space-y-2.5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-9 h-9 rounded-xl bg-[#2C4D6E]/10 text-[#2C4D6E] flex items-center justify-center shrink-0">
+                  <i class="fa-solid fa-earth-asia text-base"></i>
+                </span>
+                <div class="min-w-0">
+                  <h3 class="font-bold text-base text-slate-800 group-hover:text-[#2C4D6E] transition truncate">${escapeHtmlAttr(country)}</h3>
+                  <p class="text-[11px] text-slate-500">涵蓋 <strong>${districtSet.size}</strong> 個行政區</p>
+                </div>
+              </div>
+              <span class="px-2.5 py-1 rounded-full bg-[#2C4D6E] text-white text-xs font-bold shrink-0">
+                ${items.length} 張
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1.5 flex-wrap pt-0.5">
+              ${catBadges}
+            </div>
+          </div>
+
+          <div class="pt-2.5 border-t border-slate-200/70 space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] text-slate-500">
+              <span>已排入行程：<strong>${scheduledCount}</strong> / ${items.length}</span>
+              <span class="inline-flex items-center gap-1 font-bold text-[#2C4D6E] group-hover:translate-x-0.5 transition-transform">
+                <span>查看行政區</span>
+                <i class="fa-solid fa-arrow-right text-[10px]"></i>
+              </span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+              <div class="h-full bg-[#5B7A94] rounded-full transition-all" style="width:${pct}%"></div>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderDistrictLevelCards(container, countryCards, scheduledMap) {
+  const districtGroups = new Map();
+  countryCards.forEach(card => {
+    const dist = getCardCanonicalDistrict(card);
+    if (!districtGroups.has(dist)) {
+      districtGroups.set(dist, []);
+    }
+    districtGroups.get(dist).push(card);
+  });
+
+  const sortedDistricts = Array.from(districtGroups.entries()).sort((a, b) => {
+    if (a[0] === UNASSIGNED_DISTRICT_LABEL) return 1;
+    if (b[0] === UNASSIGNED_DISTRICT_LABEL) return -1;
+    return b[1].length - a[1].length;
+  });
+
+  if (sortedDistricts.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-full py-12 flex flex-col items-center justify-center text-slate-400 text-xs">
+        <i class="fa-regular fa-map text-3xl mb-2 text-slate-300"></i>
+        <p class="font-semibold text-slate-500">此國家尚無符合條件的行政區卡片</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sortedDistricts
+    .map(([district, items]) => {
+      const scheduledCount = items.filter(c => (scheduledMap[c.id] || []).length > 0).length;
+      const pct = items.length > 0 ? Math.round((scheduledCount / items.length) * 100) : 0;
+      const catBadges = buildCategoryBreakdownBadges(items);
+      const isUnassigned = district === UNASSIGNED_DISTRICT_LABEL;
+
+      return `
+        <div onclick="drillToDistrict('${escapeHtmlAttr(district)}')"
+          class="group bg-white hover:bg-[#FAFBFD] rounded-xl border ${isUnassigned ? 'border-amber-200/90' : 'border-slate-200/90 hover:border-[#2C4D6E]/55'} p-3.5 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between gap-3">
+          <div class="space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-8 h-8 rounded-lg ${isUnassigned ? 'bg-amber-50 text-amber-600' : 'bg-[#6E8B74]/12 text-[#4E6B54]'} flex items-center justify-center shrink-0">
+                  <i class="fa-solid ${isUnassigned ? 'fa-circle-question' : 'fa-location-dot'} text-sm"></i>
+                </span>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-[#2C4D6E] transition leading-snug break-words">
+                  ${escapeHtmlAttr(district)}
+                </h3>
+              </div>
+              <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 group-hover:bg-[#2C4D6E] group-hover:text-white text-xs font-bold shrink-0 transition">
+                ${items.length} 張
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1.5 flex-wrap">
+              ${catBadges}
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-100 space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] text-slate-500">
+              <span>已排程：<strong>${scheduledCount}</strong> / ${items.length}</span>
+              <span class="inline-flex items-center gap-1 font-bold text-[#2C4D6E] group-hover:translate-x-0.5 transition-transform">
+                <span>展開景點</span>
+                <i class="fa-solid fa-chevron-right text-[9px]"></i>
+              </span>
+            </div>
+            <div class="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full bg-[#6E8B74] rounded-full transition-all" style="width:${pct}%"></div>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderSpotCardsList(container, cards, scheduledMap) {
   const totalDays = Math.max(1, Number(state.settings.totalDays) || 6);
 
   if (cards.length === 0) {
@@ -290,6 +662,63 @@ export function renderDatabaseCards() {
       `;
     })
     .join('');
+}
+
+export function renderDatabaseCards() {
+  const container = document.getElementById('databaseCardsContainer');
+  if (!container) return;
+
+  const totalCount = state.cards.length;
+  const domesticCount = state.cards.filter(c => isDomesticCountry(c.country)).length;
+  const intlCount = totalCount - domesticCount;
+
+  const badgeTotal = document.getElementById('badgeTotalCount');
+  if (badgeTotal) badgeTotal.textContent = String(totalCount);
+
+  const scopeAllBtn = document.querySelector('[data-filter-scope="all"]');
+  const scopeDomBtn = document.querySelector('[data-filter-scope="domestic"]');
+  const scopeIntlBtn = document.querySelector('[data-filter-scope="international"]');
+  if (scopeAllBtn) scopeAllBtn.textContent = `全部 (${totalCount})`;
+  if (scopeDomBtn) scopeDomBtn.textContent = `TW 國內 (${domesticCount})`;
+  if (scopeIntlBtn) scopeIntlBtn.textContent = `✈️ 國外 (${intlCount})`;
+
+  updateHierarchyViewButtonUi();
+
+  const baseCards = getBaseFilteredCards();
+  const scheduledMap = getScheduledDaysMap();
+  const q = (document.getElementById('searchInput')?.value || '').trim();
+
+  // 驗證當前鑽取的國家/行政區是否仍存在於資料中，避免刪除最後一張卡片後停在空層級
+  if (state.drillCountry && !baseCards.some(c => getCardCanonicalCountry(c) === state.drillCountry)) {
+    state.drillCountry = '';
+    state.drillDistrict = '';
+  } else if (
+    state.drillCountry &&
+    state.drillDistrict &&
+    !baseCards.some(c => getCardCanonicalCountry(c) === state.drillCountry && getCardCanonicalDistrict(c) === state.drillDistrict)
+  ) {
+    state.drillDistrict = '';
+  }
+
+  renderHierarchyBreadcrumb(baseCards);
+
+  if (state.mode === 'collect' && state.hierarchyViewMode && !q) {
+    if (!state.drillCountry) {
+      renderCountryLevelCards(container, baseCards, scheduledMap);
+      return;
+    }
+    const countryCards = baseCards.filter(c => getCardCanonicalCountry(c) === state.drillCountry);
+    if (!state.drillDistrict) {
+      renderDistrictLevelCards(container, countryCards, scheduledMap);
+      return;
+    }
+    const districtCards = countryCards.filter(c => getCardCanonicalDistrict(c) === state.drillDistrict);
+    renderSpotCardsList(container, districtCards, scheduledMap);
+    return;
+  }
+
+  const flatCards = getFilteredAndSortedCards();
+  renderSpotCardsList(container, flatCards, scheduledMap);
 }
 
 export function handleCardClick(cardId) {
@@ -1178,8 +1607,9 @@ export function openCardModal(cardId = null) {
     document.getElementById('editCardId').value = '';
     document.getElementById('fieldTitle').value = '';
     document.getElementById('fieldCategory').value = '景點';
-    document.getElementById('fieldCountry').value = '日本';
-    document.getElementById('fieldDistrict').value = '';
+    document.getElementById('fieldCountry').value = state.drillCountry || '日本';
+    document.getElementById('fieldDistrict').value =
+      state.drillDistrict && state.drillDistrict !== UNASSIGNED_DISTRICT_LABEL ? state.drillDistrict : '';
     document.getElementById('fieldDuration').value = 60;
     document.getElementById('fieldLat').value = '';
     document.getElementById('fieldLng').value = '';
