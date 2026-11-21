@@ -302,6 +302,7 @@ export function toggleCardDetailExpand() {}
 
 let editingCardCache = null;
 let lastGeocodedCoordsKey = '';
+let detectedMultiSpotsCache = [];
 
 function bindModalCoordAutoGeocode() {
   const latEl = document.getElementById('fieldLat');
@@ -348,7 +349,7 @@ async function autoFillRegionFromModalCoords(force = false) {
   }
 }
 
-// ==================== 智慧快建（Google Drive 原生 OCR ＋ 精準規則拆解 ＋ Maps 短網址） ====================
+// ==================== 智慧快建（Google Drive 原生 OCR ＋ 單/多景點拆解 ＋ Maps 短網址） ====================
 function setSmartClipStatus(text, tone = 'slate') {
   const el = document.getElementById('smartClipStatusText');
   if (!el) return;
@@ -366,6 +367,221 @@ function setSmartClipStatus(text, tone = 'slate') {
   el.className = `text-[11px] leading-relaxed ${tones[tone] || tones.slate}`;
   el.textContent = text;
   el.classList.remove('hidden');
+}
+
+function hideMultiSpotBatchBox() {
+  detectedMultiSpotsCache = [];
+  const box = document.getElementById('multiSpotBatchBox');
+  if (box) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+  }
+}
+
+function renderMultiSpotBatchBox() {
+  const box = document.getElementById('multiSpotBatchBox');
+  if (!box) return;
+  if (!detectedMultiSpotsCache.length) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  const selectedCount = detectedMultiSpotsCache.filter(s => s.checked).length;
+  const allChecked = selectedCount === detectedMultiSpotsCache.length;
+
+  const itemsHtml = detectedMultiSpotsCache
+    .map((spot, idx) => {
+      const style = CATEGORY_STYLES[spot.category] || CATEGORY_STYLES['景點'];
+      return `
+        <div class="flex items-start justify-between gap-2 p-2 rounded-lg bg-white border ${spot.checked ? 'border-[#2C4D6E]/40' : 'border-slate-200 opacity-65'}">
+          <label class="flex items-start gap-2 min-w-0 flex-1 cursor-pointer">
+            <input type="checkbox" ${spot.checked ? 'checked' : ''} onchange="toggleMultiSpotItem(${idx}, this.checked)"
+              class="mt-0.5 accent-[#2C4D6E] w-3.5 h-3.5 rounded shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-bold text-slate-800 text-xs break-words">${spot.title}</span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-bold ${style.badge} shrink-0">${spot.category}</span>
+              </div>
+              <div class="text-[11px] text-slate-500 truncate mt-0.5">
+                <i class="fa-solid fa-location-dot text-rose-400 mr-1"></i>${spot.address || '未附地址（將依店名定位）'}
+              </div>
+            </div>
+          </label>
+          <button type="button" onclick="applySingleSpotFromBatch(${idx})" title="將此店家填入下方表單單獨編輯"
+            class="px-2 py-1 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[10px] font-bold text-slate-600 shrink-0">
+            單筆帶入
+          </button>
+        </div>
+      `;
+    })
+    .join('');
+
+  box.innerHTML = `
+    <div class="flex items-center justify-between gap-2">
+      <span class="font-bold text-[#2C4D6E] text-[11px]">
+        <i class="fa-solid fa-list-check mr-1"></i>偵測到 ${detectedMultiSpotsCache.length} 個地點，請勾選要建立的卡片：
+      </span>
+      <button type="button" onclick="toggleAllMultiSpots(${!allChecked})"
+        class="text-[11px] font-bold text-[#2C4D6E] hover:underline">
+        ${allChecked ? '全部取消' : '全選'}
+      </button>
+    </div>
+    <div class="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">${itemsHtml}</div>
+    <div class="flex items-center justify-between gap-2 pt-1">
+      <span class="text-[10px] text-slate-500">將套用下方「排入行程」與「必去標記」設定</span>
+      <button type="button" id="btnBatchCreateSpots" onclick="batchCreateSelectedSpots()"
+        ${selectedCount === 0 ? 'disabled' : ''}
+        class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition">
+        <i class="fa-solid fa-layer-group"></i>
+        <span>批次建立已勾選卡片 (${selectedCount} 張)</span>
+      </button>
+    </div>
+  `;
+  box.classList.remove('hidden');
+}
+
+export function toggleMultiSpotItem(index, checked) {
+  if (!detectedMultiSpotsCache[index]) return;
+  detectedMultiSpotsCache[index].checked = Boolean(checked);
+  renderMultiSpotBatchBox();
+}
+
+export function toggleAllMultiSpots(checked) {
+  detectedMultiSpotsCache.forEach(item => {
+    item.checked = Boolean(checked);
+  });
+  renderMultiSpotBatchBox();
+}
+
+export async function applySingleSpotFromBatch(index) {
+  const spot = detectedMultiSpotsCache[index];
+  if (!spot) return;
+
+  setSmartClipStatus(`正在帶入「${spot.title}」並查詢座標...`, 'loading');
+  document.getElementById('fieldTitle').value = spot.title;
+
+  const catSel = document.getElementById('fieldCategory');
+  if (catSel) {
+    catSel.value = spot.category;
+    onModalCategoryChange();
+  }
+  if (document.getElementById('fieldMustBuy')) {
+    document.getElementById('fieldMustBuy').value = spot.must_buy || '';
+  }
+  if (document.getElementById('fieldBusinessHours')) {
+    document.getElementById('fieldBusinessHours').value = spot.business_hours || '';
+  }
+  document.getElementById('fieldNotes').value = spot.notes || '';
+  document.getElementById('fieldMapUrl').value = '';
+  document.getElementById('fieldLat').value = '';
+  document.getElementById('fieldLng').value = '';
+
+  const geoQuery = spot.address || spot.title;
+  if (geoQuery) {
+    const currentCountry = document.getElementById('fieldCountry')?.value || '';
+    const geoRes = await geocodePlaceName(geoQuery, currentCountry);
+    if (geoRes) {
+      const normCountry = normalizeCountryName(geoRes.country);
+      const normDistrict = normalizeDistrictName(geoRes.district, normCountry);
+      document.getElementById('fieldLat').value = geoRes.lat;
+      document.getElementById('fieldLng').value = geoRes.lng;
+      document.getElementById('fieldCountry').value = normCountry;
+      document.getElementById('fieldDistrict').value = normDistrict;
+    }
+  }
+
+  const regionHint = document.getElementById('fieldDistrict')?.value.trim() || spot.address || '';
+  const searchQuery = [spot.title, regionHint].filter(Boolean).join(' ');
+  document.getElementById('fieldMapUrl').value = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+
+  setSmartClipStatus(`已將「${spot.title}」帶入下方表單，確認後按「儲存並寫入試算表」即可！`, 'emerald');
+  showToast(`已帶入「${spot.title}」`, 'emerald');
+}
+
+export async function batchCreateSelectedSpots() {
+  const selected = detectedMultiSpotsCache.filter(s => s.checked);
+  if (selected.length === 0) {
+    showToast('請至少勾選一筆要建立的景點', 'amber');
+    return;
+  }
+
+  const btn = document.getElementById('btnBatchCreateSpots');
+  if (btn) btn.disabled = true;
+
+  const defaultCountry = normalizeCountryName(document.getElementById('fieldCountry')?.value || '日本');
+  const defaultDuration = Math.max(0, parseInt(document.getElementById('fieldDuration')?.value, 10) || 60);
+  const starred = Boolean(document.getElementById('fieldStarred')?.checked);
+  const assignDay = document.getElementById('fieldAssignDay')?.value || '';
+
+  const createdCards = [];
+  try {
+    for (let i = 0; i < selected.length; i++) {
+      const spot = selected[i];
+      setSmartClipStatus(`正在定位與建立 (${i + 1}/${selected.length})：${spot.title}...`, 'loading');
+
+      let lat = null;
+      let lng = null;
+      let normCountry = defaultCountry;
+      let normDistrict = '';
+
+      const geoQuery = spot.address || spot.title;
+      if (geoQuery) {
+        const geoRes = await geocodePlaceName(geoQuery, defaultCountry);
+        if (geoRes) {
+          lat = geoRes.lat;
+          lng = geoRes.lng;
+          normCountry = normalizeCountryName(geoRes.country || defaultCountry);
+          normDistrict = normalizeDistrictName(geoRes.district, normCountry);
+        }
+      }
+
+      const searchQuery = [spot.title, normDistrict || spot.address].filter(Boolean).join(' ');
+      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+
+      const payload = {
+        id: `spot_${Date.now()}_${i}`,
+        title: spot.title,
+        category: spot.category || '景點',
+        country: normCountry,
+        district: normDistrict,
+        duration: defaultDuration,
+        lat,
+        lng,
+        notes: spot.notes || '',
+        mapUrl,
+        image: '',
+        starred,
+        must_buy: spot.must_buy || '',
+        business_hours: spot.business_hours || '',
+        parking_info: '',
+        meta: {}
+      };
+      createdCards.push(payload);
+
+      if (i < selected.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 320));
+      }
+    }
+
+    // 依序加入資料庫並維持原本第 1 ~ N 選的順序
+    for (let i = createdCards.length - 1; i >= 0; i--) {
+      state.cards.unshift(createdCards[i]);
+    }
+    if (assignDay && typeof hooks.addCardToDay === 'function') {
+      createdCards.forEach(c => hooks.addCardToDay(c.id, Number(assignDay)));
+    }
+
+    populateRegionDropdowns();
+    persistState(true);
+    closeCardModal();
+    if (typeof hooks.renderAll === 'function') hooks.renderAll();
+    showToast(`已成功批次建立 ${createdCards.length} 張口袋卡片並同步！`, 'emerald');
+  } catch (err) {
+    console.error('批次建立卡片發生錯誤:', err);
+    setSmartClipStatus(`批次建立異常：${err.message}`, 'rose');
+    if (btn) btn.disabled = false;
+  }
 }
 
 function compressImageFileToBase64(file, maxWidth = 1200, quality = 0.8) {
@@ -402,7 +618,7 @@ function inferCategoryFromText(text) {
   const t = String(text || '');
   if (/機場|空港|Airport|航廈|航班/i.test(t)) return '機場';
   if (/飯店|酒店|民宿|旅館|青旅|度假村|Hotel|Resort|Hostel|Inn/i.test(t)) return '住宿';
-  if (/拉麵|燒肉|居酒屋|咖啡|甜點|蛋糕|餐廳|小吃|美食|食堂|壽司|烏龍麵|定食|早午餐|牛排|火鍋|冰|茶|酒|卷餅|肉桂捲|麵包|烘焙|Cafe|Ramen|Sushi|BBQ|Buns|Bakery/i.test(t)) return '美食';
+  if (/拉麵|燒肉|居酒屋|咖啡|甜點|蛋糕|餐廳|小吃|美食|食堂|壽司|烏龍麵|定食|早午餐|牛排|火鍋|冰|茶|酒|卷餅|肉桂捲|麵包|烘焙|霜淇淋|冰淇淋|菓子|蕨餅|牛乳餅|Cafe|Ramen|Sushi|BBQ|Buns|Bakery|Ice\s*Cream|Soft\s*Serve/i.test(t)) return '美食';
   if (/藥妝|購物|百貨|商場|伴手禮|超市|免稅|Outlet|Mall|Store|Shop|唐吉訶德|大國/i.test(t)) return '購物';
   if (/車站|單軌|地鐵|公車|巴士|渡輪|碼頭|租車|Station|Bus|Ferry/i.test(t)) return '交通';
   if (/潛水|浮潛|體驗|和服|手作|溫泉|SPA|樂園|門票|水族館|美術館|博物館/i.test(t)) return '體驗';
@@ -417,11 +633,14 @@ function filterSocialUiNoiseLines(rawText) {
 
   const noiseExact = /^(追蹤|追蹤中|發送訊息|讚|留言|留言\.{2,}|留言…+|回覆|分享|收藏|儲存|查看翻譯|顯示翻譯|原始音訊|更多|展開|收合|reels|instagram|facebook|following|follow|like|comment|share|save|sponsored|贊助|廣告|\d+\s*[萬千]?\s*(次觀看|個讚|則留言|次分享))$/i;
   const statusBarNoise = /(KB\/S|MB\/S|VoLTE|5G|4G|LTE|\bWi-?Fi\b)/i;
+  const socialHeaderNoise = /(?:・|\|)\s*(?:追蹤|追蹤中|Follow|Following|原始音訊|Original\s*Audio)\s*$/i;
 
   return lines.filter(line => {
     if (noiseExact.test(line)) return false;
     if (statusBarNoise.test(line) && line.length <= 28) return false;
-    // 排除手機頂部狀態列時間或電量（如 07:11、98%）
+    if (socialHeaderNoise.test(line) && line.length <= 45) return false;
+    if (/^🎵|^♫/.test(line) && /原始音訊/.test(line)) return false;
+    // 排除手機頂部狀態列時間或電量（如 07:11、21:52、98%、100）
     if (/^\d{1,2}:\d{2}$/.test(line)) return false;
     if (/^\d{1,3}%$/.test(line)) return false;
     if (/^[0-9\s.,kKmM萬千]+$/.test(line)) return false;
@@ -485,7 +704,6 @@ function extractMustBuyFromLines(cleanLines) {
     while (cursor < cleanLines.length && cursor <= priceIdx + 2) {
       const next = cleanLines[cursor];
       if (!next || next.startsWith('*') || next.startsWith('@') || next.startsWith('#') || next.startsWith('http')) break;
-      // 若下一行仍含價格，或上一行在斜線/品名中間斷行
       if (priceRegex.test(next) || /[\/／、]$/.test(menuText)) {
         menuText += next;
         cursor++;
@@ -505,10 +723,95 @@ function extractMustBuyFromLines(cleanLines) {
   return '';
 }
 
+function cleanSpotHeadingLine(line) {
+  return String(line || '')
+    .replace(/^(?:[1-9１-９][0-9０-９]?[️⃣.、)）\s]+|[\u{1F300}-\u{1FAFF}\u2600-\u27BF•・\-]+\s*)+/u, '')
+    .trim();
+}
+
+function detectMultipleSpotsFromLines(cleanLines) {
+  const addrRegex = /^(?:📍\s*)?(?:地址|Address)[：:\s]+(.+)$/i;
+  const addrIndices = [];
+  cleanLines.forEach((line, idx) => {
+    if (addrRegex.test(line)) addrIndices.push(idx);
+  });
+
+  // 至少有 2 組「📍 地址：...」才視為多景點合集
+  if (addrIndices.length < 2) return [];
+
+  const spots = [];
+  for (let i = 0; i < addrIndices.length; i++) {
+    const addrIdx = addrIndices[i];
+    const prevAddrIdx = i === 0 ? -1 : addrIndices[i - 1];
+    const address = cleanLines[addrIdx].replace(addrRegex, '$1').trim();
+
+    // 收集此地址往上回溯到上一個地址之間的段落
+    let segment = cleanLines.slice(prevAddrIdx + 1, addrIdx);
+
+    // 若是第一筆，過濾掉整篇懶人包的大標題（【...】）與「以下推薦：」之類的前言段落
+    if (i === 0) {
+      const bracketPos = segment.findIndex(l => /^【.+】$/.test(l));
+      if (bracketPos !== -1) {
+        segment = segment.slice(bracketPos + 1);
+      }
+      const colonIntroPos = segment.findIndex(l => /[：:]$/.test(l) && l.length >= 12);
+      if (colonIntroPos !== -1 && colonIntroPos < segment.length - 1) {
+        segment = segment.slice(colonIntroPos + 1);
+      }
+    }
+
+    if (segment.length === 0) continue;
+
+    // 尋找店名標題行（第一行非長句敘述文字）
+    let titleIdx = 0;
+    let rawTitleLine = segment[0];
+
+    // 若第一行被截圖斷成兩行英文/日文店名（例如 "Ryukyu Soft Serve Ice Cream（琉球ソフ" + "トクリーム）"），自動合併
+    if (
+      segment.length >= 2 &&
+      /[（(][^）)]*$/.test(rawTitleLine) &&
+      /[）)]/.test(segment[1])
+    ) {
+      rawTitleLine = `${rawTitleLine}${segment[1]}`;
+      titleIdx = 1;
+    }
+
+    const title = cleanSpotHeadingLine(rawTitleLine);
+    if (!title || title.length < 2) continue;
+
+    const descLines = segment.slice(titleIdx + 1).filter(l => !/^👉/.test(l));
+    const hours = extractHoursFromLines(descLines);
+    const mustBuy = extractMustBuyFromLines(descLines);
+    const notesText = [...descLines, `📍 地址：${address}`].join('\n').trim();
+    const category = inferCategoryFromText(`${title} ${notesText}`);
+
+    spots.push({
+      title,
+      category,
+      address,
+      notes: notesText,
+      business_hours: hours,
+      must_buy: mustBuy,
+      checked: true
+    });
+  }
+
+  return spots.length >= 2 ? spots : [];
+}
+
 async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
+  hideMultiSpotBatchBox();
   const allLines = filterSocialUiNoiseLines(rawText);
 
-  // 若為 IG/FB 截圖，影片畫面小字常出現在最頂端（在「店內資訊 / 【店名】」之前），先定位主文起點避免雜訊干擾
+  // 先檢查是否為「懶人包／精選多間店」合集貼文
+  const multiSpots = detectMultipleSpotsFromLines(allLines);
+  if (multiSpots.length >= 2) {
+    detectedMultiSpotsCache = multiSpots;
+    renderMultiSpotBatchBox();
+    return { isMultiSpot: true, count: multiSpots.length };
+  }
+
+  // 若為單一店家截圖，過濾影片畫面頂端無關的覆蓋小字（在「【店名】」之前）
   const bracketIdx = allLines.findIndex(l => /[【「《『][^】」》』\n]{2,28}[】」》』]/.test(l));
   const cleanLines =
     bracketIdx > 1 && allLines[0].length <= 16 && !/[，。！？,.!?]/.test(allLines[0])
@@ -643,6 +946,8 @@ async function applyParsedFieldsToCardModal(rawText, mapInfo = null) {
     const searchQuery = [detectedTitle, regionHint].filter(Boolean).join(' ');
     mapUrlInput.value = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
   }
+
+  return { isMultiSpot: false, count: 1 };
 }
 
 export function toggleSmartClipBox() {
@@ -664,6 +969,7 @@ export function clearSmartClipBox() {
   const fileInput = document.getElementById('smartScreenshotInput');
   if (input) input.value = '';
   if (fileInput) fileInput.value = '';
+  hideMultiSpotBatchBox();
   setSmartClipStatus('', 'slate');
 }
 
@@ -690,9 +996,14 @@ export async function runSmartTextParse() {
       setSmartClipStatus('正在拆解貼文欄位與定位地區...', 'loading');
     }
 
-    await applyParsedFieldsToCardModal(rawText, mapInfo);
-    setSmartClipStatus('已自動拆解並帶入下方卡片欄位，請確認後儲存！', 'emerald');
-    showToast('智慧拆解完成，已自動填入卡片欄位', 'emerald');
+    const parseRes = await applyParsedFieldsToCardModal(rawText, mapInfo);
+    if (parseRes?.isMultiSpot) {
+      setSmartClipStatus(`偵測到 ${parseRes.count} 個地點合集！請勾選要建立的卡片後點擊批次建立。`, 'emerald');
+      showToast(`已拆解出 ${parseRes.count} 個地點，請勾選建立`, 'emerald');
+    } else {
+      setSmartClipStatus('已自動拆解並帶入下方卡片欄位，請確認後儲存！', 'emerald');
+      showToast('智慧拆解完成，已自動填入卡片欄位', 'emerald');
+    }
   } catch (err) {
     console.error('智慧文字解析錯誤:', err);
     setSmartClipStatus(`解析發生異常：${err.message}`, 'rose');
@@ -730,9 +1041,14 @@ async function processScreenshotFileForOcr(file) {
       return;
     }
 
-    await applyParsedFieldsToCardModal(combinedText, res.mapInfo || null);
-    setSmartClipStatus('Drive OCR 辨識完成！已自動填入店名、菜單、營業時間與地區', 'emerald');
-    showToast('截圖文字辨識完成並已帶入表單', 'emerald');
+    const parseRes = await applyParsedFieldsToCardModal(combinedText, res.mapInfo || null);
+    if (parseRes?.isMultiSpot) {
+      setSmartClipStatus(`OCR 辨識完成！偵測到 ${parseRes.count} 個地點，請勾選後點擊批次建立。`, 'emerald');
+      showToast(`已從截圖拆解出 ${parseRes.count} 個地點`, 'emerald');
+    } else {
+      setSmartClipStatus('Drive OCR 辨識完成！已自動填入店名、菜單、營業時間與地區', 'emerald');
+      showToast('截圖文字辨識完成並已帶入表單', 'emerald');
+    }
   } catch (err) {
     console.error('截圖 OCR 錯誤:', err);
     setSmartClipStatus(`截圖辨識失敗：${err.message}`, 'rose');
