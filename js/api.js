@@ -70,7 +70,7 @@ function mapRawSpotsToCards(rawSpots) {
   return (rawSpots || []).map((row, idx) => {
     const areaStr = String(row.district || row.area || '').trim();
     const inferredCountry = String(row.country || '').trim() ||
-      (areaStr.startsWith('台灣') ? '台灣' : '日本');
+      (areaStr.startsWith('台灣') || areaStr.startsWith('臺灣') ? '臺灣' : '日本');
     return {
       id: String(row.id || `spot_${Date.now()}_${idx}`).trim(),
       title: String(row.title || row.name || '未命名地點').trim(),
@@ -141,6 +141,37 @@ function parseLegacyItinerary(rawItinerary, totalDays) {
   }
 
   return null;
+}
+
+// ==================== 智慧快建端點呼叫：GAS Drive 原生 OCR ＋ Maps 短網址展開 ====================
+export async function requestSmartExtractFromGas({ text = '', imageBase64 = '', mimeType = 'image/jpeg' } = {}) {
+  const url = (state.settings.gasUrl || '').trim();
+  const adminKey = (state.settings.adminKey || '').trim();
+
+  if (!url || !adminKey) {
+    return {
+      status: 'error',
+      message: '請先於右上角「⚙ 設定」填入 Google Apps Script 網址與管理員密碼'
+    };
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'smartExtract',
+      adminKey,
+      text,
+      imageBase64,
+      mimeType
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`伺服器回應異常 (${res.status})`);
+  }
+
+  return await res.json();
 }
 
 // ==================== 訪客唯讀分享模式：即時讀取單一授權行程並回報匿名裝置 ====================
