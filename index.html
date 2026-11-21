@@ -10,7 +10,7 @@
   <meta property="og:description" content="點擊開啟專屬行程看板與路線地圖，隨時查看每日景點安排、停留時間與交通動線。" />
 
   <!-- PWA 全螢幕 App 設定（加到主畫面後隱藏網址列） -->
-  <link rel="manifest" href="./manifest.json?v=20261121b" />
+  <link rel="manifest" href="./manifest.json?v=20261121c" />
   <meta name="theme-color" content="#2C4D6E" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -27,7 +27,7 @@
   <!-- Turf.js 空間幾何切片引擎（軌道與公車路線精準貼合） -->
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <!-- 自訂樣式表 -->
-  <link rel="stylesheet" href="./css/style.css?v=20261121b" />
+  <link rel="stylesheet" href="./css/style.css?v=20261121c" />
 </head>
 <body class="h-dvh flex flex-col select-none overflow-hidden">
 
@@ -484,7 +484,7 @@
     </div>
   </div>
 
-  <!-- ==================== 彈窗 2：精簡聚焦的編輯卡片視窗（含社群智慧快建） ==================== -->
+  <!-- ==================== 彈窗 2：精簡聚焦的編輯卡片視窗（含社群智慧快建與多景點批次拆解） ==================== -->
   <div id="cardModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-2xs z-50 flex items-center justify-center p-3 sm:p-4">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
       <div class="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -497,7 +497,7 @@
       <div class="p-4 sm:p-5 overflow-y-auto space-y-3.5 text-xs">
         <input type="hidden" id="editCardId" />
 
-        <!-- 社群快建：Reels 截圖 Drive OCR ＋ FB 貼文文字拆解 ＋ Maps 短網址展開 -->
+        <!-- 社群快建：Reels 截圖 Drive OCR ＋ FB 貼文文字拆解 ＋ 多景點懶人包批次建卡 ＋ Maps 短網址展開 -->
         <div class="rounded-xl border border-[#2C4D6E]/25 bg-[#2C4D6E]/[0.04] overflow-hidden">
           <button type="button" onclick="toggleSmartClipBox()"
             class="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-[#2C4D6E]/[0.06] transition">
@@ -535,6 +535,9 @@
             </div>
 
             <p id="smartClipStatusText" class="hidden text-[11px] leading-relaxed"></p>
+
+            <!-- 多景點合集偵測結果勾選區（偵測到 2 間以上店家時自動展開） -->
+            <div id="multiSpotBatchBox" class="hidden pt-2 border-t border-[#2C4D6E]/15 space-y-2"></div>
           </div>
         </div>
 
@@ -833,6 +836,6 @@
   </script>
 
   <!-- ES6 模組化總入口 -->
-  <script type="module" src="./js/app.js?v=20261121b"></script>
+  <script type="module" src="./js/app.js?v=20261121c"></script>
 </body>
 </html>
